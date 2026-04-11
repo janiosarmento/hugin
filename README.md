@@ -143,6 +143,18 @@ Summaries are strictly capped at 160 characters. If the LLM overshoots, Hugin au
 | [httpx](https://www.python-httpx.org/) | Async HTTP client |
 | [python-frontmatter](https://python-frontmatter.readthedocs.io/) | YAML frontmatter parsing |
 
+## Known limitations
+
+Hugin is intentionally simple. The following are known limitations that we chose not to address in order to keep the codebase small and maintainable:
+
+- **No recursive scanning** — Only reads `.md` files in the given directory. Subdirectories are ignored.
+- **No page bundles** — Posts organized as `my-post/index.md` are not detected.
+- **YAML frontmatter only** — Posts with TOML frontmatter (`+++`) are skipped with a warning.
+- **No headless mode** — Everything goes through the TUI. There is no `--auto` flag for CI/cron pipelines.
+- **No per-project config** — Tag rules (max words, separators, article lists) are hardcoded. A future `hugin.yaml` could make them configurable.
+
+These may be addressed in future versions if there is demand.
+
 ## License
 
 MIT
