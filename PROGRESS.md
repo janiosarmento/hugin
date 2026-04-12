@@ -78,3 +78,4 @@
 - Input de tags manuais e botões Apply/Skip colados logo após checkboxes (sem espaço morto)
 - tags-panel e suggested-tags-container com height:auto (conteúdo flui sem gaps)
 - Corrigido: post.metadata["tags"] atualizado junto com post.tags após Apply (Rich Table refletia dados antigos)
+- Adicionado: keybinding 'v' para abrir o post no vim (suspende TUI, recarrega frontmatter ao voltar, oculto do footer)

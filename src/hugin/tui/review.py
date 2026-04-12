@@ -42,6 +42,7 @@ class ReviewScreen(Screen):
         ("s", "summary", "Summary"),
         ("m", "manage_tags", "Manage"),
         ("e", "pick_engine", "Engine"),
+        ("v", "open_vim", ""),
         ("escape", "back", "Back"),
     ]
 
@@ -218,6 +219,22 @@ class ReviewScreen(Screen):
                 self.notify(f"Engine: {engine.id} ({engine.model})")
 
         self.app.push_screen(EnginePickerScreen(engines, self.engine.id), on_pick)
+
+    def action_open_vim(self) -> None:
+        if self._state != STATE_BROWSING:
+            return
+        import subprocess
+        post = self.posts[self.current_index]
+        with self.app.suspend():
+            subprocess.call(["vim", str(post.path)])
+        # Reload frontmatter after edit
+        import frontmatter
+        updated = frontmatter.load(str(post.path))
+        post.metadata = updated.metadata
+        post.content = updated.content
+        post.tags = list(updated.metadata.get("tags", []) or [])
+        post.has_tags = bool(post.tags)
+        self._update_right_panel()
 
     def action_manage_tags(self) -> None:
         if self._state != STATE_BROWSING:
