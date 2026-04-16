@@ -187,7 +187,7 @@ class RenameScreen(ModalScreen[str | None]):
         self._submit()
 
     def _submit(self) -> None:
-        new_name = normalize_tag(self.query_one("#rename-input", Input).value)
+        new_name = normalize_tag(self.query_one("#rename-input", Input).value, strip_articles=False)
         if new_name and new_name != self.tag:
             self.dismiss(new_name)
         elif new_name == self.tag:

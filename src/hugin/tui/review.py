@@ -520,7 +520,7 @@ class ReviewScreen(Screen):
         # Manual tags from input
         manual_raw = self.query_one("#manual-tags-input", Input).value
         manual = [
-            normalize_tag(t)
+            normalize_tag(t, strip_articles=False)
             for t in manual_raw.split(",")
             if t.strip()
         ]

@@ -54,14 +54,16 @@ ARTICLES = {
 }
 
 
-def normalize_tag(tag: str) -> str:
+def normalize_tag(tag: str, strip_articles: bool = True) -> str:
     tag = tag.strip().lower()
     tag = re.sub(r"\s+", "-", tag)
 
-    # Remover artigos que ficaram como palavras isoladas
-    parts = tag.split("-")
-    parts = [p for p in parts if p not in ARTICLES]
-    tag = "-".join(parts)
+    if strip_articles:
+        # Remover artigos apenas no início da tag
+        parts = tag.split("-")
+        while parts and parts[0] in ARTICLES:
+            parts.pop(0)
+        tag = "-".join(parts)
 
     # Truncar a 3 palavras
     parts = tag.split("-")
