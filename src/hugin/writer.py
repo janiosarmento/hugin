@@ -24,9 +24,8 @@ def _reorder_metadata(meta: dict) -> dict:
 
 
 def _save_post(path: Path, post) -> None:
-    """Write post back to file, ensuring lastmod exists."""
-    if "lastmod" not in post.metadata:
-        post.metadata["lastmod"] = datetime.now().isoformat(timespec="seconds")
+    """Write post back to file, updating lastmod."""
+    post.metadata["lastmod"] = datetime.now().isoformat(timespec="seconds")
 
     post.metadata = _reorder_metadata(dict(post.metadata))
 
