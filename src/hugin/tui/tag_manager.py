@@ -25,6 +25,10 @@ class MergeSourcesScreen(ModalScreen[list[str] | None]):
     """Modal to select which tags to merge into the target."""
 
     BINDINGS = [
+        ("up", "focus_prev", ""),
+        ("down", "focus_next", ""),
+        ("pageup", "page_up", ""),
+        ("pagedown", "page_down", ""),
         ("escape", "cancel", "Cancel"),
     ]
 
@@ -95,6 +99,33 @@ class MergeSourcesScreen(ModalScreen[list[str] | None]):
                 self.notify("No tags selected.", severity="warning")
         else:
             self.dismiss(None)
+
+    def action_focus_prev(self) -> None:
+        self.focus_previous()
+
+    def action_focus_next(self) -> None:
+        self.focus_next()
+
+    def _focused_cb_index(self) -> int | None:
+        focused = self.focused
+        for i, (_, cb) in enumerate(self._checkboxes):
+            if cb is focused:
+                return i
+        return None
+
+    def action_page_up(self) -> None:
+        idx = self._focused_cb_index()
+        if idx is None:
+            return
+        target = max(0, idx - 10)
+        self._checkboxes[target][1].focus()
+
+    def action_page_down(self) -> None:
+        idx = self._focused_cb_index()
+        if idx is None:
+            return
+        target = min(len(self._checkboxes) - 1, idx + 10)
+        self._checkboxes[target][1].focus()
 
     def action_cancel(self) -> None:
         self.dismiss(None)
