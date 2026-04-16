@@ -46,10 +46,13 @@ hugin --engine cerebras         # Use a specific engine
 
 | Key | Action |
 |---|---|
-| `m` | Merge other tags into the selected tag |
+| `a` | AutoMerge — find similar tags by fuzzy match and merge them into the selected tag |
+| `m` | Merge — manually pick which tags to merge into the selected tag |
 | `r` | Rename the selected tag |
 | `d` | Delete the selected tag (with confirmation) |
 | `q` / `Escape` | Back to main screen |
+
+AutoMerge uses accent-insensitive fuzzy matching to find candidates like `saúde-felina` → `saúde`, or `comunicação-felina` → `comunicação`. Tags are shown with their similarity score and post count so you can decide which ones to merge.
 
 ---
 

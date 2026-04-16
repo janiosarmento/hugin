@@ -16,7 +16,7 @@ from textual.widgets import (
     Static,
 )
 
-from hugin.normalizer import normalize_tag, sort_key
+from hugin.normalizer import find_similar_tags, normalize_tag, sort_key
 from hugin.scanner import Post
 from hugin.writer import write_tags
 
@@ -253,11 +253,121 @@ class ConfirmDeleteScreen(ModalScreen[bool]):
         self.dismiss(False)
 
 
+class AutoMergeScreen(ModalScreen[list[str] | None]):
+    """Modal showing similar tags for auto-merge."""
+
+    BINDINGS = [
+        ("up", "focus_prev", ""),
+        ("down", "focus_next", ""),
+        ("pageup", "page_up", ""),
+        ("pagedown", "page_down", ""),
+        ("escape", "cancel", "Cancel"),
+    ]
+
+    DEFAULT_CSS = """
+    AutoMergeScreen {
+        align: center middle;
+    }
+
+    #automerge-modal {
+        width: 65;
+        height: auto;
+        max-height: 80%;
+        border: solid $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #automerge-modal Label {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #automerge-checkboxes {
+        height: auto;
+        max-height: 20;
+        overflow-y: auto;
+    }
+
+    #automerge-hint {
+        margin-top: 1;
+        color: $text-muted;
+    }
+
+    #automerge-buttons {
+        height: auto;
+        margin-top: 1;
+    }
+    """
+
+    def __init__(
+        self, target_tag: str, similar: list[tuple[str, int, float]],
+    ) -> None:
+        super().__init__()
+        self.target_tag = target_tag
+        self.similar = similar
+        self._checkboxes: list[tuple[str, Checkbox]] = []
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="automerge-modal"):
+            yield Label(f"Tags similar to '{self.target_tag}' — merge into it:")
+            with Vertical(id="automerge-checkboxes"):
+                for tag, count, score in self.similar:
+                    cb = Checkbox(f"{tag} ({count} posts, {score:.0%} similar)")
+                    self._checkboxes.append((tag, cb))
+                    yield cb
+            yield Static("Space to toggle, Enter to confirm", id="automerge-hint")
+            with Horizontal(id="automerge-buttons"):
+                yield Button("Merge selected", id="btn-merge", variant="primary")
+                yield Button("Cancel", id="btn-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-merge":
+            selected = [tag for tag, cb in self._checkboxes if cb.value]
+            if selected:
+                self.dismiss(selected)
+            else:
+                self.notify("No tags selected.", severity="warning")
+        else:
+            self.dismiss(None)
+
+    def action_focus_prev(self) -> None:
+        self.focus_previous()
+
+    def action_focus_next(self) -> None:
+        self.focus_next()
+
+    def _focused_cb_index(self) -> int | None:
+        focused = self.focused
+        for i, (_, cb) in enumerate(self._checkboxes):
+            if cb is focused:
+                return i
+        return None
+
+    def action_page_up(self) -> None:
+        idx = self._focused_cb_index()
+        if idx is None:
+            return
+        target = max(0, idx - 10)
+        self._checkboxes[target][1].focus()
+
+    def action_page_down(self) -> None:
+        idx = self._focused_cb_index()
+        if idx is None:
+            return
+        target = min(len(self._checkboxes) - 1, idx + 10)
+        self._checkboxes[target][1].focus()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class TagManagerScreen(Screen):
     """Screen to audit, delete, merge, and rename tags across all posts."""
 
     BINDINGS = [
         ("q", "go_back", "Quit"),
+        ("a", "automerge", "AutoMerge"),
         ("m", "merge", "Merge"),
         ("r", "rename", "Rename"),
         ("d", "delete", "Delete"),
@@ -335,6 +445,20 @@ class TagManagerScreen(Screen):
         stats.update(f"{len(tags)} unique tags across {len(self.all_posts)} posts")
 
     # --- Actions ---
+
+    def action_automerge(self) -> None:
+        selected = self._selected_tag()
+        if not selected:
+            return
+        target_tag, _ = selected
+        similar = find_similar_tags(target_tag, self.pool)
+        if not similar:
+            self.notify(f"No similar tags found for '{target_tag}'.")
+            return
+        self.app.push_screen(
+            AutoMergeScreen(target_tag, similar),
+            lambda sources: self._do_merge_multi(sources, target_tag),
+        )
 
     def action_merge(self) -> None:
         selected = self._selected_tag()

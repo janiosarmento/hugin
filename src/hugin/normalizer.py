@@ -2,13 +2,47 @@
 
 import re
 import unicodedata
+from difflib import SequenceMatcher
+
+
+def strip_accents(text: str) -> str:
+    """Remove accents/diacritics from text."""
+    normalized = unicodedata.normalize("NFD", text.lower())
+    return "".join(c for c in normalized if unicodedata.category(c) != "Mn")
 
 
 def sort_key(text: str) -> tuple[str, str]:
     """Sort key that treats accented characters as their base form."""
-    normalized = unicodedata.normalize("NFD", text.lower())
-    stripped = "".join(c for c in normalized if unicodedata.category(c) != "Mn")
-    return (stripped, text.lower())
+    return (strip_accents(text), text.lower())
+
+
+def tag_similarity(a: str, b: str) -> float:
+    """Compute similarity between two tags, ignoring accents."""
+    a_stripped = strip_accents(a)
+    b_stripped = strip_accents(b)
+    return SequenceMatcher(None, a_stripped, b_stripped).ratio()
+
+
+def find_similar_tags(
+    target: str,
+    pool: dict[str, int],
+    limit: int = 10,
+    threshold: float = 0.4,
+) -> list[tuple[str, int, float]]:
+    """Find tags similar to target, sorted by similarity descending.
+
+    Returns list of (tag, count, similarity_score).
+    """
+    results = []
+    for tag, count in pool.items():
+        if tag == target:
+            continue
+        score = tag_similarity(target, tag)
+        if score >= threshold:
+            results.append((tag, count, score))
+
+    results.sort(key=lambda x: x[2], reverse=True)
+    return results[:limit]
 
 ARTICLES = {
     "a", "an", "the",             # EN
