@@ -1,0 +1,294 @@
+"""Markdown-safe anchor detection, substitution, and link application."""
+
+import os
+import re
+import tempfile
+from datetime import datetime
+from pathlib import Path
+
+import frontmatter
+from markdown_it import MarkdownIt
+
+
+def find_protected_zones(source: str) -> list[tuple[int, int]]:
+    """Find byte ranges in source that must not be modified.
+
+    Protected zones: fenced code blocks, inline code, headings,
+    existing links, images, autolinks, HTML anchor tags.
+    """
+    zones = []
+
+    # Fenced code blocks: ```...```
+    for m in re.finditer(r"^```[^\n]*\n.*?^```", source, re.MULTILINE | re.DOTALL):
+        zones.append((m.start(), m.end()))
+
+    # Inline code: `...`
+    for m in re.finditer(r"`[^`]+`", source):
+        zones.append((m.start(), m.end()))
+
+    # ATX headings: # ...
+    for m in re.finditer(r"^#{1,6}\s+.*$", source, re.MULTILINE):
+        zones.append((m.start(), m.end()))
+
+    # Setext headings: underlined with === or ---
+    for m in re.finditer(r"^.+\n[=\-]{2,}\s*$", source, re.MULTILINE):
+        zones.append((m.start(), m.end()))
+
+    # Existing Markdown links: [text](url)
+    for m in re.finditer(r"\[([^\]]+)\]\([^)]+\)", source):
+        zones.append((m.start(), m.end()))
+
+    # Reference-style links: [text][ref]
+    for m in re.finditer(r"\[([^\]]+)\]\[[^\]]*\]", source):
+        zones.append((m.start(), m.end()))
+
+    # Reference definitions: [ref]: url
+    for m in re.finditer(r"^\[([^\]]+)\]:\s+\S+", source, re.MULTILINE):
+        zones.append((m.start(), m.end()))
+
+    # Images: ![alt](url)
+    for m in re.finditer(r"!\[([^\]]*)\]\([^)]+\)", source):
+        zones.append((m.start(), m.end()))
+
+    # Autolinks: <https://...>
+    for m in re.finditer(r"<https?://[^>]+>", source):
+        zones.append((m.start(), m.end()))
+
+    # HTML anchor tags: <a href="...">...</a>
+    for m in re.finditer(r"<a\s[^>]*>.*?</a>", source, re.IGNORECASE | re.DOTALL):
+        zones.append((m.start(), m.end()))
+
+    # Sort and merge overlapping zones
+    zones.sort()
+    merged = []
+    for start, end in zones:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+
+    return merged
+
+
+def is_in_protected_zone(pos: int, length: int, zones: list[tuple[int, int]]) -> bool:
+    """Check if a text range overlaps any protected zone."""
+    end = pos + length
+    for z_start, z_end in zones:
+        if pos < z_end and end > z_start:
+            return True
+    return False
+
+
+def extract_existing_links(body: str) -> set[str]:
+    """Extract all URLs from existing links in the post body."""
+    urls = set()
+
+    # Inline Markdown links: [text](url) — negative lookbehind to skip images ![](url)
+    for m in re.finditer(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)", body):
+        urls.add(m.group(2).strip())
+
+    # Reference-style definitions: [ref]: url
+    for m in re.finditer(r"^\[([^\]]+)\]:\s+(\S+)", body, re.MULTILINE):
+        urls.add(m.group(2).strip())
+
+    # Autolinks: <https://...>
+    for m in re.finditer(r"<(https?://[^>]+)>", body):
+        urls.add(m.group(1))
+
+    # HTML anchors: <a href="url">
+    for m in re.finditer(r'<a\s+[^>]*href=["\']([^"\']+)["\']', body, re.IGNORECASE):
+        urls.add(m.group(1))
+
+    return urls
+
+
+def _split_paragraphs(body: str) -> list[tuple[int, int]]:
+    """Split body into paragraph ranges (start, end) by blank lines."""
+    paragraphs = []
+    pos = 0
+    for block in re.split(r"\n\n+", body):
+        start = body.find(block, pos)
+        if start != -1:
+            paragraphs.append((start, start + len(block)))
+            pos = start + len(block)
+    return paragraphs
+
+
+def _paragraph_has_link(body: str, para_start: int, para_end: int) -> bool:
+    """Check if a paragraph already contains a link."""
+    para_text = body[para_start:para_end]
+    # Check for markdown links, autolinks, or HTML anchors
+    if re.search(r"\[([^\]]+)\]\([^)]+\)", para_text):
+        return True
+    if re.search(r"<https?://[^>]+>", para_text):
+        return True
+    if re.search(r"<a\s", para_text, re.IGNORECASE):
+        return True
+    return False
+
+
+def convert_html_links_to_markdown(body: str) -> str:
+    """Convert safe single-line HTML <a> tags to Markdown links."""
+
+    def replace_a_tag(match):
+        full = match.group(0)
+        # Only convert single-line, plain-text content
+        if "\n" in full:
+            return full
+        href = re.search(r'href=["\']([^"\']+)["\']', full)
+        text = re.search(r">(.*?)</a>", full, re.IGNORECASE)
+        if href and text and "<" not in text.group(1):
+            return f"[{text.group(1)}]({href.group(1)})"
+        return full
+
+    return re.sub(
+        r"<a\s[^>]*>.*?</a>",
+        replace_a_tag,
+        body,
+        flags=re.IGNORECASE,
+    )
+
+
+def check_anchor_viable(
+    body: str,
+    anchor: str,
+    max_per_paragraph: int = 1,
+) -> bool:
+    """Check if an anchor can actually be placed in the body."""
+    pos = body.find(anchor)
+    if pos == -1:
+        return False
+
+    zones = find_protected_zones(body)
+    if is_in_protected_zone(pos, len(anchor), zones):
+        return False
+
+    paragraphs = _split_paragraphs(body)
+    for p_start, p_end in paragraphs:
+        if p_start <= pos < p_end:
+            # Count existing links in this paragraph
+            link_count = 0
+            if _paragraph_has_link(body, p_start, p_end):
+                link_count = 1
+            if link_count >= max_per_paragraph:
+                return False
+            break
+
+    return True
+
+
+def apply_links(
+    body: str,
+    suggestions: list[dict],
+    max_per_paragraph: int = 1,
+) -> tuple[str, list[str]]:
+    """Apply link substitutions to the body text.
+
+    Args:
+        body: the raw post body (no frontmatter)
+        suggestions: list of dicts with 'anchor_text' and 'target_url'
+        max_per_paragraph: max links per paragraph
+
+    Returns:
+        (modified_body, list of skipped anchor texts)
+    """
+    # Convert HTML links first
+    body = convert_html_links_to_markdown(body)
+
+    zones = find_protected_zones(body)
+    paragraphs = _split_paragraphs(body)
+    links_per_para = {i: 0 for i in range(len(paragraphs))}
+    consumed_ranges = []
+    skipped = []
+
+    # Count existing links per paragraph
+    for i, (p_start, p_end) in enumerate(paragraphs):
+        if _paragraph_has_link(body, p_start, p_end):
+            links_per_para[i] += 1
+
+    for suggestion in suggestions:
+        anchor = suggestion["anchor_text"]
+        target = suggestion["target_url"]
+        replacement = f"[{anchor}]({target})"
+
+        # Find first valid occurrence
+        search_start = 0
+        placed = False
+
+        while True:
+            pos = body.find(anchor, search_start)
+            if pos == -1:
+                break
+
+            anchor_end = pos + len(anchor)
+
+            # Check protected zone
+            if is_in_protected_zone(pos, len(anchor), zones):
+                search_start = anchor_end
+                continue
+
+            # Check consumed by prior substitution
+            if any(pos < ce and anchor_end > cs for cs, ce in consumed_ranges):
+                search_start = anchor_end
+                continue
+
+            # Find which paragraph this is in
+            para_idx = None
+            for i, (p_start, p_end) in enumerate(paragraphs):
+                if p_start <= pos < p_end:
+                    para_idx = i
+                    break
+
+            if para_idx is None:
+                search_start = anchor_end
+                continue
+
+            # Check paragraph link limit
+            if links_per_para[para_idx] >= max_per_paragraph:
+                search_start = anchor_end
+                continue
+
+            # Apply substitution
+            body = body[:pos] + replacement + body[anchor_end:]
+
+            # Update tracking
+            consumed_ranges.append((pos, pos + len(replacement)))
+            links_per_para[para_idx] += 1
+
+            # Recalculate zones and paragraphs after substitution
+            zones = find_protected_zones(body)
+            paragraphs = _split_paragraphs(body)
+
+            placed = True
+            break
+
+        if not placed:
+            skipped.append(anchor)
+
+    return body, skipped
+
+
+def write_post_with_links(
+    path: Path,
+    body: str,
+) -> None:
+    """Write post with updated body using atomic write."""
+    post = frontmatter.load(str(path))
+    post.content = body
+    post.metadata["lastmod"] = datetime.now().isoformat(timespec="seconds")
+
+    # Atomic write: temp file + rename
+    dir_path = path.parent
+    fd, tmp_path = tempfile.mkstemp(dir=str(dir_path), suffix=".md")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(frontmatter.dumps(post, sort_keys=False))
+            f.write("\n")
+        os.replace(tmp_path, str(path))
+    except Exception:
+        # Clean up temp file on failure
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise

@@ -1,5 +1,6 @@
 """Tag review screen."""
 
+from datetime import datetime
 from pathlib import Path
 
 from textual import work
@@ -539,6 +540,7 @@ class ReviewScreen(Screen):
 
         post.tags = final_tags
         post.metadata["tags"] = final_tags
+        post.metadata["lastmod"] = datetime.now().isoformat(timespec="seconds")
         self._stop_spinner(done=True)
 
         parts = []
@@ -561,6 +563,7 @@ class ReviewScreen(Screen):
 
         write_summary(post.path, self._suggested_summary)
         post.metadata["description"] = self._suggested_summary
+        post.metadata["lastmod"] = datetime.now().isoformat(timespec="seconds")
         self._stop_spinner(done=True)
         self.notify(f"{post.filename}: summary updated")
 

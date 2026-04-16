@@ -79,3 +79,26 @@
 - tags-panel e suggested-tags-container com height:auto (conteúdo flui sem gaps)
 - Corrigido: post.metadata["tags"] atualizado junto com post.tags após Apply (Rich Table refletia dados antigos)
 - Adicionado: keybinding 'v' para abrir o post no vim (suspende TUI, recarrega frontmatter ao voltar, oculto do footer)
+- Adicionado: contagem de caracteres no description existente na Rich Table
+- Zebra stripes da Rich Table usando $surface-darken-1 do tema Textual (consistente com DataTable)
+- Accent color da primeira coluna lido do tema Textual
+- Tags novas marcadas com ✨ no checkbox de sugestões
+- Drafts exibidos como dim com prefixo [DRAFT] na DataTable
+- lastmod atualizado no cache in-memory após Apply (reflete no painel de metadados imediatamente)
+- Prompt de summary reescrito com persona de blogueiro, proibição de clichês SEO, detecção de idioma
+- Auto-retry de summary se > 160 chars (até 2 tentativas com prompt de encurtamento)
+- Instrução explícita no prompt de tags para preservar acentos (com exemplos)
+- Merge de tags multi-source: seleciona tag destino, depois checkboxes para selecionar múltiplas tags origem
+- Renomeado projeto de hugo-tagger para Hugin (pacote, imports, CLI, config dir)
+
+### Fase 8 — Munin (internal links)
+- **hugo.py**: config Hugo parsing (raiz + config/_default/), inferência de URLs com permalinks, seção, slug, tokens, multilingual
+- **embeddings.py**: sentence-transformers com ONNX backend, cache JSON por diretório, invalidação por mtime, batch encode, cosine similarity, encode single sem tqdm (bypass para Textual/Python 3.14), supressão de warnings ONNX via fd redirect
+- **linker.py**: zonas protegidas (code blocks, inline code, headings, links, images, HTML anchors), extração de links existentes, conversão HTML→Markdown, substituição Markdown-safe com first-occurrence-wins, max_per_paragraph, escrita atômica (temp file + os.replace), check_anchor_viable para pré-filtrar sugestões inviáveis
+- **config.py**: munin.toml com defaults (max_per_post, max_per_paragraph, words_per_link, candidates, model, summary_field)
+- **state.py**: estado de sessão em memória (incoming/outgoing por post)
+- **cli.py**: Click entry point com --batch, --report, --engine
+- **tui.py**: TUI Textual com DataTable, spinner, incoming (i) com ClickableLinks navegáveis, outgoing (o) com contexto (before dim + anchor bold reverse + after dim), botão Apply, engine picker compartilhado, clear caches (c), banner ASCII
+- 101 testes passando (54 Hugin + 47 Munin)
+- Corrigido: find_hugo_config busca config/_default/ (Hugo config directory format)
+- Corrigido: links errados /posts/slug/ → /slug/ em 6 arquivos do blog amo-meu-gato

@@ -7,6 +7,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button,
+    Checkbox,
     DataTable,
     Footer,
     Header,
@@ -20,15 +21,15 @@ from hugin.scanner import Post
 from hugin.writer import write_tags
 
 
-class MergePickerScreen(ModalScreen[str | None]):
-    """Modal to pick a merge target tag."""
+class MergeSourcesScreen(ModalScreen[list[str] | None]):
+    """Modal to select which tags to merge into the target."""
 
     BINDINGS = [
         ("escape", "cancel", "Cancel"),
     ]
 
     DEFAULT_CSS = """
-    MergePickerScreen {
+    MergeSourcesScreen {
         align: center middle;
     }
 
@@ -46,43 +47,54 @@ class MergePickerScreen(ModalScreen[str | None]):
         margin-bottom: 1;
     }
 
-    #merge-table {
+    #merge-checkboxes {
         height: auto;
         max-height: 20;
+        overflow-y: auto;
     }
 
     #merge-hint {
         margin-top: 1;
         color: $text-muted;
     }
+
+    #merge-buttons {
+        height: auto;
+        margin-top: 1;
+    }
     """
 
-    def __init__(self, tags: list[tuple[str, int]], source_tag: str) -> None:
+    def __init__(self, tags: list[tuple[str, int]], target_tag: str) -> None:
         super().__init__()
         self.tags = sorted(
-            [(t, c) for t, c in tags if t != source_tag],
+            [(t, c) for t, c in tags if t != target_tag],
             key=lambda x: sort_key(x[0]),
         )
-        self.source_tag = source_tag
+        self.target_tag = target_tag
+        self._checkboxes: list[tuple[str, Checkbox]] = []
 
     def compose(self) -> ComposeResult:
         with Vertical(id="merge-modal"):
-            yield Label(f"Merge '{self.source_tag}' into:")
-            yield DataTable(id="merge-table", cursor_type="row", zebra_stripes=True)
-            yield Static("Enter to select, Escape to cancel", id="merge-hint")
+            yield Label(f"Merge into '{self.target_tag}' — select tags to merge:")
+            with Vertical(id="merge-checkboxes"):
+                for tag, count in self.tags:
+                    cb = Checkbox(f"{tag} ({count})")
+                    self._checkboxes.append((tag, cb))
+                    yield cb
+            yield Static("Space to toggle, Enter to confirm", id="merge-hint")
+            with Horizontal(id="merge-buttons"):
+                yield Button("Merge selected", id="btn-merge", variant="primary")
+                yield Button("Cancel", id="btn-cancel")
 
-    def on_mount(self) -> None:
-        table = self.query_one("#merge-table", DataTable)
-        table.add_column("Tag", key="tag")
-        table.add_column("Posts", key="count", width=6)
-
-        for i, (tag, count) in enumerate(self.tags):
-            table.add_row(tag, str(count), key=f"merge-{i}")
-
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        index = event.cursor_row
-        if index is not None and 0 <= index < len(self.tags):
-            self.dismiss(self.tags[index][0])
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-merge":
+            selected = [tag for tag, cb in self._checkboxes if cb.value]
+            if selected:
+                self.dismiss(selected)
+            else:
+                self.notify("No tags selected.", severity="warning")
+        else:
+            self.dismiss(None)
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -297,10 +309,10 @@ class TagManagerScreen(Screen):
         selected = self._selected_tag()
         if not selected:
             return
-        tag, _ = selected
+        target_tag, _ = selected
         self.app.push_screen(
-            MergePickerScreen(self._sorted_tags(), tag),
-            lambda target: self._do_merge(target, tag),
+            MergeSourcesScreen(self._sorted_tags(), target_tag),
+            lambda sources: self._do_merge_multi(sources, target_tag),
         )
 
     def action_rename(self) -> None:
@@ -325,23 +337,26 @@ class TagManagerScreen(Screen):
 
     # --- Operations ---
 
-    def _do_merge(self, target: str | None, source: str) -> None:
-        if target is None:
+    def _do_merge_multi(self, sources: list[str] | None, target: str) -> None:
+        if not sources:
             return
         affected = 0
-        for post in self.all_posts:
-            if source in post.tags:
-                post.tags.remove(source)
-                if target not in post.tags:
-                    post.tags.append(target)
-                post.metadata["tags"] = post.tags
-                write_tags(post.path, post.tags)
-                affected += 1
+        for source in sources:
+            for post in self.all_posts:
+                if source in post.tags:
+                    post.tags.remove(source)
+                    if target not in post.tags:
+                        post.tags.append(target)
+                    post.metadata["tags"] = post.tags
+                    write_tags(post.path, post.tags)
+                    affected += 1
 
-        source_count = self.pool.pop(source, 0)
-        self.pool[target] = self.pool.get(target, 0) + source_count
+            source_count = self.pool.pop(source, 0)
+            self.pool[target] = self.pool.get(target, 0) + source_count
+
         self._refresh_table()
-        self.notify(f"Merged '{source}' → '{target}' ({affected} posts)")
+        tags_list = ", ".join(sources)
+        self.notify(f"Merged {tags_list} → '{target}' ({affected} posts)")
 
     def _do_rename(self, new_name: str | None, old_name: str) -> None:
         if new_name is None:
