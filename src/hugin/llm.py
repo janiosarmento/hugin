@@ -10,6 +10,8 @@ from hugin.engines import Engine
 PROMPT_TEMPLATE = """\
 You are a blog post tag generator. Analyze the following blog post and suggest relevant tags.
 
+CRITICAL: You MUST pick tags from the EXISTING POOL below whenever possible. Creating a new tag is a LAST RESORT — only when absolutely no existing tag covers the topic. If in doubt, use the existing tag.
+
 RULES:
 - Tags must be lowercase
 - Multi-word tags use hyphens as separator (e.g., "self-hosted")
@@ -19,10 +21,10 @@ RULES:
 - Suggest between 3 and 7 tags per post
 - Tags must be in the same language as the post content
 - PRESERVE accents and diacritics (e.g., "automação" not "automacao", "réseau" not "reseau")
-- STRONGLY prefer reusing tags from the existing pool below
-- Only create new tags when no existing tag adequately covers the topic
+- EVERY tag you suggest should ideally already exist in the pool below
+- A new tag is acceptable ONLY if the post covers a topic with zero coverage in the existing pool
 
-EXISTING TAGS IN THIS BLOG (most used first):
+EXISTING TAGS IN THIS BLOG (use these, most popular first):
 {pool}
 
 POST CONTENT:

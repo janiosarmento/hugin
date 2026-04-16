@@ -57,9 +57,18 @@ def normalize_tags(
         if not tag:
             continue
 
-        # Dedup contra pool (preferir a forma que já existe)
+        # Exact match against pool (prefer existing form)
         if tag.lower() in pool_lower:
             tag = pool_lower[tag.lower()]
+        else:
+            # Fuzzy: if tag is a longer variant of an existing tag, use the existing one
+            # e.g. "comunicação-felina" → "comunicação", "comportamento-felino" → "comportamento"
+            tag_parts = tag.lower().split("-")
+            for pool_tag_lower, pool_tag in pool_lower.items():
+                pool_parts = pool_tag_lower.split("-")
+                if tag_parts[:len(pool_parts)] == pool_parts and len(tag_parts) > len(pool_parts):
+                    tag = pool_tag
+                    break
 
         # Dedup contra tags existentes do post
         if tag.lower() in existing_lower:
