@@ -268,6 +268,31 @@ def apply_links(
     return body, skipped
 
 
+def strip_internal_links(body: str) -> tuple[str, int]:
+    """Remove all internal links (starting with /) from the body, keeping the anchor text.
+
+    Returns (modified_body, count_of_links_removed).
+    """
+    count = 0
+
+    def replace_internal(match):
+        nonlocal count
+        text = match.group(1)
+        url = match.group(2)
+        if url.startswith("/"):
+            count += 1
+            return text
+        return match.group(0)
+
+    body = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", replace_internal, body)
+    return body, count
+
+
+def count_internal_links(body: str) -> int:
+    """Count internal links (URLs starting with /) in the body."""
+    return sum(1 for m in re.finditer(r"\[([^\]]+)\]\((/[^)]+)\)", body))
+
+
 def write_post_with_links(
     path: Path,
     body: str,

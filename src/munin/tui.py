@@ -31,9 +31,11 @@ from munin.hugo import HugoSite
 from munin.linker import (
     apply_links,
     check_anchor_viable,
+    count_internal_links,
     extract_existing_links,
     find_protected_zones,
     is_in_protected_zone,
+    strip_internal_links,
     write_post_with_links,
 )
 from munin.state import SessionState
@@ -119,6 +121,70 @@ class ConfirmClearScreen(ModalScreen[bool]):
         self.dismiss(False)
 
 
+class ConfirmStripLinksScreen(ModalScreen[bool]):
+    """Confirm removal of all internal links from a post."""
+
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    DEFAULT_CSS = """
+    ConfirmStripLinksScreen {
+        align: center middle;
+    }
+
+    #strip-modal {
+        width: 60;
+        height: auto;
+        border: solid $error;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #strip-modal Label {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #strip-modal Static {
+        margin-bottom: 1;
+    }
+
+    #strip-buttons {
+        height: auto;
+        margin-top: 1;
+    }
+
+    #strip-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    def __init__(self, filename: str, link_count: int) -> None:
+        super().__init__()
+        self.filename = filename
+        self.link_count = link_count
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="strip-modal"):
+            yield Label("Remove all internal links?")
+            yield Static(
+                f"This will strip {self.link_count} internal links from "
+                f"'{self.filename}'. External links will not be affected. "
+                f"This operation cannot be undone."
+            )
+            with Horizontal(id="strip-buttons"):
+                yield Button("Yes, remove", id="btn-yes", variant="error")
+                yield Button("No", id="btn-no", variant="primary")
+
+    def on_mount(self) -> None:
+        self.query_one("#btn-no", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "btn-yes")
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
 STATE_BROWSING = "browsing"
 STATE_LOADING = "loading"
 STATE_REVIEWING = "reviewing"
@@ -183,6 +249,8 @@ class MuninScreen(Screen):
         ("s", "suggest", "Suggest"),
         ("e", "pick_engine", "Engine"),
         ("c", "clear_caches", "Clear"),
+        ("delete", "strip_links", ""),
+        ("backspace", "strip_links", ""),
         ("escape", "back", "Back"),
     ]
 
@@ -961,6 +1029,36 @@ class MuninScreen(Screen):
                 self.app.exit(return_code=42)  # magic code to signal restart
 
         self.app.push_screen(ConfirmClearScreen(), on_confirm)
+
+    def action_strip_links(self) -> None:
+        if self._state != STATE_BROWSING:
+            return
+
+        post = self.posts[self.current_index]
+        link_count = count_internal_links(post.content)
+
+        if link_count == 0:
+            self.notify("No internal links to remove.")
+            return
+
+        def on_confirm(confirmed: bool) -> None:
+            if confirmed:
+                self._do_strip_links(post)
+
+        self.app.push_screen(
+            ConfirmStripLinksScreen(post.filename, link_count),
+            on_confirm,
+        )
+
+    def _do_strip_links(self, post) -> None:
+        body, removed = strip_internal_links(post.content)
+        write_post_with_links(post.path, body)
+        post.content = body
+        post.metadata["lastmod"] = datetime.now().isoformat(timespec="seconds")
+        self.index.update_post(post, self.site.post_url)
+        self._build_incoming_index()
+        self._update_detail_panel()
+        self.notify(f"{post.filename}: {removed} internal links removed")
 
     def action_back(self) -> None:
         if self._state == STATE_REVIEWING:
