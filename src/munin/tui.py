@@ -146,6 +146,24 @@ Candidate posts (suggest an anchor for each where natural):
 Return format:
 [{{"target_url": "/posts/foo/", "anchor_text": "exact phrase from body"}}]"""
 
+SUGGEST_PROMPT = """\
+You are a blog content strategist. Based on the following blog post, suggest 5 to 10 topics \
+for NEW posts that would complement this one. These should be topics that a reader of this \
+post would naturally want to read next.
+
+RULES:
+- Each suggestion should be a specific, actionable post title
+- Titles must be in the same language as the post content
+- Be specific — not "more about X" but a concrete angle or question
+- Return a JSON array of strings, nothing else
+
+POST TITLE: {title}
+
+POST CONTENT:
+{content}
+
+Return format: ["Post title 1", "Post title 2", ...]"""
+
 RETRY_PROMPT = """\
 The phrase '{anchor_text}' does not appear verbatim in the post body.
 Choose a phrase from the body that exists exactly as written and would
@@ -162,6 +180,7 @@ class MuninScreen(Screen):
         ("q", "quit", "Quit"),
         ("i", "incoming", "Incoming"),
         ("o", "outgoing", "Outgoing"),
+        ("s", "suggest", "Suggest"),
         ("e", "pick_engine", "Engine"),
         ("c", "clear_caches", "Clear"),
         ("escape", "back", "Back"),
@@ -284,6 +303,8 @@ class MuninScreen(Screen):
                 with Horizontal(id="outgoing-buttons", classes="hidden"):
                     yield Button("Apply", id="btn-apply", variant="primary")
                     yield Button("Skip", id="btn-skip")
+                yield Label("", classes="section-label", id="suggest-header")
+                yield Vertical(id="suggest-container")
 
         yield Footer()
 
@@ -442,13 +463,15 @@ class MuninScreen(Screen):
         self._clear_panels()
 
     def _clear_panels(self) -> None:
-        """Clear both incoming and outgoing panels."""
+        """Clear incoming, outgoing, and suggest panels."""
         self.query_one("#incoming-container").remove_children()
         self.query_one("#incoming-header", Label).update("")
         self.query_one("#outgoing-container").remove_children()
         self.query_one("#outgoing-header", Label).update("")
         self.query_one("#outgoing-buttons").add_class("hidden")
         self._outgoing_checkboxes = []
+        self.query_one("#suggest-container").remove_children()
+        self.query_one("#suggest-header", Label).update("")
 
     def _show_incoming(self, results: list[dict]) -> None:
         container = self.query_one("#incoming-container")
@@ -533,6 +556,125 @@ class MuninScreen(Screen):
         after = after.replace("\n", " ")
 
         return (before, after)
+
+    # --- Suggest ---
+
+    def action_suggest(self) -> None:
+        if self._state != STATE_BROWSING:
+            return
+
+        self._state = STATE_LOADING
+        post = self.posts[self.current_index]
+        self._clear_panels()
+        self._start_spinner(self.current_index)
+        self._run_suggest(post)
+
+    @work(exclusive=True)
+    async def _run_suggest(self, post: Post) -> None:
+        try:
+            prompt = SUGGEST_PROMPT.format(
+                title=post.metadata.get("title", post.filename),
+                content=post.content,
+            )
+            response = await call_llm(self.engine, prompt)
+
+            # Parse JSON array of titles
+            suggestions = self._parse_suggestions(response)
+
+            if not suggestions:
+                self._stop_spinner()
+                self._state = STATE_BROWSING
+                self.notify("No suggestions generated.")
+                return
+
+            # Filter out topics that already exist (via embedding similarity)
+            novel = []
+            for title in suggestions:
+                # Check if a very similar post already exists
+                # Encode the suggestion and find similar posts
+                if not self._topic_exists(title):
+                    novel.append(title)
+
+            self._stop_spinner()
+            self._state = STATE_BROWSING
+            self._show_suggestions(novel, len(suggestions))
+
+        except Exception as e:
+            self._stop_spinner()
+            self._state = STATE_BROWSING
+            self.notify(f"Error: {e}", severity="error")
+
+    def _parse_suggestions(self, text: str) -> list[str]:
+        text = text.strip()
+        text = re.sub(r"^```(?:json)?\s*\n?", "", text)
+        text = re.sub(r"\n?```\s*$", "", text)
+        text = text.strip()
+
+        start = text.find("[")
+        end = text.rfind("]")
+        if start != -1 and end != -1 and end > start:
+            try:
+                result = json.loads(text[start:end + 1])
+                if isinstance(result, list):
+                    return [str(item) for item in result]
+            except json.JSONDecodeError:
+                pass
+        return []
+
+    def _topic_exists(self, suggested_title: str, threshold: float = 0.75) -> bool:
+        """Check if a topic already exists in the blog by embedding similarity."""
+        cached = self._cache_posts()
+        if not cached:
+            return False
+
+        import numpy as np
+        from hugin.normalizer import strip_accents
+
+        # Quick text match first
+        suggested_lower = strip_accents(suggested_title.lower())
+        for entry in cached.values():
+            existing_lower = strip_accents(entry.get("title", "").lower())
+            if suggested_lower in existing_lower or existing_lower in suggested_lower:
+                return True
+
+        # Embedding similarity check
+        if self.index._model is None:
+            return False
+
+        suggested_vec = self.index._encode_single(suggested_title)
+        for entry in cached.values():
+            other_vec = np.array(entry["embedding"])
+            dot = np.dot(suggested_vec, other_vec)
+            norm = np.linalg.norm(suggested_vec) * np.linalg.norm(other_vec)
+            score = float(dot / norm) if norm > 0 else 0.0
+            if score >= threshold:
+                return True
+
+        return False
+
+    def _cache_posts(self) -> dict:
+        return self.index._cache.get("posts", {})
+
+    def _show_suggestions(self, novel: list[str], total: int) -> None:
+        container = self.query_one("#suggest-container")
+        container.remove_children()
+        header = self.query_one("#suggest-header", Label)
+
+        if not novel:
+            header.update("All suggested topics already covered!")
+            self.notify(f"{total} topics suggested, all already exist in the blog.")
+            return
+
+        filtered = total - len(novel)
+        if filtered > 0:
+            header.update(f"New post ideas ({filtered} already covered, filtered out):")
+        else:
+            header.update("New post ideas:")
+
+        for title in novel:
+            container.mount(Static(f"  • {title}"))
+
+        self.notify(f"{len(novel)} new topic ideas")
 
     # --- Incoming ---
 

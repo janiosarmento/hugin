@@ -474,4 +474,4 @@ The following are intentional limitations, not bugs:
 3. **Test the URL inference** against at least three cases: `url` in frontmatter, `slug` in frontmatter, and filename-derived slug with a date prefix.
 4. **Test the Markdown-safe substitution** against posts that contain the anchor phrase inside fenced code blocks, inline code spans, and HTML `<a>` tags — none of these must be touched.
 5. **Generate embeddings in a single batch**, not in a per-file loop.
-6. **Never crash on LLM failure.** Every call to the LLM must be wrapped in error handling that surfaces the problem in the status bar and leaves the application in a usable state.
+6. **Never crash on LLM failure.** Every call to the LLM must be wrapped in error handling that surfaces the problem in the status bar and leaves the application in a usable state.No MunA inserç˜
