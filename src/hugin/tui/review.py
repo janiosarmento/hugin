@@ -235,6 +235,37 @@ class HuginScreen(Screen):
     .hidden {
         display: none;
     }
+
+    #loading-overlay {
+        layer: overlay;
+        width: 100%;
+        height: 100%;
+        align: center middle;
+        background: $background 80%;
+    }
+
+    #loading-box {
+        width: 44;
+        height: 7;
+        border: round $accent;
+        background: $surface;
+        padding: 1 2;
+        content-align: center middle;
+    }
+
+    #loading-spinner {
+        text-style: bold;
+        color: $accent;
+        content-align: center middle;
+        width: 100%;
+    }
+
+    #loading-message {
+        color: $text;
+        content-align: center middle;
+        width: 100%;
+        margin-top: 1;
+    }
     """
 
     BANNER = """\
@@ -307,6 +338,11 @@ class HuginScreen(Screen):
                     yield Button("Apply", id="btn-apply", variant="primary")
                     yield Button("Skip", id="btn-skip")
 
+        with Vertical(id="loading-overlay", classes="hidden"):
+            with Vertical(id="loading-box"):
+                yield Static("", id="loading-spinner")
+                yield Static("", id="loading-message")
+
         yield Footer()
 
     def on_mount(self) -> None:
@@ -339,7 +375,7 @@ class HuginScreen(Screen):
                 counts[url] = counts.get(url, 0) + 1
         self._incoming_index = counts
 
-    # --- Spinner ---
+    # --- Spinner & loading overlay ---
 
     def _tick_spinner(self) -> None:
         if self._spinning_row is not None:
@@ -347,10 +383,21 @@ class HuginScreen(Screen):
             char = SPINNER_FRAMES[self._spinner_frame % len(SPINNER_FRAMES)]
             table = self.query_one("#post-table", DataTable)
             table.update_cell(self._row_keys[self._spinning_row], "status", char)
+            try:
+                self.query_one("#loading-spinner", Static).update(
+                    f"{char}  {char}  {char}"
+                )
+            except Exception:
+                pass
 
-    def _start_spinner(self, index: int) -> None:
+    def _start_spinner(self, index: int, message: str = "Processing...") -> None:
         self._spinning_row = index
         self._spinner_frame = 0
+        try:
+            self.query_one("#loading-message", Static).update(message)
+            self.query_one("#loading-overlay").remove_class("hidden")
+        except Exception:
+            pass
 
     def _stop_spinner(self, done: bool = False) -> None:
         if self._spinning_row is not None:
@@ -361,6 +408,10 @@ class HuginScreen(Screen):
             else:
                 table.update_cell(self._row_keys[self._spinning_row], "status", " ")
             self._spinning_row = None
+        try:
+            self.query_one("#loading-overlay").add_class("hidden")
+        except Exception:
+            pass
 
     def _mark_table_row(self, index: int, symbol: str) -> None:
         table = self.query_one("#post-table", DataTable)
@@ -539,7 +590,7 @@ class HuginScreen(Screen):
         post = self.posts[self.current_index]
         self._clear_action_area()
         self._mode = "tags"
-        self._start_spinner(self.current_index)
+        self._start_spinner(self.current_index, "Generating tags...")
         self._call_llm_tags(post)
 
     @work(exclusive=True)
@@ -647,7 +698,7 @@ class HuginScreen(Screen):
         post = self.posts[self.current_index]
         self._clear_action_area()
         self._mode = "summary"
-        self._start_spinner(self.current_index)
+        self._start_spinner(self.current_index, "Generating summary...")
         self._call_llm_summary(post)
 
     @work(exclusive=True)
@@ -781,7 +832,7 @@ class HuginScreen(Screen):
 
         self._state = STATE_LOADING
         self._mode = "outgoing"
-        self._start_spinner(self.current_index)
+        self._start_spinner(self.current_index, "Finding outgoing links...")
         self.query_one("#section-header", Label).update("Querying LLM...")
         self._run_outgoing(post, budget)
 
@@ -1030,7 +1081,7 @@ class HuginScreen(Screen):
         post = self.posts[self.current_index]
         self._clear_action_area()
         self.query_one("#section-header", Label).update("Querying LLM...")
-        self._start_spinner(self.current_index)
+        self._start_spinner(self.current_index, "Suggesting new topics...")
         self._run_suggest(post)
 
     @work(exclusive=True)
