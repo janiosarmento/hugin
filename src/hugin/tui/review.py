@@ -536,7 +536,6 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
         self._state = STATE_LOADING
-        self._mode = "tags"
         post = self.posts[self.current_index]
         self._clear_action_area()
         self._mode = "tags"
@@ -645,7 +644,6 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
         self._state = STATE_LOADING
-        self._mode = "summary"
         post = self.posts[self.current_index]
         self._clear_action_area()
         self._mode = "summary"
@@ -1143,6 +1141,15 @@ class HuginScreen(Screen):
                 post.has_tags = bool(post.tags)
                 self.index.update_post(post, self.site.post_url)
                 self._build_incoming_index()
+                # Refresh title in post list if it changed
+                from rich.text import Text
+                new_title = post.metadata.get("title", post.filename)
+                if post.metadata.get("draft"):
+                    cell = Text(f"[DRAFT] {new_title}", style="dim")
+                else:
+                    cell = Text(new_title)
+                table = self.query_one("#post-table", DataTable)
+                table.update_cell(self._row_keys[self.current_index], "title", cell)
             self._update_detail_panel()
 
         self.app.push_screen(

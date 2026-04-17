@@ -1,4 +1,4 @@
-"""Tests for munin/linker.py — protected zones, substitution, link application."""
+"""Tests for hugin/linker.py — protected zones, substitution, link application."""
 
 import pytest
 from pathlib import Path

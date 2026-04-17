@@ -1,4 +1,4 @@
-"""Tests for munin/hugo.py — Hugo config parsing and URL inference."""
+"""Tests for hugin/hugo.py — Hugo config parsing and URL inference."""
 
 import pytest
 from pathlib import Path
