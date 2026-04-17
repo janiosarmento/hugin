@@ -17,10 +17,11 @@ from textual.widgets import (
     Input,
     Label,
     Static,
+    TextArea,
 )
 
 from hugin.engines import Engine, load_engines, save_last_engine
-from hugin.llm import suggest_summary, suggest_tags
+from hugin.llm import MAX_SUMMARY_CHARS, suggest_summary, suggest_tags
 from hugin.normalizer import normalize_tag, normalize_tags
 from hugin.scanner import Post, format_pool_for_prompt
 from hugin.state import mark_processed, save_state
@@ -460,17 +461,21 @@ class ReviewScreen(Screen):
         if current_desc:
             container.mount(Label("[dim]Current:[/dim]", classes="section-label"))
             container.mount(Static(""))
-            container.mount(Static(f"[dim]{current_desc}[/dim]"))
+            container.mount(Static(f"[dim]{current_desc} ({len(str(current_desc))} chars)[/dim]"))
 
-        container.mount(Label("Suggested:", classes="section-label"))
-        container.mount(Static(""))
-        container.mount(Static(summary))
-        container.mount(Static(f"({len(summary)} chars)", classes="meta-desc"))
+        container.mount(Label("Edit summary:", classes="section-label"))
+        ta = TextArea(summary, id="summary-editor")
+        ta.styles.height = "auto"
+        ta.styles.min_height = 3
+        ta.styles.max_height = 6
+        container.mount(ta)
+        container.mount(Static(f"({len(summary)} chars)", id="summary-char-count", classes="meta-desc"))
 
         header = self.query_one("#suggested-header", Label)
         header.update("")
 
         self.query_one("#review-buttons").remove_class("hidden")
+        ta.focus()
         self.query_one("#btn-apply", Button).focus()
 
     @staticmethod
@@ -497,6 +502,18 @@ class ReviewScreen(Screen):
         self.notify(f"Error: {error}", severity="error")
 
     # --- Apply actions ---
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        if event.text_area.id == "summary-editor":
+            try:
+                counter = self.query_one("#summary-char-count", Static)
+                chars = len(event.text_area.text.strip())
+                if chars > MAX_SUMMARY_CHARS:
+                    counter.update(f"[bold red]({chars} chars — over {MAX_SUMMARY_CHARS})[/bold red]")
+                else:
+                    counter.update(f"({chars} chars)")
+            except Exception:
+                pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-apply":
@@ -561,8 +578,18 @@ class ReviewScreen(Screen):
     def _apply_summary(self) -> None:
         post = self.posts[self.current_index]
 
-        write_summary(post.path, self._suggested_summary)
-        post.metadata["description"] = self._suggested_summary
+        try:
+            ta = self.query_one("#summary-editor", TextArea)
+            final_summary = ta.text.strip()
+        except Exception:
+            final_summary = self._suggested_summary
+
+        if not final_summary:
+            self.notify("Summary is empty.", severity="warning")
+            return
+
+        write_summary(post.path, final_summary)
+        post.metadata["description"] = final_summary
         post.metadata["lastmod"] = datetime.now().isoformat(timespec="seconds")
         self._stop_spinner(done=True)
         self.notify(f"{post.filename}: summary updated")

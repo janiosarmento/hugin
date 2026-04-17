@@ -145,7 +145,8 @@ STYLE:
 - A good summary states what the post covers and hints at why it matters
 
 FORMAT:
-- Strictly between 140 and 160 characters
+- Between 20 and 25 words — this is the target length
+- One or two sentences maximum
 - Plain text only, no quotes, no explanation
 
 {current_desc}POST CONTENT:
@@ -195,13 +196,14 @@ def parse_summary_response(text: str) -> str:
 
 
 SHORTEN_PROMPT = """\
-The following summary is {length} characters long. Rewrite it to be STRICTLY between 140 and 160 characters. \
-Keep the same language ({language}). Keep the same meaning. Respond with the shortened text only, nothing else.
+This summary has {word_count} words. Rewrite it with at most {max_words} words. \
+Keep the same language ({language}). Keep the meaning. Respond with ONLY the shortened text.
 
 {summary}"""
 
 MAX_SUMMARY_CHARS = 160
-MAX_SHORTEN_RETRIES = 2
+MAX_SUMMARY_WORDS = 25
+MAX_SHORTEN_RETRIES = 1
 
 
 async def suggest_summary(
@@ -215,13 +217,25 @@ async def suggest_summary(
 
     language = _detect_language(content)
 
+    word_count = len(summary.split())
     for _ in range(MAX_SHORTEN_RETRIES):
-        if len(summary) <= MAX_SUMMARY_CHARS:
+        if word_count <= MAX_SUMMARY_WORDS and len(summary) <= MAX_SUMMARY_CHARS:
             break
         shorten_prompt = SHORTEN_PROMPT.format(
-            length=len(summary), language=language, summary=summary,
+            word_count=word_count, max_words=MAX_SUMMARY_WORDS,
+            language=language, summary=summary,
         )
         response_text = await call_llm(engine, shorten_prompt)
         summary = parse_summary_response(response_text)
+        word_count = len(summary.split())
+
+    # Hard truncate by chars as last resort
+    if len(summary) > MAX_SUMMARY_CHARS:
+        truncated = summary[:MAX_SUMMARY_CHARS]
+        last_space = truncated.rfind(" ")
+        if last_space > 100:
+            summary = truncated[:last_space]
+        else:
+            summary = truncated
 
     return summary
