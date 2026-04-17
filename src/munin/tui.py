@@ -604,6 +604,7 @@ class MuninScreen(Screen):
             container.mount(Static(context_text, classes="outgoing-context"))
             container.mount(Static(f"→ {url}", classes="outgoing-url"))
 
+        self.query_one("#btn-apply", Button).label = "Insert links"
         self.query_one("#outgoing-buttons").remove_class("hidden")
 
     @staticmethod
@@ -766,6 +767,7 @@ class MuninScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
+        self._clear_panels()
         post = self.posts[self.current_index]
         links = list_links(post.content)
 
@@ -797,6 +799,7 @@ class MuninScreen(Screen):
             container.mount(Static(context_text, classes="outgoing-context"))
             container.mount(Static(f"→ {url}", classes="outgoing-url"))
 
+        self.query_one("#btn-apply", Button).label = "Remove links"
         self.query_one("#outgoing-buttons").remove_class("hidden")
 
     # --- Incoming ---
@@ -805,6 +808,7 @@ class MuninScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
+        self._clear_panels()
         post = self.posts[self.current_index]
         existing_urls = extract_existing_links(post.content)
         results = self.index.find_similar(
@@ -824,6 +828,7 @@ class MuninScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
+        self._clear_panels()
         post = self.posts[self.current_index]
         word_count = len(post.content.split())
         budget = min(

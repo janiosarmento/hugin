@@ -257,11 +257,21 @@ A `DataTable` with columns: status indicator, title, date. Identical in behaviou
 | `l` | List all links (internal and external) in the selected post for selective removal |
 | `e` | Open engine/model selector (reuse Hugin's widget) |
 | `c` | Clear embedding caches and restart the application |
-| `a` | Apply approved outgoing links / remove checked links (context-dependent) |
+| `a` | Context-dependent: "Insert links" in outgoing mode, "Remove links" in list mode |
 | `Space` | Toggle checkbox in outgoing suggestions or link list |
 | `Delete` / `Backspace` | Strip all internal links from the selected post (hidden, with confirmation) |
 | `q` | Quit |
 | `Escape` | Return to browsing / dismiss overlay |
+
+### Panel clearing
+
+Pressing `i`, `o`, or `l` always clears the entire detail panel (incoming, outgoing, suggest, and buttons) before doing anything else. This prevents stale results from a previous mode bleeding into the new one.
+
+### Apply button label
+
+The Apply button label changes based on the active review mode:
+- **Outgoing mode (`o`):** "Insert links"
+- **List mode (`l`):** "Remove links"
 
 ### Apply with no suggestions
 
