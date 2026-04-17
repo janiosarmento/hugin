@@ -83,6 +83,7 @@ max_per_post      = 8    # hard ceiling on outgoing links per post
 max_per_paragraph = 1    # maximum links inserted into any single paragraph
 words_per_link    = 300  # 1 link suggested per N words; result capped by max_per_post
 candidates        = 10   # how many posts the embedding step returns as candidates
+max_anchor_words  = 5    # maximum words in an anchor phrase (longer anchors are discarded)
 
 [embeddings]
 model = "paraphrase-multilingual-MiniLM-L12-v2"
@@ -357,7 +358,10 @@ The LLM may return an empty array if no natural anchors exist.
 
 ### Step 4 — Validation and retry
 
-For each returned item, validate that `anchor_text` appears verbatim in the post body (case-sensitive). If it does not, retry **per item** with a corrective prompt that includes the full post body, the specific candidate, and the invalid anchor:
+For each returned item:
+
+1. **Anchor length check:** if the anchor has more words than `max_anchor_words` (default 5), discard it immediately. This prevents the LLM from linking entire sentences or paragraphs.
+2. **Verbatim check:** validate that `anchor_text` appears verbatim in the post body (case-sensitive). If it does not, retry **per item** with a corrective prompt that includes the full post body, the specific candidate, and the invalid anchor:
 
 ```
 The phrase '{anchor_text}' does not appear verbatim in the post body.
@@ -365,7 +369,7 @@ Choose a phrase from the body that exists exactly as written and would
 naturally link to: {title} ({url})
 ```
 
-If the retry also fails, discard the suggestion silently and log a warning to the status bar. Do not retry more than once per item.
+If the retry also fails (or the retried anchor exceeds `max_anchor_words`), discard the suggestion silently and log a warning to the status bar. Do not retry more than once per item.
 
 Additionally verify that the anchor text does not fall inside a protected zone (see Markdown-safe substitution below). If it does, discard silently.
 

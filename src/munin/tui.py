@@ -198,7 +198,7 @@ You are a technical blog editor. Your task is to identify natural anchor text wi
 
 Rules:
 - The anchor_text must appear verbatim in the post body.
-- Prefer specific technical terms, tool names, or concepts over generic phrases.
+- Keep anchors SHORT: 1 to {max_anchor_words} words. Prefer specific technical terms, tool names, or concepts. Never use full sentences or long phrases.
 - Do not suggest anchors inside headings, code blocks, inline code, images, or existing links.
 - Suggest at most one anchor per candidate post.
 - Omit candidates for which no natural anchor exists — do not force one.
@@ -880,7 +880,10 @@ class MuninScreen(Screen):
             )
 
             # Build messages for chat completion
-            prompt = f"{ANCHOR_SYSTEM_PROMPT}\n\n{user_msg}"
+            system = ANCHOR_SYSTEM_PROMPT.format(
+                max_anchor_words=self.config.links.max_anchor_words,
+            )
+            prompt = f"{system}\n\n{user_msg}"
             response = await call_llm(self.engine, prompt)
 
             # Parse response
@@ -895,6 +898,11 @@ class MuninScreen(Screen):
                 target = s.get("target_url", "")
 
                 if not anchor or not target:
+                    continue
+
+                # Anchor length check
+                max_words = self.config.links.max_anchor_words
+                if len(anchor.split()) > max_words:
                     continue
 
                 # Verbatim check
@@ -912,7 +920,7 @@ class MuninScreen(Screen):
                         )
                         retry_response = await call_llm(self.engine, retry_prompt)
                         retry_anchor = retry_response.strip().strip('"').strip("'")
-                        if retry_anchor in post.content:
+                        if retry_anchor in post.content and len(retry_anchor.split()) <= max_words:
                             anchor = retry_anchor
                         else:
                             continue

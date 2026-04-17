@@ -14,6 +14,7 @@ max_per_post      = 8    # hard ceiling on outgoing links per post
 max_per_paragraph = 1    # maximum links inserted into any single paragraph
 words_per_link    = 300  # 1 link suggested per N words; result capped by max_per_post
 candidates        = 10   # how many posts the embedding step returns as candidates
+max_anchor_words  = 5    # maximum words in an anchor phrase (longer anchors are discarded)
 
 [embeddings]
 model = "paraphrase-multilingual-MiniLM-L12-v2"
@@ -29,6 +30,7 @@ class LinksConfig:
     max_per_paragraph: int = 1
     words_per_link: int = 300
     candidates: int = 10
+    max_anchor_words: int = 5
 
 
 @dataclass
@@ -67,6 +69,7 @@ def load_config() -> MuninConfig:
             max_per_paragraph=links_data.get("max_per_paragraph", 1),
             words_per_link=links_data.get("words_per_link", 300),
             candidates=links_data.get("candidates", 10),
+            max_anchor_words=links_data.get("max_anchor_words", 5),
         ),
         embeddings=EmbeddingsConfig(
             model=embed_data.get("model", "paraphrase-multilingual-MiniLM-L12-v2"),
