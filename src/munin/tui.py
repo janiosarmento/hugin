@@ -440,10 +440,15 @@ class MuninScreen(Screen):
 
         # Link counts
         outgoing_count = len(extract_existing_links(post.content))
+        word_count = len(post.content.split())
+        budget = min(
+            self.config.links.max_per_post,
+            math.floor(word_count / self.config.links.words_per_link),
+        )
         post_url = self.index.get_post_url(post)
         incoming_count = self._incoming_index.get(post_url, 0) if post_url else 0
 
-        table.add_row("links out", str(outgoing_count))
+        table.add_row("links out", f"{outgoing_count}/{budget}")
         table.add_row("links in", str(incoming_count))
 
         # Link budget warning
