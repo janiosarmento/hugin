@@ -517,7 +517,7 @@ class MuninScreen(Screen):
             anchor = item["anchor_text"]
             url = item["target_url"]
             before, after = self._extract_context(post.content, anchor)
-            cb = Checkbox(anchor, value=True)
+            cb = Checkbox(anchor, value=False)
             self._outgoing_checkboxes.append(cb)
             container.mount(cb)
             context_text = f"[dim]{before}[/dim][bold reverse]{anchor}[/bold reverse][dim]{after}[/dim]"
