@@ -25,7 +25,6 @@ dev = [
 
 [project.scripts]
 hugin = "hugin.cli:main"
-munin = "munin.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
