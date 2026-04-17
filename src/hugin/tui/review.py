@@ -237,34 +237,13 @@ class HuginScreen(Screen):
     }
 
     #loading-overlay {
-        layer: overlay;
+        dock: bottom;
         width: 100%;
-        height: 100%;
-        align: center middle;
-        background: $background 80%;
-    }
-
-    #loading-box {
-        width: 44;
-        height: 7;
-        border: round $accent;
-        background: $surface;
-        padding: 1 2;
+        height: 3;
         content-align: center middle;
-    }
-
-    #loading-spinner {
+        background: $boost;
+        border-top: solid $accent;
         text-style: bold;
-        color: $accent;
-        content-align: center middle;
-        width: 100%;
-    }
-
-    #loading-message {
-        color: $text;
-        content-align: center middle;
-        width: 100%;
-        margin-top: 1;
     }
     """
 
@@ -314,6 +293,7 @@ class HuginScreen(Screen):
         self._suggested_topics: list[str] = []
         self._incoming_index: dict[str, int] = {}
         self._session_outgoing: dict[str, list[dict]] = {}
+        self._loading_message = ""
 
     def compose(self) -> ComposeResult:
         yield Static(self.BANNER, id="banner")
@@ -338,10 +318,7 @@ class HuginScreen(Screen):
                     yield Button("Apply", id="btn-apply", variant="primary")
                     yield Button("Skip", id="btn-skip")
 
-        with Vertical(id="loading-overlay", classes="hidden"):
-            with Vertical(id="loading-box"):
-                yield Static("", id="loading-spinner")
-                yield Static("", id="loading-message")
+        yield Static("", id="loading-overlay", classes="hidden")
 
         yield Footer()
 
@@ -384,18 +361,19 @@ class HuginScreen(Screen):
             table = self.query_one("#post-table", DataTable)
             table.update_cell(self._row_keys[self._spinning_row], "status", char)
             try:
-                self.query_one("#loading-spinner", Static).update(
-                    f"{char}  {char}  {char}"
-                )
+                overlay = self.query_one("#loading-overlay", Static)
+                overlay.update(f"{char}  {self._loading_message}")
             except Exception:
                 pass
 
     def _start_spinner(self, index: int, message: str = "Processing...") -> None:
         self._spinning_row = index
         self._spinner_frame = 0
+        self._loading_message = message
         try:
-            self.query_one("#loading-message", Static).update(message)
-            self.query_one("#loading-overlay").remove_class("hidden")
+            overlay = self.query_one("#loading-overlay", Static)
+            overlay.update(f"{SPINNER_FRAMES[0]}  {message}")
+            overlay.remove_class("hidden")
         except Exception:
             pass
 
