@@ -273,6 +273,7 @@ class MuninScreen(Screen):
         self._state = STATE_BROWSING
         self._session = SessionState()
         self._outgoing_checkboxes: list[Checkbox] = []
+        self._suggested_topics: list[str] = []
         self._incoming_index: dict[str, int] = {}  # url → count of posts linking to it
 
     def compose(self) -> ComposeResult:
@@ -671,9 +672,11 @@ class MuninScreen(Screen):
         else:
             header.update("New post ideas:")
 
+        self._suggested_topics = novel
         for title in novel:
             container.mount(Static(f"  • {title}"))
 
+        container.mount(Button("Copy to clipboard", id="btn-copy-suggestions"))
         self.notify(f"{len(novel)} new topic ideas")
 
     # --- Incoming ---
@@ -867,6 +870,12 @@ class MuninScreen(Screen):
             self._clear_panels()
             self._state = STATE_BROWSING
             self.query_one("#post-table", DataTable).focus()
+        elif event.button.id == "btn-copy-suggestions":
+            if hasattr(self, "_suggested_topics") and self._suggested_topics:
+                text = "\n".join(f"• {t}" for t in self._suggested_topics)
+                import subprocess
+                subprocess.run(["pbcopy"], input=text.encode(), check=True)
+                self.notify(f"{len(self._suggested_topics)} topics copied to clipboard")
 
     def action_navigate(self, index: int) -> None:
         """Navigate to a post by index (triggered by incoming link click)."""
