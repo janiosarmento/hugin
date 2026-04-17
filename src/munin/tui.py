@@ -29,6 +29,7 @@ from munin.config import MuninConfig
 from munin.embeddings import EmbeddingIndex
 from munin.hugo import HugoSite
 from munin.linker import (
+    _find_whole_word,
     apply_links,
     check_anchor_viable,
     count_internal_links,
@@ -610,7 +611,10 @@ class MuninScreen(Screen):
     @staticmethod
     def _extract_context(content: str, anchor: str, chars: int = 80) -> tuple[str, str]:
         """Extract text before and after an anchor for context display."""
-        pos = content.find(anchor)
+        pos = _find_whole_word(content, anchor)
+        if pos == -1:
+            # Fallback to substring for list mode (linked text may not be whole-word)
+            pos = content.find(anchor)
         if pos == -1:
             return ("", "")
 
@@ -910,8 +914,9 @@ class MuninScreen(Screen):
                 if len(anchor.split()) > max_words:
                     continue
 
-                # Verbatim check
-                if anchor not in post.content:
+                # Whole-word verbatim check
+                pos = _find_whole_word(post.content, anchor)
+                if pos == -1:
                     # Retry once
                     candidate_info = next(
                         (c for c in candidates if c["url"] == target), None,
@@ -925,16 +930,17 @@ class MuninScreen(Screen):
                         )
                         retry_response = await call_llm(self.engine, retry_prompt)
                         retry_anchor = retry_response.strip().strip('"').strip("'")
-                        if retry_anchor in post.content and len(retry_anchor.split()) <= max_words:
+                        retry_pos = _find_whole_word(post.content, retry_anchor)
+                        if retry_pos != -1 and len(retry_anchor.split()) <= max_words:
                             anchor = retry_anchor
+                            pos = retry_pos
                         else:
                             continue
                     else:
                         continue
 
                 # Protected zone check
-                pos = post.content.find(anchor)
-                if pos != -1 and is_in_protected_zone(pos, len(anchor), zones):
+                if is_in_protected_zone(pos, len(anchor), zones):
                     continue
 
                 validated.append({"anchor_text": anchor, "target_url": target})

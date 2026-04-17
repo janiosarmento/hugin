@@ -150,8 +150,12 @@ def convert_html_links_to_markdown(body: str) -> str:
 
 
 def _find_whole_word(body: str, anchor: str, start: int = 0) -> int:
-    """Find anchor in body ensuring it doesn't start or end mid-word."""
-    pattern = r"(?<!\w)" + re.escape(anchor) + r"(?!\w)"
+    """Find anchor in body ensuring it doesn't start or end mid-word.
+
+    Treats hyphens as word-joining characters to handle compound words
+    like não-fumante, ex-presidente, etc.
+    """
+    pattern = r"(?<![\w\-])" + re.escape(anchor) + r"(?![\w\-])"
     m = re.search(pattern, body[start:])
     if m:
         return start + m.start()

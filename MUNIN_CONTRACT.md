@@ -418,7 +418,7 @@ When Munin encounters a raw HTML anchor tag `<a href="/posts/foo/">anchor text</
 Process checked suggestions in the order they appear in the list. For each suggestion:
 
 1. Search for the first **whole-word** occurrence of `anchor_text` in the post body that:
-   - Respects word boundaries (the match must not start or end mid-word; e.g. "programação subliminar" must not match inside "re**programação subliminar**")
+   - Respects word boundaries — the match must not start or end mid-word. Hyphens are treated as word-joining characters to handle compound words (e.g. "fumante" must not match inside "não-fumante" or "fumantes", and "programação subliminar" must not match inside "reprogramação subliminar")
    - Is not inside a protected zone
    - Is not inside a paragraph that already contains a link (enforcing `max_per_paragraph`)
    - Has not been consumed by a previously applied substitution in this session
