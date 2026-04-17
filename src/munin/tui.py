@@ -33,6 +33,8 @@ from munin.linker import (
     check_anchor_viable,
     count_internal_links,
     extract_existing_links,
+    list_internal_links,
+    remove_specific_links,
     find_protected_zones,
     is_in_protected_zone,
     strip_internal_links,
@@ -247,6 +249,7 @@ class MuninScreen(Screen):
         ("i", "incoming", "Incoming"),
         ("o", "outgoing", "Outgoing"),
         ("s", "suggest", "Suggest"),
+        ("l", "list_links", "List"),
         ("e", "pick_engine", "Engine"),
         ("c", "clear_caches", "Clear"),
         ("delete", "strip_links", ""),
@@ -341,6 +344,8 @@ class MuninScreen(Screen):
         self._state = STATE_BROWSING
         self._session = SessionState()
         self._outgoing_checkboxes: list[Checkbox] = []
+        self._listed_links: list[dict] = []
+        self._review_mode = ""  # "outgoing" or "list"
         self._suggested_topics: list[str] = []
         self._incoming_index: dict[str, int] = {}  # url → count of posts linking to it
 
@@ -544,6 +549,8 @@ class MuninScreen(Screen):
         self.query_one("#outgoing-header", Label).update("")
         self.query_one("#outgoing-buttons").add_class("hidden")
         self._outgoing_checkboxes = []
+        self._listed_links = []
+        self._review_mode = ""
         self.query_one("#suggest-container").remove_children()
         self.query_one("#suggest-header", Label).update("")
 
@@ -753,6 +760,45 @@ class MuninScreen(Screen):
         container.mount(Button("Copy to clipboard", id="btn-copy-suggestions"))
         self.notify(f"{len(novel)} new topic ideas")
 
+    # --- List links ---
+
+    def action_list_links(self) -> None:
+        if self._state != STATE_BROWSING:
+            return
+
+        post = self.posts[self.current_index]
+        links = list_internal_links(post.content)
+
+        if not links:
+            self.notify("No internal links in this post.")
+            return
+
+        self._clear_panels()
+        self._state = STATE_REVIEWING
+        self._review_mode = "list"
+        self._show_existing_links(links, post)
+
+    def _show_existing_links(self, links: list[dict], post) -> None:
+        container = self.query_one("#outgoing-container")
+        container.remove_children()
+        header = self.query_one("#outgoing-header", Label)
+        self._outgoing_checkboxes = []
+        self._listed_links = links
+
+        header.update(f"Internal links ({len(links)}) — check to remove:")
+        for link in links:
+            anchor = link["anchor_text"]
+            url = link["url"]
+            before, after = self._extract_context(post.content, f"[{anchor}]({url})")
+            cb = Checkbox(anchor, value=False)
+            self._outgoing_checkboxes.append(cb)
+            container.mount(cb)
+            context_text = f"[dim]{before}[/dim][bold reverse]{anchor}[/bold reverse][dim]{after}[/dim]"
+            container.mount(Static(context_text, classes="outgoing-context"))
+            container.mount(Static(f"→ {url}", classes="outgoing-url"))
+
+        self.query_one("#outgoing-buttons").remove_class("hidden")
+
     # --- Incoming ---
 
     def action_incoming(self) -> None:
@@ -899,6 +945,7 @@ class MuninScreen(Screen):
 
             self._stop_spinner()
             self._state = STATE_REVIEWING if validated else STATE_BROWSING
+            self._review_mode = "outgoing" if validated else ""
             self._show_outgoing(validated)
 
             if validated:
@@ -939,7 +986,10 @@ class MuninScreen(Screen):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-apply":
-            self._do_apply()
+            if self._review_mode == "list":
+                self._do_remove_selected()
+            else:
+                self._do_apply()
         elif event.button.id == "btn-skip":
             self._clear_panels()
             self._state = STATE_BROWSING
@@ -971,6 +1021,33 @@ class MuninScreen(Screen):
             table = self.query_one("#post-table", DataTable)
             table.move_cursor(row=index)
             self._update_detail_panel()
+
+    def _do_remove_selected(self) -> None:
+        """Remove checked links from the post."""
+        post = self.posts[self.current_index]
+        urls_to_remove = set()
+
+        for cb, link in zip(self._outgoing_checkboxes, self._listed_links):
+            if cb.value:
+                urls_to_remove.add(link["url"])
+
+        if not urls_to_remove:
+            self.notify("No links selected for removal.")
+            return
+
+        body, removed = remove_specific_links(post.content, urls_to_remove)
+        write_post_with_links(post.path, body)
+        post.content = body
+        post.metadata["lastmod"] = datetime.now().isoformat(timespec="seconds")
+        self.index.update_post(post, self.site.post_url)
+        self._build_incoming_index()
+
+        self._clear_panels()
+        self._state = STATE_BROWSING
+        self._review_mode = ""
+        self._update_detail_panel()
+        self.query_one("#post-table", DataTable).focus()
+        self.notify(f"{post.filename}: {removed} links removed")
 
     def _do_apply(self) -> None:
         if not self._outgoing_checkboxes:

@@ -268,6 +268,41 @@ def apply_links(
     return body, skipped
 
 
+def list_internal_links(body: str) -> list[dict]:
+    """List all internal links with anchor text, URL, and position.
+
+    Returns list of dicts with keys: anchor_text, url, pos.
+    """
+    results = []
+    for m in re.finditer(r"\[([^\]]+)\]\((/[^)]+)\)", body):
+        results.append({
+            "anchor_text": m.group(1),
+            "url": m.group(2),
+            "pos": m.start(),
+        })
+    return results
+
+
+def remove_specific_links(body: str, urls_to_remove: set[str]) -> tuple[str, int]:
+    """Remove specific internal links by URL, keeping anchor text.
+
+    Returns (modified_body, count_removed).
+    """
+    count = 0
+
+    def replace_if_selected(match):
+        nonlocal count
+        text = match.group(1)
+        url = match.group(2)
+        if url in urls_to_remove:
+            count += 1
+            return text
+        return match.group(0)
+
+    body = re.sub(r"\[([^\]]+)\]\((/[^)]+)\)", replace_if_selected, body)
+    return body, count
+
+
 def strip_internal_links(body: str) -> tuple[str, int]:
     """Remove all internal links (starting with /) from the body, keeping the anchor text.
 
