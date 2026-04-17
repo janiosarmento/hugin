@@ -195,6 +195,20 @@ class EmbeddingIndex:
         }
         self._save_cache()
 
+    def mark_no_outgoing(self, post) -> None:
+        """Mark a post as having no outgoing link opportunities."""
+        abs_path = str(post.path.resolve())
+        entry = self._cache["posts"].get(abs_path)
+        if entry:
+            entry["no_outgoing"] = True
+            self._save_cache()
+
+    def has_no_outgoing(self, post) -> bool:
+        """Check if a post was previously marked as having no outgoing opportunities."""
+        abs_path = str(post.path.resolve())
+        entry = self._cache["posts"].get(abs_path)
+        return bool(entry and entry.get("no_outgoing"))
+
     def find_similar(
         self,
         post,

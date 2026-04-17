@@ -3,12 +3,13 @@
 import json
 import math
 import re
+from datetime import datetime
 from pathlib import Path
 
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.screen import Screen
+from textual.screen import ModalScreen, Screen
 from textual.timer import Timer
 from textual.widgets import (
     Button,
@@ -68,6 +69,54 @@ class ClickableLink(Static, can_focus=True):
         screen = self.screen
         if hasattr(screen, "_navigate_to_post"):
             screen._navigate_to_post(self.post_index)
+
+
+class ConfirmClearScreen(ModalScreen[bool]):
+    """Confirm cache clear and restart."""
+
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    DEFAULT_CSS = """
+    ConfirmClearScreen {
+        align: center middle;
+    }
+
+    #confirm-modal {
+        width: 50;
+        height: auto;
+        border: solid $warning;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #confirm-modal Label {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #confirm-buttons {
+        height: auto;
+        margin-top: 1;
+    }
+
+    #confirm-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm-modal"):
+            yield Label("Clear all caches and restart?")
+            yield Static("Embedding cache will be rebuilt on restart.")
+            with Horizontal(id="confirm-buttons"):
+                yield Button("Clear & Restart", id="btn-confirm", variant="warning")
+                yield Button("Cancel", id="btn-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "btn-confirm")
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
 
 
 STATE_BROWSING = "browsing"
@@ -171,6 +220,11 @@ class MuninScreen(Screen):
         margin-bottom: 1;
     }
 
+    #outgoing-buttons {
+        height: auto;
+        margin-top: 1;
+    }
+
     .hidden {
         display: none;
     }
@@ -200,6 +254,7 @@ class MuninScreen(Screen):
         self._state = STATE_BROWSING
         self._session = SessionState()
         self._outgoing_checkboxes: list[Checkbox] = []
+        self._incoming_index: dict[str, int] = {}  # url → count of posts linking to it
 
     def compose(self) -> ComposeResult:
         banner = Static(
@@ -226,7 +281,9 @@ class MuninScreen(Screen):
                 yield Vertical(id="incoming-container")
                 yield Label("", classes="section-label", id="outgoing-header")
                 yield Vertical(id="outgoing-container")
-                yield Button("Apply", id="btn-apply", variant="primary", classes="hidden")
+                with Horizontal(id="outgoing-buttons", classes="hidden"):
+                    yield Button("Apply", id="btn-apply", variant="primary")
+                    yield Button("Skip", id="btn-skip")
 
         yield Footer()
 
@@ -242,12 +299,22 @@ class MuninScreen(Screen):
                 cell = Text(f"[DRAFT] {title}", style="dim")
             else:
                 cell = Text(title)
-            table.add_row(" ", cell, key=f"post-{i}")
+            status = "—" if self.index.has_no_outgoing(post) else " "
+            table.add_row(status, cell, key=f"post-{i}")
             self._row_keys.append(f"post-{i}")
 
         self._spinner_timer = self.set_interval(0.08, self._tick_spinner)
+        self._build_incoming_index()
         self._update_engine_label()
         self._update_detail_panel()
+
+    def _build_incoming_index(self) -> None:
+        """Pre-compute how many posts link to each URL."""
+        counts: dict[str, int] = {}
+        for post in self.all_posts:
+            for url in extract_existing_links(post.content):
+                counts[url] = counts.get(url, 0) + 1
+        self._incoming_index = counts
 
     # --- Spinner ---
 
@@ -273,6 +340,10 @@ class MuninScreen(Screen):
                 "✓" if done else " ",
             )
             self._spinning_row = None
+
+    def _mark_table_row(self, index: int, symbol: str) -> None:
+        table = self.query_one("#post-table", DataTable)
+        table.update_cell(self._row_keys[index], "status", symbol)
 
     # --- Engine ---
 
@@ -345,6 +416,25 @@ class MuninScreen(Screen):
         if tags:
             table.add_row("tags", ", ".join(str(t) for t in tags))
 
+        # Link counts
+        outgoing_count = len(extract_existing_links(post.content))
+        post_url = self.index.get_post_url(post)
+        incoming_count = self._incoming_index.get(post_url, 0) if post_url else 0
+
+        table.add_row("links out", str(outgoing_count))
+        table.add_row("links in", str(incoming_count))
+
+        # Link budget warning
+        word_count = len(post.content.split())
+        budget = min(
+            self.config.links.max_per_post,
+            math.floor(word_count / self.config.links.words_per_link),
+        )
+        if budget == 0:
+            table.add_row("outgoing", "[bold red]too short[/bold red]")
+        elif self.index.has_no_outgoing(post):
+            table.add_row("outgoing", "[dim]no opportunities[/dim]")
+
         self.query_one("#post-meta", Static).update(table)
 
         # Clean panels when navigating — cached results stay in session
@@ -357,7 +447,7 @@ class MuninScreen(Screen):
         self.query_one("#incoming-header", Label).update("")
         self.query_one("#outgoing-container").remove_children()
         self.query_one("#outgoing-header", Label).update("")
-        self.query_one("#btn-apply", Button).add_class("hidden")
+        self.query_one("#outgoing-buttons").add_class("hidden")
         self._outgoing_checkboxes = []
 
     def _show_incoming(self, results: list[dict]) -> None:
@@ -395,7 +485,7 @@ class MuninScreen(Screen):
 
         if not suggestions:
             header.update("")
-            self.query_one("#btn-apply", Button).add_class("hidden")
+            self.query_one("#outgoing-buttons").add_class("hidden")
             return
 
         header.update("Outgoing link suggestions:")
@@ -410,7 +500,7 @@ class MuninScreen(Screen):
             container.mount(Static(context_text, classes="outgoing-context"))
             container.mount(Static(f"→ {url}", classes="outgoing-url"))
 
-        self.query_one("#btn-apply", Button).remove_class("hidden")
+        self.query_one("#outgoing-buttons").remove_class("hidden")
 
     @staticmethod
     def _extract_context(content: str, anchor: str, chars: int = 80) -> tuple[str, str]:
@@ -595,6 +685,8 @@ class MuninScreen(Screen):
             if validated:
                 self.notify(f"{len(validated)} link suggestions ready")
             else:
+                self.index.mark_no_outgoing(post)
+                self._mark_table_row(self.current_index, "—")
                 self.notify("No natural anchors found for this post.")
 
         except Exception as e:
@@ -629,6 +721,10 @@ class MuninScreen(Screen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-apply":
             self._do_apply()
+        elif event.button.id == "btn-skip":
+            self._clear_panels()
+            self._state = STATE_BROWSING
+            self.query_one("#post-table", DataTable).focus()
 
     def action_navigate(self, index: int) -> None:
         """Navigate to a post by index (triggered by incoming link click)."""
@@ -673,7 +769,9 @@ class MuninScreen(Screen):
 
         # Update in-memory state
         post.content = body
+        post.metadata["lastmod"] = datetime.now().isoformat(timespec="seconds")
         self.index.update_post(post, self.site.post_url)
+        self._build_incoming_index()
         self._session.clear_outgoing(abs_path)
 
         self._stop_spinner(done=True)
@@ -691,9 +789,13 @@ class MuninScreen(Screen):
     def action_clear_caches(self) -> None:
         if self._state != STATE_BROWSING:
             return
-        self.index.clear_cache()
-        self._session = SessionState()
-        self.notify("Caches cleared. Embeddings will rebuild on next run.")
+
+        def on_confirm(confirmed: bool) -> None:
+            if confirmed:
+                self.index.clear_cache()
+                self.app.exit(return_code=42)  # magic code to signal restart
+
+        self.app.push_screen(ConfirmClearScreen(), on_confirm)
 
     def action_back(self) -> None:
         if self._state == STATE_REVIEWING:

@@ -74,15 +74,32 @@ def main(
     # Launch TUI
     from munin.tui import MuninApp
 
-    app = MuninApp(
-        posts=batch_posts,
-        all_posts=posts,
-        engine=engine,
-        config=config,
-        site=site,
-        index=index,
-    )
-    app.run()
+    while True:
+        app = MuninApp(
+            posts=batch_posts,
+            all_posts=posts,
+            engine=engine,
+            config=config,
+            site=site,
+            index=index,
+        )
+        result = app.run()
+
+        if app.return_code == 42:
+            # Restart: rebuild everything
+            click.echo("Restarting...")
+            posts = load_posts(directory)
+            all_sorted = sorted(posts, key=lambda p: p.date or datetime.min, reverse=True)
+            batch_posts = all_sorted if batch == 0 else all_sorted[:batch]
+            index = EmbeddingIndex(
+                posts_dir=directory,
+                model_name=config.embeddings.model,
+                summary_field=config.frontmatter.summary_field,
+            )
+            index.build(posts=posts, url_fn=site.post_url, print_fn=click.echo)
+            continue
+
+        break
 
 
 def _show_report(index: EmbeddingIndex, posts: list) -> None:
