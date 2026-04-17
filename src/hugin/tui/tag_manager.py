@@ -373,7 +373,7 @@ class TagManagerScreen(Screen):
         ("d", "delete", "Delete"),
         ("delete", "delete", ""),
         ("backspace", "delete", ""),
-        ("escape", "go_back", ""),
+        ("escape", "clear_filter", ""),
     ]
 
     DEFAULT_CSS = """
@@ -384,6 +384,11 @@ class TagManagerScreen(Screen):
 
     #tag-manager-title {
         text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #tag-filter {
+        height: auto;
         margin-bottom: 1;
     }
 
@@ -407,11 +412,14 @@ class TagManagerScreen(Screen):
         self.all_posts = all_posts
         self.pool = pool
         self.directory = directory
+        self._filter_text = ""
+        self._filtered_tags: list[tuple[str, int]] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical(id="tag-manager-container"):
             yield Label("Tag Manager", id="tag-manager-title")
+            yield Input(placeholder="Type to filter tags...", id="tag-filter")
             yield Static("", id="tag-stats")
             yield DataTable(id="tag-table", cursor_type="row", zebra_stripes=True)
         yield Footer()
@@ -425,24 +433,50 @@ class TagManagerScreen(Screen):
     def _sorted_tags(self) -> list[tuple[str, int]]:
         return sorted(self.pool.items(), key=lambda x: (-x[1], sort_key(x[0])))
 
-    def _selected_tag(self) -> tuple[str, int] | None:
+    def _filtered_sorted_tags(self) -> list[tuple[str, int]]:
         tags = self._sorted_tags()
+        if not self._filter_text:
+            return tags
+        from hugin.normalizer import strip_accents
+        query = strip_accents(self._filter_text)
+        return [(t, c) for t, c in tags if query in strip_accents(t)]
+
+    def _selected_tag(self) -> tuple[str, int] | None:
         table = self.query_one("#tag-table", DataTable)
         index = table.cursor_row
-        if index is not None and 0 <= index < len(tags):
-            return tags[index]
+        if index is not None and 0 <= index < len(self._filtered_tags):
+            return self._filtered_tags[index]
         return None
 
     def _refresh_table(self) -> None:
         table = self.query_one("#tag-table", DataTable)
         table.clear()
 
-        tags = self._sorted_tags()
-        for i, (tag, count) in enumerate(tags):
+        self._filtered_tags = self._filtered_sorted_tags()
+        for i, (tag, count) in enumerate(self._filtered_tags):
             table.add_row(tag, str(count), key=f"tag-{i}")
 
         stats = self.query_one("#tag-stats", Static)
-        stats.update(f"{len(tags)} unique tags across {len(self.all_posts)} posts")
+        total = len(self._sorted_tags())
+        showing = len(self._filtered_tags)
+        if self._filter_text:
+            stats.update(f"Showing {showing}/{total} tags (filter: '{self._filter_text}')")
+        else:
+            stats.update(f"{total} unique tags across {len(self.all_posts)} posts")
+
+    def action_clear_filter(self) -> None:
+        if self._filter_text:
+            self.query_one("#tag-filter", Input).value = ""
+            self._filter_text = ""
+            self._refresh_table()
+            self.query_one("#tag-table", DataTable).focus()
+        else:
+            self.dismiss(None)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "tag-filter":
+            self._filter_text = event.value.strip()
+            self._refresh_table()
 
     # --- Actions ---
 
