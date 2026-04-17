@@ -33,7 +33,7 @@ from munin.linker import (
     check_anchor_viable,
     count_internal_links,
     extract_existing_links,
-    list_internal_links,
+    list_links,
     remove_specific_links,
     find_protected_zones,
     is_in_protected_zone,
@@ -767,10 +767,10 @@ class MuninScreen(Screen):
             return
 
         post = self.posts[self.current_index]
-        links = list_internal_links(post.content)
+        links = list_links(post.content)
 
         if not links:
-            self.notify("No internal links in this post.")
+            self.notify("No links in this post.")
             return
 
         self._clear_panels()
@@ -785,7 +785,7 @@ class MuninScreen(Screen):
         self._outgoing_checkboxes = []
         self._listed_links = links
 
-        header.update(f"Internal links ({len(links)}) — check to remove:")
+        header.update(f"Links ({len(links)}) — check to remove:")
         for link in links:
             anchor = link["anchor_text"]
             url = link["url"]

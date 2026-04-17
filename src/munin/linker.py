@@ -149,13 +149,22 @@ def convert_html_links_to_markdown(body: str) -> str:
     )
 
 
+def _find_whole_word(body: str, anchor: str, start: int = 0) -> int:
+    """Find anchor in body ensuring it doesn't start or end mid-word."""
+    pattern = r"(?<!\w)" + re.escape(anchor) + r"(?!\w)"
+    m = re.search(pattern, body[start:])
+    if m:
+        return start + m.start()
+    return -1
+
+
 def check_anchor_viable(
     body: str,
     anchor: str,
     max_per_paragraph: int = 1,
 ) -> bool:
     """Check if an anchor can actually be placed in the body."""
-    pos = body.find(anchor)
+    pos = _find_whole_word(body, anchor)
     if pos == -1:
         return False
 
@@ -216,7 +225,7 @@ def apply_links(
         placed = False
 
         while True:
-            pos = body.find(anchor, search_start)
+            pos = _find_whole_word(body, anchor, search_start)
             if pos == -1:
                 break
 
@@ -268,13 +277,13 @@ def apply_links(
     return body, skipped
 
 
-def list_internal_links(body: str) -> list[dict]:
-    """List all internal links with anchor text, URL, and position.
+def list_links(body: str) -> list[dict]:
+    """List all links with anchor text, URL, and position.
 
     Returns list of dicts with keys: anchor_text, url, pos.
     """
     results = []
-    for m in re.finditer(r"\[([^\]]+)\]\((/[^)]+)\)", body):
+    for m in re.finditer(r"\[([^\]]+)\]\(([^)]+)\)", body):
         results.append({
             "anchor_text": m.group(1),
             "url": m.group(2),
@@ -284,7 +293,7 @@ def list_internal_links(body: str) -> list[dict]:
 
 
 def remove_specific_links(body: str, urls_to_remove: set[str]) -> tuple[str, int]:
-    """Remove specific internal links by URL, keeping anchor text.
+    """Remove specific links by URL, keeping anchor text.
 
     Returns (modified_body, count_removed).
     """
@@ -299,7 +308,7 @@ def remove_specific_links(body: str, urls_to_remove: set[str]) -> tuple[str, int
             return text
         return match.group(0)
 
-    body = re.sub(r"\[([^\]]+)\]\((/[^)]+)\)", replace_if_selected, body)
+    body = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", replace_if_selected, body)
     return body, count
 
 

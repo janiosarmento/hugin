@@ -252,11 +252,15 @@ A `DataTable` with columns: status indicator, title, date. Identical in behaviou
 |-----|--------|
 | `i` | Run incoming analysis for selected post (embedding only; no LLM) |
 | `o` | Run outgoing analysis for selected post (embedding + LLM) |
+| `s` | Suggest new post topics based on content gaps (LLM + embedding filter) |
+| `l` | List all links (internal and external) in the selected post for selective removal |
 | `e` | Open engine/model selector (reuse Hugin's widget) |
-| `a` | Apply approved outgoing links and write to file |
-| `Space` | Toggle checkbox in outgoing suggestions |
+| `c` | Clear embedding caches and restart the application |
+| `a` | Apply approved outgoing links / remove checked links (context-dependent) |
+| `Space` | Toggle checkbox in outgoing suggestions or link list |
+| `Delete` / `Backspace` | Strip all internal links from the selected post (hidden, with confirmation) |
 | `q` | Quit |
-| `Escape` | Dismiss any open overlay |
+| `Escape` | Return to browsing / dismiss overlay |
 
 ### Apply with no suggestions
 
@@ -399,7 +403,8 @@ When Munin encounters a raw HTML anchor tag `<a href="/posts/foo/">anchor text</
 
 Process checked suggestions in the order they appear in the list. For each suggestion:
 
-1. Search for the first occurrence of `anchor_text` in the post body that:
+1. Search for the first **whole-word** occurrence of `anchor_text` in the post body that:
+   - Respects word boundaries (the match must not start or end mid-word; e.g. "programação subliminar" must not match inside "re**programação subliminar**")
    - Is not inside a protected zone
    - Is not inside a paragraph that already contains a link (enforcing `max_per_paragraph`)
    - Has not been consumed by a previously applied substitution in this session
@@ -454,6 +459,65 @@ Any LLM call failure (network error, malformed JSON response, timeout) must surf
 
 ---
 
+## List links workflow
+
+Triggered by pressing `l` on a selected post.
+
+1. Scan the post body for **all** Markdown links — both internal (`/path/...`) and external (`https://...`).
+2. Display each link with its anchor text, surrounding context, and target URL.
+3. Each link has a checkbox (unchecked by default). The user checks links to mark them for removal.
+4. Pressing `a` (Apply) removes checked links by replacing `[anchor](url)` with just `anchor`, keeping the text intact.
+
+This is the same Apply button used by the outgoing workflow; the `_review_mode` flag (`"list"` vs `"outgoing"`) determines which action is taken.
+
+---
+
+## Suggest workflow
+
+Triggered by pressing `s` on a selected post.
+
+1. Send the post's title, tags, and description to the LLM with a prompt asking for new post topic suggestions that would complement the existing content.
+2. For each suggested topic, compute its embedding and check cosine similarity against all existing posts.
+3. Topics that are too similar to an existing post (similarity ≥ 0.75) are filtered out — the blog likely already covers them.
+4. Display surviving suggestions with a clipboard-copy action (OSC 52).
+
+No files are modified. This is an informational feature for content planning.
+
+---
+
+## Strip all internal links
+
+Triggered by pressing `Delete` or `Backspace` on a selected post. This is a hidden (unlabeled) destructive action.
+
+1. A confirmation screen appears with focus on "No" to prevent accidental use.
+2. If confirmed, all internal links (URLs starting with `/`) are removed from the post body, replacing `[text](/url)` with `text`.
+3. The file is saved atomically. The embedding cache is updated.
+
+External links are not affected.
+
+---
+
+## Clear caches
+
+Triggered by pressing `c`.
+
+1. A confirmation screen appears.
+2. If confirmed, the embedding cache file for the current blog directory is deleted.
+3. The application exits with code 42, which the CLI interprets as a restart signal. The CLI re-launches the TUI, which rebuilds all embeddings from scratch.
+
+---
+
+## No-outgoing cache
+
+When the outgoing workflow (`o`) runs and finds no viable link suggestions for a post, that post is marked in the embedding cache with a `no_outgoing` flag. On subsequent sessions:
+
+- Posts with this flag display a visual indicator ("no opportunities") in their metadata panel.
+- The flag is cleared automatically when the post's `mtime` changes (i.e. the post is edited).
+
+This prevents wasting time re-analysing posts that have already been evaluated with no results.
+
+---
+
 ## Known limitations (document in README)
 
 The following are intentional limitations, not bugs:
@@ -474,4 +538,4 @@ The following are intentional limitations, not bugs:
 3. **Test the URL inference** against at least three cases: `url` in frontmatter, `slug` in frontmatter, and filename-derived slug with a date prefix.
 4. **Test the Markdown-safe substitution** against posts that contain the anchor phrase inside fenced code blocks, inline code spans, and HTML `<a>` tags — none of these must be touched.
 5. **Generate embeddings in a single batch**, not in a per-file loop.
-6. **Never crash on LLM failure.** Every call to the LLM must be wrapped in error handling that surfaces the problem in the status bar and leaves the application in a usable state.No MunA inserç˜
+6. **Never crash on LLM failure.** Every call to the LLM must be wrapped in error handling that surfaces the problem in the status bar and leaves the application in a usable state.
