@@ -872,11 +872,19 @@ class MuninScreen(Screen):
             self._state = STATE_BROWSING
             self.query_one("#post-table", DataTable).focus()
         elif event.button.id == "btn-copy-suggestions":
-            if hasattr(self, "_suggested_topics") and self._suggested_topics:
+            if self._suggested_topics:
                 text = "\n".join(f"• {t}" for t in self._suggested_topics)
-                import subprocess
-                subprocess.run(["pbcopy"], input=text.encode(), check=True)
+                self._copy_to_clipboard(text)
                 self.notify(f"{len(self._suggested_topics)} topics copied to clipboard")
+
+    @staticmethod
+    def _copy_to_clipboard(text: str) -> None:
+        """Copy text to clipboard using OSC 52 (works on any OS/terminal)."""
+        import base64
+        import sys
+        encoded = base64.b64encode(text.encode()).decode()
+        sys.stdout.write(f"\033]52;c;{encoded}\a")
+        sys.stdout.flush()
 
     def action_navigate(self, index: int) -> None:
         """Navigate to a post by index (triggered by incoming link click)."""
