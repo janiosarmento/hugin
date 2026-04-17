@@ -239,3 +239,93 @@ async def suggest_summary(
             summary = truncated
 
     return summary
+
+
+# --- Link prompts (from Munin) ---
+
+ANCHOR_SYSTEM_PROMPT = """\
+You are a technical blog editor. Your task is to identify natural anchor text within a blog post body that could serve as an internal link to related posts.
+
+Rules:
+- The anchor_text must appear verbatim in the post body.
+- Keep anchors SHORT: 1 to {max_anchor_words} words. Prefer specific technical terms, tool names, or concepts. Never use full sentences or long phrases.
+- Do not suggest anchors inside headings, code blocks, inline code, images, or existing links.
+- Suggest at most one anchor per candidate post.
+- Omit candidates for which no natural anchor exists — do not force one.
+- Return a JSON array and nothing else. No preamble, no markdown fences."""
+
+ANCHOR_USER_TEMPLATE = """\
+Post body:
+{body}
+
+Candidate posts (suggest an anchor for each where natural):
+{candidates_json}
+
+Return format:
+[{{"target_url": "/posts/foo/", "anchor_text": "exact phrase from body"}}]"""
+
+SUGGEST_PROMPT = """\
+You are a blog content strategist. Based on the following blog post, suggest 5 to 10 topics \
+for NEW posts that would complement this one. These should be topics that a reader of this \
+post would naturally want to read next.
+
+RULES:
+- Each suggestion should be a specific, actionable post title
+- Titles must be in the same language as the post content
+- Be specific — not "more about X" but a concrete angle or question
+- Return a JSON array of strings, nothing else
+
+POST TITLE: {title}
+
+POST CONTENT:
+{content}
+
+Return format: ["Post title 1", "Post title 2", ...]"""
+
+RETRY_PROMPT = """\
+The phrase '{anchor_text}' does not appear verbatim in the post body.
+Choose a phrase from the body that exists exactly as written and would
+naturally link to: {title} ({url})
+
+Post body:
+{body}"""
+
+
+def parse_anchor_response(text: str) -> list[dict]:
+    """Parse LLM response into list of anchor suggestions."""
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*\n?", "", text)
+    text = re.sub(r"\n?```\s*$", "", text)
+    text = text.strip()
+
+    start = text.find("[")
+    end = text.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        try:
+            result = json.loads(text[start:end + 1])
+            if isinstance(result, list):
+                return result
+        except json.JSONDecodeError:
+            pass
+
+    return []
+
+
+def parse_suggestions(text: str) -> list[str]:
+    """Parse LLM response into list of topic suggestions."""
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*\n?", "", text)
+    text = re.sub(r"\n?```\s*$", "", text)
+    text = text.strip()
+
+    start = text.find("[")
+    end = text.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        try:
+            result = json.loads(text[start:end + 1])
+            if isinstance(result, list):
+                return [str(item) for item in result]
+        except json.JSONDecodeError:
+            pass
+
+    return []

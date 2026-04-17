@@ -40,6 +40,56 @@ class TestParseResponse:
         assert parse_response(text) == ["a", "b"]
 
 
+from hugin.llm import parse_anchor_response, parse_suggestions
+
+
+class TestParseAnchorResponse:
+    def test_clean_json(self):
+        text = '[{"target_url": "/posts/foo/", "anchor_text": "foo bar"}]'
+        result = parse_anchor_response(text)
+        assert len(result) == 1
+        assert result[0]["target_url"] == "/posts/foo/"
+        assert result[0]["anchor_text"] == "foo bar"
+
+    def test_with_code_fences(self):
+        text = '```json\n[{"target_url": "/posts/foo/", "anchor_text": "foo"}]\n```'
+        result = parse_anchor_response(text)
+        assert len(result) == 1
+
+    def test_with_preamble(self):
+        text = 'Here are the results:\n[{"target_url": "/x/", "anchor_text": "x"}]'
+        result = parse_anchor_response(text)
+        assert len(result) == 1
+
+    def test_empty_array(self):
+        result = parse_anchor_response("[]")
+        assert result == []
+
+    def test_invalid_json(self):
+        result = parse_anchor_response("not json at all")
+        assert result == []
+
+
+class TestParseSuggestions:
+    def test_clean_json(self):
+        text = '["Post about X", "Post about Y"]'
+        result = parse_suggestions(text)
+        assert result == ["Post about X", "Post about Y"]
+
+    def test_with_code_fences(self):
+        text = '```json\n["A", "B", "C"]\n```'
+        result = parse_suggestions(text)
+        assert result == ["A", "B", "C"]
+
+    def test_invalid_json(self):
+        result = parse_suggestions("no json here")
+        assert result == []
+
+    def test_empty_array(self):
+        result = parse_suggestions("[]")
+        assert result == []
+
+
 class TestBuildPrompt:
     def test_includes_pool(self):
         prompt = build_prompt({}, "content", "linux (5), docker (3)")
