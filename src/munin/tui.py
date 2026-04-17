@@ -567,6 +567,7 @@ class MuninScreen(Screen):
         self._state = STATE_LOADING
         post = self.posts[self.current_index]
         self._clear_panels()
+        self.query_one("#suggest-header", Label).update("Querying LLM...")
         self._start_spinner(self.current_index)
         self._run_suggest(post)
 
