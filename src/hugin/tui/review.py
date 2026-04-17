@@ -139,6 +139,56 @@ class ConfirmClearScreen(ModalScreen[bool]):
         self.dismiss(False)
 
 
+class LoadingScreen(ModalScreen):
+    """Non-interactive modal with animated spinner and status message."""
+
+    DEFAULT_CSS = """
+    LoadingScreen {
+        align: center middle;
+    }
+
+    #loading-box {
+        width: 46;
+        height: 5;
+        border: round $accent;
+        background: $surface;
+        padding: 1 2;
+        content-align: center middle;
+    }
+
+    #loading-label {
+        width: 100%;
+        content-align: center middle;
+        text-style: bold;
+    }
+    """
+
+    def __init__(self, message: str = "Processing...") -> None:
+        super().__init__()
+        self._message = message
+        self._frame = 0
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="loading-box"):
+            yield Static(
+                f"{SPINNER_FRAMES[0]}  {self._message}",
+                id="loading-label",
+            )
+
+    def on_mount(self) -> None:
+        self._timer = self.set_interval(0.08, self._tick)
+
+    def _tick(self) -> None:
+        self._frame += 1
+        char = SPINNER_FRAMES[self._frame % len(SPINNER_FRAMES)]
+        try:
+            self.query_one("#loading-label", Static).update(
+                f"{char}  {self._message}"
+            )
+        except Exception:
+            pass
+
+
 class HuginScreen(Screen):
     """Unified screen: tags, summaries, links, editor."""
 
@@ -236,15 +286,6 @@ class HuginScreen(Screen):
         display: none;
     }
 
-    #loading-overlay {
-        dock: bottom;
-        width: 100%;
-        height: 3;
-        content-align: center middle;
-        background: $boost;
-        border-top: solid $accent;
-        text-style: bold;
-    }
     """
 
     BANNER = """\
@@ -293,7 +334,7 @@ class HuginScreen(Screen):
         self._suggested_topics: list[str] = []
         self._incoming_index: dict[str, int] = {}
         self._session_outgoing: dict[str, list[dict]] = {}
-        self._loading_message = ""
+        self._loading_screen: LoadingScreen | None = None
 
     def compose(self) -> ComposeResult:
         yield Static(self.BANNER, id="banner")
@@ -317,8 +358,6 @@ class HuginScreen(Screen):
                 with Horizontal(id="review-buttons", classes="hidden"):
                     yield Button("Apply", id="btn-apply", variant="primary")
                     yield Button("Skip", id="btn-skip")
-
-        yield Static("", id="loading-overlay", classes="hidden")
 
         yield Footer()
 
@@ -360,22 +399,12 @@ class HuginScreen(Screen):
             char = SPINNER_FRAMES[self._spinner_frame % len(SPINNER_FRAMES)]
             table = self.query_one("#post-table", DataTable)
             table.update_cell(self._row_keys[self._spinning_row], "status", char)
-            try:
-                overlay = self.query_one("#loading-overlay", Static)
-                overlay.update(f"{char}  {self._loading_message}")
-            except Exception:
-                pass
 
     def _start_spinner(self, index: int, message: str = "Processing...") -> None:
         self._spinning_row = index
         self._spinner_frame = 0
-        self._loading_message = message
-        try:
-            overlay = self.query_one("#loading-overlay", Static)
-            overlay.update(f"{SPINNER_FRAMES[0]}  {message}")
-            overlay.remove_class("hidden")
-        except Exception:
-            pass
+        self._loading_screen = LoadingScreen(message)
+        self.app.push_screen(self._loading_screen)
 
     def _stop_spinner(self, done: bool = False) -> None:
         if self._spinning_row is not None:
@@ -386,10 +415,12 @@ class HuginScreen(Screen):
             else:
                 table.update_cell(self._row_keys[self._spinning_row], "status", " ")
             self._spinning_row = None
-        try:
-            self.query_one("#loading-overlay").add_class("hidden")
-        except Exception:
-            pass
+        if self._loading_screen is not None:
+            try:
+                self._loading_screen.dismiss()
+            except Exception:
+                pass
+            self._loading_screen = None
 
     def _mark_table_row(self, index: int, symbol: str) -> None:
         table = self.query_one("#post-table", DataTable)
