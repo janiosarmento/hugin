@@ -160,11 +160,13 @@ class EmbeddingIndex:
         # Update cache
         for (post, abs_path, mtime), embedding in zip(stale, embeddings):
             url = url_fn(post.metadata, post.filename)
+            old_entry = cached.get(abs_path, {})
             cached[abs_path] = {
                 "mtime": mtime,
                 "url": url,
                 "title": post.metadata.get("title", post.filename),
                 "embedding": embedding.tolist(),
+                "no_outgoing": old_entry.get("no_outgoing", False),
             }
 
         self._save_cache()
@@ -205,11 +207,13 @@ class EmbeddingIndex:
         # crash inside Textual on Python 3.14
         embedding = self._encode_single(text)
 
+        old_entry = self._cache["posts"].get(abs_path, {})
         self._cache["posts"][abs_path] = {
             "mtime": mtime,
             "url": url_fn(post.metadata, post.filename),
             "title": post.metadata.get("title", post.filename),
             "embedding": embedding.tolist(),
+            "no_outgoing": old_entry.get("no_outgoing", False),
         }
         self._save_cache()
 
