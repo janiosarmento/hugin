@@ -132,24 +132,11 @@ async def suggest_tags(
 
 
 SUMMARY_PROMPT_TEMPLATE = """\
-You are a sharp, opinionated tech blogger writing a meta description for one of your own posts.
+Write a meta description for this blog post. {language} only. 10-15 words, one sentence, no quotes.
 
-CRITICAL: Write ONLY in {language}. No other language.
+NO "Descubra", "Aprenda", "Saiba", "Discover", "Learn". Be direct and specific.
 
-STYLE:
-- Write as if you're telling a friend what the post is about — direct, natural, with personality
-- Vary your sentence structures — don't start every summary the same way
-- NEVER use "Descubra como", "Aprenda como", "Saiba como", "Discover how", "Learn how" or similar formulaic openings
-- NEVER use clickbait or generic marketing language
-- Be specific about what makes this post interesting or unique
-- A good summary states what the post covers and hints at why it matters
-
-FORMAT:
-- Between 20 and 25 words — this is the target length
-- One or two sentences maximum
-- Plain text only, no quotes, no explanation
-
-{current_desc}POST CONTENT:
+{current_desc}POST:
 {content}"""
 
 
@@ -196,13 +183,12 @@ def parse_summary_response(text: str) -> str:
 
 
 SHORTEN_PROMPT = """\
-This summary has {word_count} words. Rewrite it with at most {max_words} words. \
-Keep the same language ({language}). Keep the meaning. Respond with ONLY the shortened text.
+Rewrite in at most {max_words} words. {language}. Only the text, nothing else.
 
 {summary}"""
 
-MAX_SUMMARY_CHARS = 160
-MAX_SUMMARY_WORDS = 25
+MAX_SUMMARY_CHARS = 100
+MAX_SUMMARY_WORDS = 15
 MAX_SHORTEN_RETRIES = 1
 
 
