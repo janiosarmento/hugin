@@ -343,7 +343,7 @@ class HuginScreen(Screen):
     def _words_per_link(self) -> int:
         """Effective words-per-link: project override or global default."""
         wpl = self._project.links.words_per_link
-        return wpl if wpl > 0 else self._words_per_link
+        return wpl if wpl > 0 else self.config.links.words_per_link
 
     def compose(self) -> ComposeResult:
         yield Static(self.BANNER, id="banner")
