@@ -81,6 +81,14 @@ class ProjectSettingsScreen(ModalScreen[bool]):
                 id="input-style",
             )
 
+            yield Label("Words per link", classes="field-label")
+            yield Static("1 link per N words (0 = use global default)", classes="field-hint")
+            yield Input(
+                value=str(self._config.links.words_per_link),
+                id="input-words-per-link",
+                type="integer",
+            )
+
             with Horizontal(id="settings-buttons"):
                 yield Button("Save", id="btn-save-settings", variant="primary")
                 yield Button("Cancel", id="btn-cancel-settings")
@@ -94,6 +102,7 @@ class ProjectSettingsScreen(ModalScreen[bool]):
     def _do_save(self) -> None:
         words_str = self.query_one("#input-words", Input).value.strip()
         style = self.query_one("#input-style", Input).value.strip()
+        wpl_str = self.query_one("#input-words-per-link", Input).value.strip()
 
         try:
             words = int(words_str)
@@ -104,8 +113,16 @@ class ProjectSettingsScreen(ModalScreen[bool]):
         except ValueError:
             words = self._config.summary.words
 
+        try:
+            wpl = int(wpl_str)
+            if wpl < 0:
+                wpl = 0
+        except ValueError:
+            wpl = self._config.links.words_per_link
+
         self._config.summary.words = words
         self._config.summary.style = style or self._config.summary.style
+        self._config.links.words_per_link = wpl
 
         save_project(self._directory, self._config)
         self.dismiss(True)

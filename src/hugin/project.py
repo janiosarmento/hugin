@@ -19,8 +19,14 @@ class SummarySettings:
 
 
 @dataclass
+class LinksSettings:
+    words_per_link: int = 0  # 0 = use global default
+
+
+@dataclass
 class ProjectConfig:
     summary: SummarySettings = field(default_factory=SummarySettings)
+    links: LinksSettings = field(default_factory=LinksSettings)
 
 
 def _project_path(directory: Path) -> Path:
@@ -37,10 +43,14 @@ def load_project(directory: Path) -> ProjectConfig:
         data = tomllib.load(f)
 
     summary_data = data.get("summary", {})
+    links_data = data.get("links", {})
     return ProjectConfig(
         summary=SummarySettings(
             words=summary_data.get("words", 25),
             style=summary_data.get("style", DEFAULT_SUMMARY_STYLE),
+        ),
+        links=LinksSettings(
+            words_per_link=links_data.get("words_per_link", 0),
         ),
     )
 
@@ -53,6 +63,9 @@ def save_project(directory: Path, config: ProjectConfig) -> None:
         "[summary]",
         f"words = {config.summary.words}",
         f'style = "{config.summary.style}"',
+        "",
+        "[links]",
+        f"words_per_link = {config.links.words_per_link}  # 0 = use global default",
         "",
     ]
     path.write_text("\n".join(lines))

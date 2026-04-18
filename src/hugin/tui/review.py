@@ -339,6 +339,12 @@ class HuginScreen(Screen):
         self._loading_screen: LoadingScreen | None = None
         self._project = load_project(directory)
 
+    @property
+    def _words_per_link(self) -> int:
+        """Effective words-per-link: project override or global default."""
+        wpl = self._project.links.words_per_link
+        return wpl if wpl > 0 else self._words_per_link
+
     def compose(self) -> ComposeResult:
         yield Static(self.BANNER, id="banner")
 
@@ -529,7 +535,7 @@ class HuginScreen(Screen):
         word_count = len(post.content.split())
         budget = min(
             self.config.links.max_per_post,
-            math.floor(word_count / self.config.links.words_per_link),
+            math.floor(word_count / self._words_per_link),
         )
         post_url = self.index.get_post_url(post)
         incoming_count = self._incoming_index.get(post_url, 0) if post_url else 0
@@ -847,7 +853,7 @@ class HuginScreen(Screen):
         word_count = len(post.content.split())
         budget = min(
             self.config.links.max_per_post,
-            math.floor(word_count / self.config.links.words_per_link),
+            math.floor(word_count / self._words_per_link),
         )
 
         if budget == 0:
