@@ -857,6 +857,8 @@ class HuginScreen(Screen):
         )
 
         if budget == 0:
+            self.index.mark_no_outgoing(post)
+            self._mark_table_row(self.current_index, "—")
             self.notify("Post too short for link suggestions under current policy.")
             return
 
@@ -879,6 +881,8 @@ class HuginScreen(Screen):
             if not candidates:
                 self._stop_spinner()
                 self._state = STATE_BROWSING
+                self.index.mark_no_outgoing(post)
+                self._mark_table_row(self.current_index, "—")
                 self.notify("No similar posts found.")
                 self.query_one("#section-header", Label).update("")
                 return
