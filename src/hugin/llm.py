@@ -187,7 +187,7 @@ Rewrite in at most {max_words} words. {language}. Only the text, nothing else.
 
 {summary}"""
 
-MAX_SUMMARY_CHARS = 100
+MAX_SUMMARY_CHARS = 160
 MAX_SUMMARY_WORDS = 15
 MAX_SHORTEN_RETRIES = 1
 
@@ -215,11 +215,11 @@ async def suggest_summary(
         summary = parse_summary_response(response_text)
         word_count = len(summary.split())
 
-    # Hard truncate by chars as last resort
+    # Hard truncate at last word boundary as last resort
     if len(summary) > MAX_SUMMARY_CHARS:
         truncated = summary[:MAX_SUMMARY_CHARS]
         last_space = truncated.rfind(" ")
-        if last_space > 100:
+        if last_space > 0:
             summary = truncated[:last_space]
         else:
             summary = truncated
