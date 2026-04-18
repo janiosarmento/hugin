@@ -1204,13 +1204,8 @@ class HuginScreen(Screen):
         container.mount(Button("Copy to clipboard", id="btn-copy-suggestions"))
         self.notify(f"{len(novel)} new topic ideas")
 
-    @staticmethod
-    def _copy_to_clipboard(text: str) -> None:
-        import base64
-        import sys
-        encoded = base64.b64encode(text.encode()).decode()
-        sys.stdout.write(f"\033]52;c;{encoded}\a")
-        sys.stdout.flush()
+    def _copy_to_clipboard(self, text: str) -> None:
+        self.app.copy_to_clipboard(text)
 
     # === EDITOR ===
 
