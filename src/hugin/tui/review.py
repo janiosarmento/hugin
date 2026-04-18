@@ -279,6 +279,11 @@ class HuginScreen(Screen):
         margin-top: 1;
     }
 
+    #btn-copy-post {
+        margin-top: 1;
+        margin-bottom: 1;
+    }
+
     #review-buttons {
         height: auto;
         margin-top: 1;
@@ -357,6 +362,7 @@ class HuginScreen(Screen):
                 yield Static("", id="engine-label")
                 yield Label(id="progress-label")
                 yield Static("", id="post-meta")
+                yield Button("Copy .md to clipboard", id="btn-copy-post")
                 yield Label("", classes="section-label", id="section-header")
                 yield Vertical(id="suggested-tags-container")
                 yield Input(
@@ -1313,6 +1319,11 @@ class HuginScreen(Screen):
                 text = "\n".join(f"• {t}" for t in self._suggested_topics)
                 self._copy_to_clipboard(text)
                 self.notify(f"{len(self._suggested_topics)} topics copied to clipboard")
+        elif event.button.id == "btn-copy-post":
+            post = self.posts[self.current_index]
+            text = post.path.read_text()
+            self._copy_to_clipboard(text)
+            self.notify(f"{post.filename} copied to clipboard")
 
     # === ERROR HANDLING ===
 
