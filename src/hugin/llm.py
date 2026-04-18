@@ -132,7 +132,7 @@ async def suggest_tags(
 
 
 SUMMARY_PROMPT_TEMPLATE = """\
-Write a meta description for this blog post. {language} only. 10-15 words, one sentence, no quotes.
+Write a meta description for this blog post. {language} only. 15-20 words, one sentence, no quotes.
 
 NO "Descubra", "Aprenda", "Saiba", "Discover", "Learn". Be direct and specific.
 
@@ -188,7 +188,7 @@ Rewrite in at most {max_words} words. {language}. Only the text, nothing else.
 {summary}"""
 
 MAX_SUMMARY_CHARS = 160
-MAX_SUMMARY_WORDS = 15
+MAX_SUMMARY_WORDS = 20
 MAX_SHORTEN_RETRIES = 1
 
 
