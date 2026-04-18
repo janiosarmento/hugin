@@ -104,11 +104,14 @@ class EmbeddingIndex:
 
         cached = self._cache["posts"]
 
+        # Filter out drafts — they should not be in the embedding index
+        published = [p for p in posts if not p.metadata.get("draft")]
+
         # Determine which posts need (re)embedding
         stale = []
         current_paths = set()
 
-        for post in posts:
+        for post in published:
             abs_path = str(post.path.resolve())
             current_paths.add(abs_path)
             mtime = os.path.getmtime(post.path)
@@ -119,14 +122,14 @@ class EmbeddingIndex:
 
             stale.append((post, abs_path, mtime))
 
-        # Prune deleted posts
+        # Prune deleted posts and drafts
         for old_path in list(cached.keys()):
             if old_path not in current_paths:
                 del cached[old_path]
 
         # Re-resolve URLs for all cached entries (catches Hugo config changes)
         urls_updated = 0
-        posts_by_path = {str(p.path.resolve()): p for p in posts}
+        posts_by_path = {str(p.path.resolve()): p for p in published}
         for path_key, entry in cached.items():
             post_obj = posts_by_path.get(path_key)
             if post_obj:
