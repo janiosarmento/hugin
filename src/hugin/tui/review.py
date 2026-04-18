@@ -51,7 +51,7 @@ from hugin.llm import (
 )
 from hugin.normalizer import normalize_tag, normalize_tags, strip_accents
 from hugin.scanner import Post, format_pool_for_prompt
-from hugin.state import mark_processed, save_state
+from hugin.state import mark_processed, save_state, get_last_post, set_last_post
 from hugin.writer import write_summary, write_tags
 
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -380,6 +380,16 @@ class HuginScreen(Screen):
         self._spinner_timer = self.set_interval(0.08, self._tick_spinner)
         self._build_incoming_index()
         self._update_engine_label()
+
+        # Restore last selected post
+        last = get_last_post(self.state)
+        if last:
+            for i, post in enumerate(self.posts):
+                if post.filename == last:
+                    self.current_index = i
+                    table.move_cursor(row=i)
+                    break
+
         self._update_detail_panel()
 
     # --- Incoming index ---
@@ -1308,4 +1318,7 @@ class HuginScreen(Screen):
     def action_quit(self) -> None:
         if self._spinner_timer:
             self._spinner_timer.stop()
+        post = self.posts[self.current_index]
+        set_last_post(self.state, post.filename)
+        save_state(self.directory, self.state)
         self.app.exit()

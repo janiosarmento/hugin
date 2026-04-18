@@ -40,3 +40,11 @@ def get_last_processed(state: dict, filename: str) -> datetime | None:
     if entry is None:
         return None
     return datetime.fromisoformat(entry["last_processed"])
+
+
+def get_last_post(state: dict) -> str | None:
+    return state.get("last_post")
+
+
+def set_last_post(state: dict, filename: str) -> None:
+    state["last_post"] = filename
