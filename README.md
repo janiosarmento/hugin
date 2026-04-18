@@ -81,7 +81,7 @@ The LLM receives the post content and existing tag pool, and suggests tags and s
 
 ### Internal Links
 
-1. **Embeddings** (local, no LLM) — On first run, Hugin downloads a multilingual sentence-transformers model (~400 MB, one time) and builds an embedding index of all posts using title + tags + description. The index is cached in `~/.hugin/embeddings/`.
+1. **Embeddings** (local, no LLM) — On first run, Hugin downloads a multilingual sentence-transformers model (~400 MB, one time) and builds an embedding index of all posts using title + tags + description. The index is cached in `~/.hugin/embeddings/`. Draft posts are excluded from the index — if a published post is changed to draft, it is automatically removed from the cache on the next run.
 
 2. **Incoming (`i`)** — Pure cosine similarity search. Shows which posts are most related to the selected one. Clickable links navigate to the post in the list.
 
