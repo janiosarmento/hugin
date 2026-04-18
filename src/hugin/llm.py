@@ -217,10 +217,10 @@ async def suggest_summary(
 
     word_count = len(summary.split())
     for _ in range(MAX_SHORTEN_RETRIES):
-        if word_count <= MAX_SUMMARY_WORDS and len(summary) <= MAX_SUMMARY_CHARS:
+        if word_count <= words and len(summary) <= MAX_SUMMARY_CHARS:
             break
         shorten_prompt = SHORTEN_PROMPT.format(
-            word_count=word_count, max_words=MAX_SUMMARY_WORDS,
+            max_words=words,
             language=language, summary=summary,
         )
         response_text = await call_llm(engine, shorten_prompt)
