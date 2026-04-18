@@ -17,6 +17,7 @@ In Norse mythology, **Hugin** (*huginn*, "thought") is one of Odin's two ravens 
 - **Topic suggestions** — LLM suggests new post ideas that complement the current one, filtered by semantic similarity to avoid duplicates.
 - **Built-in editor** — Edit frontmatter fields and post body directly in the TUI, with atomic saves.
 - **Tag management** — Audit, rename, merge, and delete tags across your entire blog.
+- **Copy to clipboard** — One-click button to copy the full `.md` file (frontmatter + body) to the clipboard.
 - **Human in the loop** — Every suggestion goes through a TUI review before touching your files.
 
 ---
