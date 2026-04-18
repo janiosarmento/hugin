@@ -57,10 +57,11 @@ class ProjectSettingsScreen(ModalScreen[bool]):
     }
     """
 
-    def __init__(self, config: ProjectConfig, directory: Path) -> None:
+    def __init__(self, config: ProjectConfig, directory: Path, global_words_per_link: int = 300) -> None:
         super().__init__()
         self._config = config
         self._directory = directory
+        self._global_wpl = global_words_per_link
 
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-modal"):
@@ -82,7 +83,7 @@ class ProjectSettingsScreen(ModalScreen[bool]):
             )
 
             yield Label("Words per link", classes="field-label")
-            yield Static("1 link per N words (0 = use global default)", classes="field-hint")
+            yield Static(f"1 link per N words (0 = use global default: {self._global_wpl})", classes="field-hint")
             yield Input(
                 value=str(self._config.links.words_per_link),
                 id="input-words-per-link",

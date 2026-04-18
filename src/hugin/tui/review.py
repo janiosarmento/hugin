@@ -1271,7 +1271,7 @@ class HuginScreen(Screen):
                 self.notify("Project settings saved")
 
         self.app.push_screen(
-            ProjectSettingsScreen(self._project, self.directory),
+            ProjectSettingsScreen(self._project, self.directory, self.config.links.words_per_link),
             on_return,
         )
 
