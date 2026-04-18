@@ -124,7 +124,25 @@ class EmbeddingIndex:
             if old_path not in current_paths:
                 del cached[old_path]
 
+        # Re-resolve URLs for all cached entries (catches Hugo config changes)
+        urls_updated = 0
+        posts_by_path = {str(p.path.resolve()): p for p in posts}
+        for path_key, entry in cached.items():
+            post_obj = posts_by_path.get(path_key)
+            if post_obj:
+                fresh_url = url_fn(post_obj.metadata, post_obj.filename)
+                if entry["url"] != fresh_url:
+                    entry["url"] = fresh_url
+                    urls_updated += 1
+                # Also refresh title in case it changed without mtime change
+                fresh_title = post_obj.metadata.get("title", post_obj.filename)
+                if entry.get("title") != fresh_title:
+                    entry["title"] = fresh_title
+
         if not stale:
+            if urls_updated:
+                self._save_cache()
+                print_fn(f"URLs updated for {urls_updated} posts.")
             print_fn(f"Embeddings up to date ({len(cached)} posts cached).")
             return
 
@@ -240,6 +258,8 @@ class EmbeddingIndex:
             if other_path == abs_path:
                 continue
             if entry["url"] in exclude_urls:
+                continue
+            if not Path(other_path).exists():
                 continue
 
             other_vec = np.array(entry["embedding"])
