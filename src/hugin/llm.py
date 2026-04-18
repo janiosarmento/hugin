@@ -131,10 +131,14 @@ async def suggest_tags(
     return parse_response(response_text)
 
 
-SUMMARY_PROMPT_TEMPLATE = """\
-Write a meta description for this blog post. {language} only. 20-25 words, one sentence, no quotes.
+MAX_SUMMARY_CHARS = 160
+MAX_SUMMARY_WORDS = 25
+MAX_SHORTEN_RETRIES = 1
 
-NO "Descubra", "Aprenda", "Saiba", "Discover", "Learn". Be direct and specific.
+SUMMARY_PROMPT_TEMPLATE = """\
+Write a meta description for this blog post. {language} only. {words_range} words, one sentence, no quotes.
+
+NO "Descubra", "Aprenda", "Saiba", "Discover", "Learn". {style}
 
 {current_desc}POST:
 {content}"""
@@ -155,7 +159,12 @@ def _detect_language(content: str) -> str:
     return max(scores, key=scores.get) if max(scores.values()) > 0 else "English"
 
 
-def build_summary_prompt(metadata: dict, content: str) -> str:
+def build_summary_prompt(
+    metadata: dict,
+    content: str,
+    words: int = MAX_SUMMARY_WORDS,
+    style: str = "Be direct and specific.",
+) -> str:
     if _estimate_tokens(content) > MAX_TOKENS_CONTENT:
         content = _truncate_post(metadata, content)
 
@@ -167,8 +176,12 @@ def build_summary_prompt(metadata: dict, content: str) -> str:
     else:
         current_desc = ""
 
+    low = max(words - 5, 5)
+    words_range = f"{low}-{words}"
+
     return SUMMARY_PROMPT_TEMPLATE.format(
         language=language, current_desc=current_desc, content=content,
+        words_range=words_range, style=style,
     )
 
 
@@ -187,17 +200,16 @@ Rewrite in at most {max_words} words. {language}. Only the text, nothing else.
 
 {summary}"""
 
-MAX_SUMMARY_CHARS = 160
-MAX_SUMMARY_WORDS = 25
-MAX_SHORTEN_RETRIES = 1
 
 
 async def suggest_summary(
     engine: Engine,
     metadata: dict,
     content: str,
+    words: int = MAX_SUMMARY_WORDS,
+    style: str = "Be direct and specific.",
 ) -> str:
-    prompt = build_summary_prompt(metadata, content)
+    prompt = build_summary_prompt(metadata, content, words=words, style=style)
     response_text = await call_llm(engine, prompt)
     summary = parse_summary_response(response_text)
 

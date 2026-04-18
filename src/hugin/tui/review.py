@@ -51,6 +51,7 @@ from hugin.llm import (
 )
 from hugin.normalizer import normalize_tag, normalize_tags, strip_accents
 from hugin.scanner import Post, format_pool_for_prompt
+from hugin.project import ProjectConfig, load_project
 from hugin.state import mark_processed, save_state, get_last_post, set_last_post
 from hugin.writer import write_summary, write_tags
 
@@ -204,6 +205,7 @@ class HuginScreen(Screen):
         ("n", "pick_engine", "Engine"),
         ("m", "manage_tags", "Manage"),
         ("c", "clear_caches", "Clear"),
+        ("p", "project_settings", "Project"),
         ("escape", "back", "Back"),
     ]
 
@@ -335,6 +337,7 @@ class HuginScreen(Screen):
         self._incoming_index: dict[str, int] = {}
         self._session_outgoing: dict[str, list[dict]] = {}
         self._loading_screen: LoadingScreen | None = None
+        self._project = load_project(directory)
 
     def compose(self) -> ComposeResult:
         yield Static(self.BANNER, id="banner")
@@ -725,6 +728,8 @@ class HuginScreen(Screen):
         try:
             summary = await suggest_summary(
                 self.engine, post.metadata, post.content,
+                words=self._project.summary.words,
+                style=self._project.summary.style,
             )
             self._display_summary(summary)
         except Exception as e:
@@ -1244,6 +1249,23 @@ class HuginScreen(Screen):
                 pool=self.pool,
                 directory=self.directory,
             ),
+            on_return,
+        )
+
+    # === PROJECT SETTINGS ===
+
+    def action_project_settings(self) -> None:
+        if self._state != STATE_BROWSING:
+            return
+
+        from hugin.tui.project_settings import ProjectSettingsScreen
+
+        def on_return(saved: bool) -> None:
+            if saved:
+                self.notify("Project settings saved")
+
+        self.app.push_screen(
+            ProjectSettingsScreen(self._project, self.directory),
             on_return,
         )
 
