@@ -19,8 +19,15 @@ def _cache_path(posts_dir: Path) -> Path:
     return EMBEDDINGS_DIR / f"{dir_hash}.json"
 
 
-def _build_text(metadata: dict, summary_field: str) -> str:
-    """Build the text to embed for a post."""
+MAX_EMBED_CHARS = 400  # ~100 tokens, safe for 128-token models
+
+
+def _build_text(metadata: dict, summary_field: str, content: str = "") -> str:
+    """Build the text to embed for a post.
+
+    Priority: title > tags > headings > first paragraph.
+    Truncated to MAX_EMBED_CHARS to stay within model token limits.
+    """
     parts = []
     title = metadata.get("title", "")
     if title:
@@ -30,11 +37,33 @@ def _build_text(metadata: dict, summary_field: str) -> str:
     if tags:
         parts.append(" ".join(str(t) for t in tags))
 
-    summary = metadata.get(summary_field, "")
-    if summary:
-        parts.append(str(summary))
+    if content:
+        # Extract headings
+        headings = [
+            line.lstrip("#").strip()
+            for line in content.splitlines()
+            if line.startswith("#")
+        ]
+        if headings:
+            parts.append(" ".join(headings))
 
-    return " ".join(parts)
+        # First paragraph (non-empty, non-heading line block)
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                parts.append(stripped)
+                break
+
+    text = " ".join(parts)
+    if len(text) > MAX_EMBED_CHARS:
+        # Truncate at last word boundary
+        truncated = text[:MAX_EMBED_CHARS]
+        last_space = truncated.rfind(" ")
+        if last_space > 0:
+            text = truncated[:last_space]
+        else:
+            text = truncated
+    return text
 
 
 class EmbeddingIndex:
@@ -153,7 +182,7 @@ class EmbeddingIndex:
         print_fn(f"Building embeddings for {len(stale)} posts...")
         texts = []
         for i, (post, abs_path, mtime) in enumerate(stale):
-            text = _build_text(post.metadata, self.summary_field)
+            text = _build_text(post.metadata, self.summary_field, post.content)
             texts.append(text)
             if (i + 1) % 50 == 0 or i == len(stale) - 1:
                 print_fn(f"  [{i + 1}/{len(stale)}] {post.filename}")
@@ -204,7 +233,7 @@ class EmbeddingIndex:
 
         abs_path = str(post.path.resolve())
         mtime = os.path.getmtime(post.path)
-        text = _build_text(post.metadata, self.summary_field)
+        text = _build_text(post.metadata, self.summary_field, post.content)
 
         # Compute embedding using numpy directly to avoid tqdm/multiprocessing
         # crash inside Textual on Python 3.14
