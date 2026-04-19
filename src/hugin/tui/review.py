@@ -199,6 +199,7 @@ class HuginScreen(Screen):
         ("i", "incoming", "Incoming"),
         ("o", "outgoing", "Outgoing"),
         ("l", "list_links", "List"),
+        ("b", "broken_links", "Broken"),
         ("u", "suggest", "Suggest"),
         ("e", "editor", "Editor"),
         ("n", "pick_engine", "Engine"),
@@ -1098,6 +1099,22 @@ class HuginScreen(Screen):
         self._update_detail_panel()
         self.query_one("#post-table", DataTable).focus()
         self.notify(f"{post.filename}: {removed} links removed")
+
+    def action_broken_links(self) -> None:
+        if self._state != STATE_BROWSING:
+            return
+
+        from hugin.tui.broken_links import BrokenLinksScreen
+
+        def on_return(changed: bool) -> None:
+            if changed:
+                self._build_incoming_index()
+                self._update_detail_panel()
+
+        self.app.push_screen(
+            BrokenLinksScreen(all_posts=self.all_posts, site=self.site),
+            on_return,
+        )
 
     # === SUGGEST TOPICS ===
 
