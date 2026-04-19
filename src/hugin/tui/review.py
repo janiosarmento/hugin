@@ -10,7 +10,6 @@ from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
-from textual.timer import Timer
 from textual.widgets import (
     Button,
     Checkbox,
@@ -331,10 +330,8 @@ class HuginScreen(Screen):
         self._outgoing_checkboxes: list[Checkbox] = []
         self._listed_links: list[dict] = []
         self._row_keys: list[str] = []
-        self._spinner_frame = 0
         self._spinning_row: int | None = None
         self._done_rows: set[int] = set()
-        self._spinner_timer: Timer | None = None
         self._state = STATE_BROWSING
         self._mode = ""
         self._suggested_summary = ""
@@ -392,7 +389,6 @@ class HuginScreen(Screen):
             table.add_row(status, cell, key=f"post-{i}")
             self._row_keys.append(f"post-{i}")
 
-        self._spinner_timer = self.set_interval(0.08, self._tick_spinner)
         self._build_incoming_index()
         self._update_engine_label()
 
@@ -416,30 +412,19 @@ class HuginScreen(Screen):
                 counts[url] = counts.get(url, 0) + 1
         self._incoming_index = counts
 
-    # --- Spinner & loading overlay ---
-
-    def _tick_spinner(self) -> None:
-        if self._spinning_row is not None:
-            self._spinner_frame += 1
-            char = SPINNER_FRAMES[self._spinner_frame % len(SPINNER_FRAMES)]
-            table = self.query_one("#post-table", DataTable)
-            table.update_cell(self._row_keys[self._spinning_row], "status", char)
+    # --- Loading overlay ---
 
     def _start_spinner(self, index: int, message: str = "Processing...") -> None:
         self._spinning_row = index
-        self._spinner_frame = 0
         self._loading_screen = LoadingScreen(message)
         self.app.push_screen(self._loading_screen)
 
     def _stop_spinner(self, done: bool = False) -> None:
-        if self._spinning_row is not None:
+        if self._spinning_row is not None and done:
             table = self.query_one("#post-table", DataTable)
-            if done:
-                table.update_cell(self._row_keys[self._spinning_row], "status", "✓")
-                self._done_rows.add(self._spinning_row)
-            else:
-                table.update_cell(self._row_keys[self._spinning_row], "status", " ")
-            self._spinning_row = None
+            table.update_cell(self._row_keys[self._spinning_row], "status", "✓")
+            self._done_rows.add(self._spinning_row)
+        self._spinning_row = None
         if self._loading_screen is not None:
             try:
                 self._loading_screen.dismiss()
@@ -1354,8 +1339,6 @@ class HuginScreen(Screen):
             self._update_detail_panel()
 
     def action_quit(self) -> None:
-        if self._spinner_timer:
-            self._spinner_timer.stop()
         post = self.posts[self.current_index]
         set_last_post(self.state, post.filename)
         save_state(self.directory, self.state)
