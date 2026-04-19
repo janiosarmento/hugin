@@ -1,13 +1,21 @@
 """Markdown-safe anchor detection, substitution, and link application."""
 
+from __future__ import annotations
+
 import os
 import re
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import frontmatter
 from markdown_it import MarkdownIt
+
+if TYPE_CHECKING:
+    from hugin.scanner import Post
+    from hugin.hugo import HugoSite
 
 
 def find_protected_zones(source: str) -> list[tuple[int, int]]:
@@ -339,6 +347,57 @@ def strip_internal_links(body: str) -> tuple[str, int]:
 def count_internal_links(body: str) -> int:
     """Count internal links (URLs starting with /) in the body."""
     return sum(1 for m in re.finditer(r"\[([^\]]+)\]\((/[^)]+)\)", body))
+
+
+@dataclass
+class BrokenLink:
+    """A link in a post that points to a draft or non-existent post."""
+
+    source_post: Post
+    anchor_text: str
+    target_url: str
+    reason: str  # "draft" or "not_found"
+
+
+def find_broken_links(all_posts: list[Post], site: HugoSite) -> list[BrokenLink]:
+    """Find all internal links that point to draft or non-existent posts.
+
+    Builds a URL→Post map, then checks every internal link in every post.
+    External links (not starting with /) are ignored.
+    """
+    # Build URL → Post map
+    url_to_post: dict[str, Post] = {}
+    for post in all_posts:
+        url = site.post_url(post.metadata, post.filename)
+        url_to_post[url] = post
+
+    # Scan all posts for broken internal links
+    broken: list[BrokenLink] = []
+    for post in all_posts:
+        links = list_links(post.content)
+        for link in links:
+            url = link["url"]
+            # Only check internal links
+            if not url.startswith("/"):
+                continue
+
+            target = url_to_post.get(url)
+            if target is None:
+                broken.append(BrokenLink(
+                    source_post=post,
+                    anchor_text=link["anchor_text"],
+                    target_url=url,
+                    reason="not_found",
+                ))
+            elif target.metadata.get("draft"):
+                broken.append(BrokenLink(
+                    source_post=post,
+                    anchor_text=link["anchor_text"],
+                    target_url=url,
+                    reason="draft",
+                ))
+
+    return broken
 
 
 def write_post_with_links(

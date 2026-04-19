@@ -7,10 +7,14 @@ from hugin.linker import (
     apply_links,
     convert_html_links_to_markdown,
     extract_existing_links,
+    find_broken_links,
     find_protected_zones,
     is_in_protected_zone,
     write_post_with_links,
 )
+from hugin.linker import BrokenLink
+from hugin.scanner import Post
+from hugin.hugo import HugoSite
 
 
 class TestProtectedZones:
@@ -169,6 +173,129 @@ class TestApplyLinks:
         result, skipped = apply_links(body, suggestions)
         assert "[old link](/posts/old/)" in result
         assert "[systemd timers](/posts/st/)" in result
+
+
+class TestFindBrokenLinks:
+    def _make_post(self, tmp_path, filename, content, metadata=None):
+        """Helper to create a Post with a real file."""
+        if metadata is None:
+            metadata = {}
+        path = tmp_path / filename
+        # Build frontmatter string
+        import yaml
+        fm = yaml.dump(metadata, default_flow_style=False).strip()
+        path.write_text(f"---\n{fm}\n---\n\n{content}\n")
+        tags = metadata.get("tags", []) or []
+        return Post(
+            path=path,
+            metadata=metadata,
+            content=content,
+            has_tags=bool(tags),
+            tags=list(tags),
+        )
+
+    def _make_site(self, tmp_path):
+        """Create a minimal HugoSite for testing."""
+        posts_dir = tmp_path / "content" / "posts"
+        posts_dir.mkdir(parents=True)
+        (tmp_path / "hugo.toml").write_text(
+            '[permalinks]\nposts = "/posts/:slug/"'
+        )
+        return HugoSite(posts_dir)
+
+    def test_link_to_nonexistent_post(self, tmp_path):
+        site = self._make_site(tmp_path)
+        post_a = self._make_post(
+            tmp_path, "post-a.md",
+            "Check [this](/posts/does-not-exist/) out.",
+            {"title": "Post A"},
+        )
+        result = find_broken_links([post_a], site)
+        assert len(result) == 1
+        assert result[0].target_url == "/posts/does-not-exist/"
+        assert result[0].reason == "not_found"
+        assert result[0].anchor_text == "this"
+
+    def test_link_to_draft_post(self, tmp_path):
+        site = self._make_site(tmp_path)
+        post_a = self._make_post(
+            tmp_path, "post-a.md",
+            "See [drafty](/posts/draft-post/) for more.",
+            {"title": "Post A"},
+        )
+        post_draft = self._make_post(
+            tmp_path, "draft-post.md",
+            "Draft content.",
+            {"title": "Draft Post", "draft": True},
+        )
+        result = find_broken_links([post_a, post_draft], site)
+        assert len(result) == 1
+        assert result[0].target_url == "/posts/draft-post/"
+        assert result[0].reason == "draft"
+
+    def test_link_to_published_post_is_ok(self, tmp_path):
+        site = self._make_site(tmp_path)
+        post_a = self._make_post(
+            tmp_path, "post-a.md",
+            "See [good link](/posts/post-b/) here.",
+            {"title": "Post A"},
+        )
+        post_b = self._make_post(
+            tmp_path, "post-b.md",
+            "I exist and am published.",
+            {"title": "Post B"},
+        )
+        result = find_broken_links([post_a, post_b], site)
+        assert len(result) == 0
+
+    def test_external_links_ignored(self, tmp_path):
+        site = self._make_site(tmp_path)
+        post_a = self._make_post(
+            tmp_path, "post-a.md",
+            "Visit [example](https://example.com) and [broken](/posts/nope/).",
+            {"title": "Post A"},
+        )
+        result = find_broken_links([post_a], site)
+        assert len(result) == 1
+        assert result[0].target_url == "/posts/nope/"
+
+    def test_multiple_broken_links_in_one_post(self, tmp_path):
+        site = self._make_site(tmp_path)
+        post_a = self._make_post(
+            tmp_path, "post-a.md",
+            "See [a](/posts/nope1/) and [b](/posts/nope2/) here.",
+            {"title": "Post A"},
+        )
+        result = find_broken_links([post_a], site)
+        assert len(result) == 2
+        urls = {r.target_url for r in result}
+        assert urls == {"/posts/nope1/", "/posts/nope2/"}
+
+    def test_no_broken_links_returns_empty(self, tmp_path):
+        site = self._make_site(tmp_path)
+        post_a = self._make_post(
+            tmp_path, "post-a.md",
+            "No links here, just plain text.",
+            {"title": "Post A"},
+        )
+        result = find_broken_links([post_a], site)
+        assert len(result) == 0
+
+    def test_draft_linking_to_draft_is_broken(self, tmp_path):
+        site = self._make_site(tmp_path)
+        draft_a = self._make_post(
+            tmp_path, "draft-a.md",
+            "See [other draft](/posts/draft-b/).",
+            {"title": "Draft A", "draft": True},
+        )
+        draft_b = self._make_post(
+            tmp_path, "draft-b.md",
+            "Also a draft.",
+            {"title": "Draft B", "draft": True},
+        )
+        result = find_broken_links([draft_a, draft_b], site)
+        assert len(result) == 1
+        assert result[0].reason == "draft"
 
 
 class TestWritePostWithLinks:
