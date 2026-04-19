@@ -27,12 +27,14 @@ from hugin.state import load_state
 @click.option("--report", is_flag=True, help="Exibir estatisticas sem chamar LLM.")
 @click.option("--engine", "engine_id", default=None, help="ID do motor de AI.")
 @click.option("--model", "model_override", default=None, help="Override do modelo.")
+@click.option("-c", "--clear-cache", is_flag=True, help="Limpar cache de embeddings antes de iniciar.")
 def main(
     directory: Path,
     batch: int,
     report: bool,
     engine_id: str | None,
     model_override: str | None,
+    clear_cache: bool,
 ) -> None:
     """hugin: manage Hugo blog posts — tags, summaries, links, and editing."""
     directory = directory.resolve()
@@ -54,6 +56,9 @@ def main(
         model_name=config.embeddings.model,
         summary_field=config.frontmatter.summary_field,
     )
+    if clear_cache:
+        index.clear_cache()
+        click.echo("Embedding cache cleared.")
     index.build(posts=posts, url_fn=site.post_url, print_fn=click.echo)
 
     if report:
