@@ -567,6 +567,7 @@ class HuginScreen(Screen):
         manual_input.value = ""
         manual_input.add_class("hidden")
         self.query_one("#review-buttons").add_class("hidden")
+        self.query_one("#btn-apply", Button).variant = "primary"
 
     # --- Context extraction (for link display) ---
 
@@ -1069,7 +1070,9 @@ class HuginScreen(Screen):
             container.mount(Static(context_text, classes="outgoing-context"))
             container.mount(Static(f"→ {url}", classes="outgoing-url"))
 
-        self.query_one("#btn-apply", Button).label = "Remove links"
+        btn = self.query_one("#btn-apply", Button)
+        btn.label = "Remove links"
+        btn.variant = "error"
         self.query_one("#review-buttons").remove_class("hidden")
 
     def _do_remove_selected(self) -> None:
