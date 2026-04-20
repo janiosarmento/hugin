@@ -52,15 +52,16 @@ def _match_keywords(url: str) -> list[str]:
     ]
 
 
-def _is_mentioned(body_norm: str, url: str) -> bool:
-    """Check if all significant slug keywords appear as whole words in the body."""
+def _mention_score(body_norm: str, url: str) -> float:
+    """Fraction of slug keywords that appear as whole words in the body (0.0–1.0)."""
     keywords = _match_keywords(url)
     if not keywords:
-        return False
-    return all(
-        re.search(r"(?<!\w)" + re.escape(kw) + r"(?!\w)", body_norm)
-        for kw in keywords
+        return 0.0
+    hits = sum(
+        1 for kw in keywords
+        if re.search(r"(?<!\w)" + re.escape(kw) + r"(?!\w)", body_norm)
     )
+    return hits / len(keywords)
 
 
 def _build_text(metadata: dict, summary_field: str, content: str = "", url: str = "") -> str:
@@ -371,8 +372,7 @@ class EmbeddingIndex:
         body_norm = _normalize_ascii(post.content) if hasattr(post, "content") and post.content else ""
         if body_norm:
             for r in results:
-                if _is_mentioned(body_norm, r["url"]):
-                    r["score"] += _MENTION_BOOST
+                r["score"] += _MENTION_BOOST * _mention_score(body_norm, r["url"])
 
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:n]
