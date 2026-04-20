@@ -311,8 +311,8 @@ def apply_links(
                 search_start = anchor_end
                 continue
 
-            # Check paragraph link limit
-            if links_per_para[para_idx] >= max_per_paragraph:
+            # Check paragraph link limit (0 = unlimited)
+            if max_per_paragraph and links_per_para[para_idx] >= max_per_paragraph:
                 search_start = anchor_end
                 continue
 

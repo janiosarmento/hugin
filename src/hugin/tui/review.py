@@ -928,6 +928,8 @@ class HuginScreen(Screen):
 
         self._clear_action_area()
         abs_path = str(post.path.resolve())
+        for m in matches:
+            m["_manual"] = True
         self._session_outgoing[abs_path] = matches
         self._state = STATE_REVIEWING
         self._mode = "outgoing"
@@ -1025,6 +1027,8 @@ class HuginScreen(Screen):
                     self.config.links.max_per_paragraph,
                 )
             ]
+            for s in keyword_anchors:
+                s["_manual"] = True
             validated = (keyword_anchors + llm_filtered)[:budget]
 
             abs_path = str(post.path.resolve())
@@ -1215,9 +1219,13 @@ class HuginScreen(Screen):
             self.notify("No links selected.")
             return
 
+        # Manual/affiliate picks bypass paragraph limits
+        is_manual = any(
+            s.get("_manual") for s in cached
+        )
         body, skipped = apply_links(
             post.content, selected,
-            max_per_paragraph=self.config.links.max_per_paragraph,
+            max_per_paragraph=0 if is_manual else self.config.links.max_per_paragraph,
         )
 
         write_post_with_links(post.path, body)
