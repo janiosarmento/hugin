@@ -23,6 +23,7 @@ from textual.widgets import (
 
 from hugin.config import HuginConfig
 from hugin.embeddings import EmbeddingIndex
+from hugin.tui.post_picker import PostPickerScreen
 from hugin.engines import Engine, load_engines, save_last_engine
 from hugin.hugo import HugoSite
 from hugin.linker import (
@@ -30,6 +31,7 @@ from hugin.linker import (
     apply_links,
     check_anchor_viable,
     extract_existing_links,
+    find_keyword_anchors,
     find_protected_zones,
     is_in_protected_zone,
     list_links,
@@ -198,6 +200,7 @@ class HuginScreen(Screen):
         ("s", "summary", "Summary"),
         ("i", "incoming", "Incoming"),
         ("o", "outgoing", "Outgoing"),
+        ("d", "direct_links", "Direct"),
         ("l", "list_links", "List"),
         ("b", "broken_links", "Broken"),
         ("u", "suggest", "Suggest"),
@@ -861,6 +864,149 @@ class HuginScreen(Screen):
         self.query_one("#section-header", Label).update("Querying LLM...")
         self._run_outgoing(post, budget)
 
+    def action_direct_links(self) -> None:
+        """Open post picker for manual link target selection."""
+        if self._state != STATE_BROWSING:
+            return
+
+        post = self.posts[self.current_index]
+        word_count = len(post.content.split())
+        budget = min(
+            self.config.links.max_per_post,
+            math.floor(word_count / self._words_per_link),
+        )
+
+        if budget == 0:
+            self.notify("Post too short for link suggestions under current policy.")
+            return
+
+        def on_pick(selected: list[dict] | None) -> None:
+            if not selected:
+                return
+            self._clear_action_area()
+            self._state = STATE_LOADING
+            self._mode = "outgoing"
+            self._start_spinner(self.current_index, "Finding anchors...")
+            self.query_one("#section-header", Label).update("Querying LLM...")
+            self._run_outgoing_manual(post, budget, selected)
+
+        url_fn = lambda meta, fname: self.site.post_url(meta, fname)
+        self.app.push_screen(
+            PostPickerScreen(self.all_posts, post, url_fn),
+            on_pick,
+        )
+
+    @work(exclusive=True)
+    async def _run_outgoing_manual(
+        self, post: Post, budget: int, candidates: list[dict],
+    ) -> None:
+        """Run the anchor-finding LLM flow with manually selected candidates."""
+        try:
+            existing_urls = extract_existing_links(post.content)
+            existing_normalized = {u.rstrip("/") for u in existing_urls}
+
+            # Deterministic pass: find slug keywords verbatim in the body
+            keyword_anchors = find_keyword_anchors(post.content, candidates)
+            keyword_anchors = [
+                s for s in keyword_anchors
+                if s["target_url"].rstrip("/") not in existing_normalized
+            ]
+
+            # LLM pass: find creative anchors for remaining candidates
+            covered_urls = {s["target_url"] for s in keyword_anchors}
+            remaining = [c for c in candidates if c["url"] not in covered_urls]
+
+            llm_validated = []
+            if remaining:
+                candidates_json = json.dumps([
+                    {"title": c["title"], "summary": "", "url": c["url"]}
+                    for c in remaining
+                ])
+
+                user_msg = ANCHOR_USER_TEMPLATE.format(
+                    body=post.content, candidates_json=candidates_json,
+                )
+                system = ANCHOR_SYSTEM_PROMPT.format(
+                    max_anchor_words=self.config.links.max_anchor_words,
+                )
+                prompt = f"{system}\n\n{user_msg}"
+                response = await call_llm(self.engine, prompt)
+
+                suggestions = parse_anchor_response(response)
+                zones = find_protected_zones(post.content)
+                candidate_urls = {c["url"] for c in remaining}
+
+                for s in suggestions:
+                    anchor = s.get("anchor_text", "")
+                    target = s.get("target_url", "")
+                    if not anchor or not target:
+                        continue
+                    if target not in candidate_urls:
+                        continue
+                    if target.rstrip("/") in existing_normalized:
+                        continue
+
+                    max_words = self.config.links.max_anchor_words
+                    if len(anchor.split()) > max_words:
+                        continue
+
+                    pos = _find_whole_word(post.content, anchor)
+                    if pos == -1:
+                        candidate_info = next(
+                            (c for c in remaining if c["url"] == target), None,
+                        )
+                        if candidate_info:
+                            retry_prompt = RETRY_PROMPT.format(
+                                anchor_text=anchor,
+                                title=candidate_info["title"],
+                                url=target,
+                                body=post.content,
+                            )
+                            retry_response = await call_llm(self.engine, retry_prompt)
+                            retry_anchor = retry_response.strip().strip('"').strip("'")
+                            retry_pos = _find_whole_word(post.content, retry_anchor)
+                            if retry_pos != -1 and len(retry_anchor.split()) <= max_words:
+                                anchor = retry_anchor
+                                pos = retry_pos
+                            else:
+                                continue
+                        else:
+                            continue
+
+                    if is_in_protected_zone(pos, len(anchor), zones):
+                        continue
+
+                    llm_validated.append({"anchor_text": anchor, "target_url": target})
+
+            # Merge: keyword anchors skip paragraph limits (user chose them),
+            # LLM anchors still respect the limit
+            llm_filtered = [
+                s for s in llm_validated
+                if check_anchor_viable(
+                    post.content, s["anchor_text"],
+                    self.config.links.max_per_paragraph,
+                )
+            ]
+            validated = (keyword_anchors + llm_filtered)[:budget]
+
+            abs_path = str(post.path.resolve())
+            self._session_outgoing[abs_path] = validated
+
+            self._stop_spinner()
+            self._state = STATE_REVIEWING if validated else STATE_BROWSING
+            self._mode = "outgoing" if validated else ""
+            self._show_outgoing(validated)
+
+            if validated:
+                self.notify(f"{len(validated)} link suggestions ready")
+            else:
+                self.notify("No natural anchors found for selected posts.")
+
+        except Exception as e:
+            self._stop_spinner()
+            self._state = STATE_BROWSING
+            self.notify(f"Error: {e}", severity="error")
+
     @work(exclusive=True)
     async def _run_outgoing(self, post: Post, budget: int) -> None:
         try:
@@ -880,76 +1026,84 @@ class HuginScreen(Screen):
                 self.query_one("#section-header", Label).update("")
                 return
 
-            candidates_json = json.dumps([
-                {"title": c["title"], "summary": "", "url": c["url"]}
-                for c in candidates
-            ])
-
-            user_msg = ANCHOR_USER_TEMPLATE.format(
-                body=post.content, candidates_json=candidates_json,
-            )
-            system = ANCHOR_SYSTEM_PROMPT.format(
-                max_anchor_words=self.config.links.max_anchor_words,
-            )
-            prompt = f"{system}\n\n{user_msg}"
-            response = await call_llm(self.engine, prompt)
-
-            suggestions = parse_anchor_response(response)
-
-            validated = []
-            zones = find_protected_zones(post.content)
-
-            candidate_urls = {c["url"] for c in candidates}
-            # Normalize existing URLs for comparison (strip trailing slash)
             existing_normalized = {u.rstrip("/") for u in existing_urls}
 
-            for s in suggestions:
-                anchor = s.get("anchor_text", "")
-                target = s.get("target_url", "")
-                if not anchor or not target:
-                    continue
+            # Deterministic pass: find slug keywords verbatim in the body
+            keyword_anchors = find_keyword_anchors(post.content, candidates)
+            keyword_anchors = [
+                s for s in keyword_anchors
+                if s["target_url"].rstrip("/") not in existing_normalized
+            ]
 
-                # Reject URLs the LLM invented — only accept candidate URLs
-                if target not in candidate_urls:
-                    continue
+            # LLM pass: find creative anchors for remaining candidates
+            covered_urls = {s["target_url"] for s in keyword_anchors}
+            remaining = [c for c in candidates if c["url"] not in covered_urls]
 
-                # Skip if post already links to this destination
-                if target.rstrip("/") in existing_normalized:
-                    continue
+            llm_validated = []
+            if remaining:
+                candidates_json = json.dumps([
+                    {"title": c["title"], "summary": "", "url": c["url"]}
+                    for c in remaining
+                ])
 
-                max_words = self.config.links.max_anchor_words
-                if len(anchor.split()) > max_words:
-                    continue
+                user_msg = ANCHOR_USER_TEMPLATE.format(
+                    body=post.content, candidates_json=candidates_json,
+                )
+                system = ANCHOR_SYSTEM_PROMPT.format(
+                    max_anchor_words=self.config.links.max_anchor_words,
+                )
+                prompt = f"{system}\n\n{user_msg}"
+                response = await call_llm(self.engine, prompt)
 
-                pos = _find_whole_word(post.content, anchor)
-                if pos == -1:
-                    candidate_info = next(
-                        (c for c in candidates if c["url"] == target), None,
-                    )
-                    if candidate_info:
-                        retry_prompt = RETRY_PROMPT.format(
-                            anchor_text=anchor,
-                            title=candidate_info["title"],
-                            url=target,
-                            body=post.content,
-                        )
-                        retry_response = await call_llm(self.engine, retry_prompt)
-                        retry_anchor = retry_response.strip().strip('"').strip("'")
-                        retry_pos = _find_whole_word(post.content, retry_anchor)
-                        if retry_pos != -1 and len(retry_anchor.split()) <= max_words:
-                            anchor = retry_anchor
-                            pos = retry_pos
-                        else:
-                            continue
-                    else:
+                suggestions = parse_anchor_response(response)
+                zones = find_protected_zones(post.content)
+                candidate_urls = {c["url"] for c in remaining}
+
+                for s in suggestions:
+                    anchor = s.get("anchor_text", "")
+                    target = s.get("target_url", "")
+                    if not anchor or not target:
                         continue
 
-                if is_in_protected_zone(pos, len(anchor), zones):
-                    continue
+                    if target not in candidate_urls:
+                        continue
+                    if target.rstrip("/") in existing_normalized:
+                        continue
 
-                validated.append({"anchor_text": anchor, "target_url": target})
+                    max_words = self.config.links.max_anchor_words
+                    if len(anchor.split()) > max_words:
+                        continue
 
-            validated = validated[:budget]
+                    pos = _find_whole_word(post.content, anchor)
+                    if pos == -1:
+                        candidate_info = next(
+                            (c for c in remaining if c["url"] == target), None,
+                        )
+                        if candidate_info:
+                            retry_prompt = RETRY_PROMPT.format(
+                                anchor_text=anchor,
+                                title=candidate_info["title"],
+                                url=target,
+                                body=post.content,
+                            )
+                            retry_response = await call_llm(self.engine, retry_prompt)
+                            retry_anchor = retry_response.strip().strip('"').strip("'")
+                            retry_pos = _find_whole_word(post.content, retry_anchor)
+                            if retry_pos != -1 and len(retry_anchor.split()) <= max_words:
+                                anchor = retry_anchor
+                                pos = retry_pos
+                            else:
+                                continue
+                        else:
+                            continue
+
+                    if is_in_protected_zone(pos, len(anchor), zones):
+                        continue
+
+                    llm_validated.append({"anchor_text": anchor, "target_url": target})
+
+            # Merge: keyword anchors first, then LLM anchors
+            validated = (keyword_anchors + llm_validated)[:budget]
             validated = [
                 s for s in validated
                 if check_anchor_viable(

@@ -167,6 +167,44 @@ def _find_whole_word(body: str, anchor: str, start: int = 0) -> int:
     return -1
 
 
+def find_keyword_anchors(
+    body: str,
+    candidates: list[dict],
+) -> list[dict]:
+    """Find deterministic anchors by matching candidate slug keywords in the body.
+
+    For each candidate, extracts keywords from its URL slug and searches
+    for them (case-insensitive) in the body. Returns the longest keyword
+    match as anchor text, preserving the original case from the body.
+
+    Args:
+        body: the raw post body
+        candidates: list of dicts with 'title' and 'url'
+
+    Returns:
+        List of dicts with 'anchor_text' and 'target_url'
+    """
+    zones = find_protected_zones(body)
+    results = []
+
+    for c in candidates:
+        url = c["url"]
+        slug = url.strip("/").rsplit("/", 1)[-1] if "/" in url else url
+        keywords = [k for k in slug.split("-") if len(k) >= 4]
+        # Try longest keywords first — more specific
+        keywords.sort(key=len, reverse=True)
+
+        for kw in keywords:
+            pattern = r"(?<![\w\-])" + re.escape(kw) + r"(?![\w\-])"
+            m = re.search(pattern, body, re.IGNORECASE)
+            if m and not is_in_protected_zone(m.start(), len(kw), zones):
+                anchor = body[m.start():m.end()]
+                results.append({"anchor_text": anchor, "target_url": url})
+                break
+
+    return results
+
+
 def check_anchor_viable(
     body: str,
     anchor: str,
