@@ -3,6 +3,8 @@
 import hashlib
 import json
 import os
+import re
+import unicodedata
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +28,39 @@ def _slug_keywords(url: str) -> str:
     """Extract keywords from a URL slug, replacing hyphens with spaces."""
     slug = url.strip("/").rsplit("/", 1)[-1] if "/" in url else url
     return slug.replace("-", " ")
+
+
+_MIN_KEYWORD_LEN = 4
+_MENTION_BOOST = 1.0
+
+
+def _normalize_ascii(text: str) -> str:
+    """Lowercase and strip accents for mention matching."""
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", text.lower())
+        if not unicodedata.combining(c)
+    )
+
+
+def _match_keywords(url: str) -> list[str]:
+    """Extract significant normalized keywords from URL slug for mention matching."""
+    slug = url.strip("/").rsplit("/", 1)[-1] if "/" in url else url
+    return [
+        _normalize_ascii(k)
+        for k in slug.split("-")
+        if len(k) >= _MIN_KEYWORD_LEN
+    ]
+
+
+def _is_mentioned(body_norm: str, url: str) -> bool:
+    """Check if all significant slug keywords appear as whole words in the body."""
+    keywords = _match_keywords(url)
+    if not keywords:
+        return False
+    return all(
+        re.search(r"(?<!\w)" + re.escape(kw) + r"(?!\w)", body_norm)
+        for kw in keywords
+    )
 
 
 def _build_text(metadata: dict, summary_field: str, content: str = "", url: str = "") -> str:
@@ -331,6 +366,13 @@ class EmbeddingIndex:
                 "title": entry["title"],
                 "score": score,
             })
+
+        # Boost posts explicitly mentioned in the body
+        body_norm = _normalize_ascii(post.content) if hasattr(post, "content") and post.content else ""
+        if body_norm:
+            for r in results:
+                if _is_mentioned(body_norm, r["url"]):
+                    r["score"] += _MENTION_BOOST
 
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:n]
