@@ -16,7 +16,7 @@ candidates        = 10   # how many posts the embedding step returns as candidat
 max_anchor_words  = 5    # maximum words in an anchor phrase (longer anchors are discarded)
 
 [embeddings]
-model = "paraphrase-multilingual-MiniLM-L12-v2"
+model = "intfloat/multilingual-e5-large"
 
 [frontmatter]
 summary_field = "description"  # field read for embedding
@@ -34,7 +34,7 @@ class LinksConfig:
 
 @dataclass
 class EmbeddingsConfig:
-    model: str = "paraphrase-multilingual-MiniLM-L12-v2"
+    model: str = "intfloat/multilingual-e5-large"
 
 
 @dataclass
@@ -90,7 +90,7 @@ def load_config() -> HuginConfig:
             max_anchor_words=links_data.get("max_anchor_words", 5),
         ),
         embeddings=EmbeddingsConfig(
-            model=embed_data.get("model", "paraphrase-multilingual-MiniLM-L12-v2"),
+            model=embed_data.get("model", "intfloat/multilingual-e5-large"),
         ),
         frontmatter=FrontmatterConfig(
             summary_field=fm_data.get("summary_field", "description"),

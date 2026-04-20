@@ -10,8 +10,8 @@ import numpy as np
 from hugin.engines import CONFIG_DIR
 
 EMBEDDINGS_DIR = CONFIG_DIR / "embeddings"
-CACHE_VERSION = 1
-DEFAULT_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
+CACHE_VERSION = 3
+DEFAULT_MODEL = "intfloat/multilingual-e5-large"
 
 
 def _cache_path(posts_dir: Path) -> Path:
@@ -19,14 +19,15 @@ def _cache_path(posts_dir: Path) -> Path:
     return EMBEDDINGS_DIR / f"{dir_hash}.json"
 
 
-MAX_EMBED_CHARS = 400  # ~100 tokens, safe for 128-token models
+MAX_EMBED_CHARS = 2000  # ~500 tokens, fits 512-token e5-large
 
 
 def _build_text(metadata: dict, summary_field: str, content: str = "") -> str:
     """Build the text to embed for a post.
 
-    Priority: title > tags > headings > first paragraph.
+    Priority: title > tags > headings > content paragraphs.
     Truncated to MAX_EMBED_CHARS to stay within model token limits.
+    Prefixed with 'query: ' as required by e5 models.
     """
     parts = []
     title = metadata.get("title", "")
@@ -47,12 +48,13 @@ def _build_text(metadata: dict, summary_field: str, content: str = "") -> str:
         if headings:
             parts.append(" ".join(headings))
 
-        # First paragraph (non-empty, non-heading line block)
+        # Collect content paragraphs (non-empty, non-heading lines)
         for line in content.splitlines():
             stripped = line.strip()
             if stripped and not stripped.startswith("#"):
                 parts.append(stripped)
-                break
+                if len(" ".join(parts)) >= MAX_EMBED_CHARS:
+                    break
 
     text = " ".join(parts)
     if len(text) > MAX_EMBED_CHARS:
@@ -63,7 +65,7 @@ def _build_text(metadata: dict, summary_field: str, content: str = "") -> str:
             text = truncated[:last_space]
         else:
             text = truncated
-    return text
+    return "query: " + text
 
 
 class EmbeddingIndex:
@@ -283,10 +285,14 @@ class EmbeddingIndex:
         cached = self._cache["posts"]
 
         query_entry = cached.get(abs_path)
-        if not query_entry:
+        if query_entry:
+            query_vec = np.array(query_entry["embedding"])
+        elif self._model is not None:
+            # Draft or uncached post — compute embedding on the fly
+            text = _build_text(post.metadata, self.summary_field, post.content)
+            query_vec = self._encode_single(text)
+        else:
             return []
-
-        query_vec = np.array(query_entry["embedding"])
         exclude_urls = exclude_urls or set()
 
         results = []

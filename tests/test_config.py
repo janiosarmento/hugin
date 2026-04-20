@@ -49,7 +49,7 @@ class TestLoadConfig:
             cfg = load_config()
         assert cfg.links.max_per_post == 8
         assert cfg.links.max_anchor_words == 5
-        assert cfg.embeddings.model == "paraphrase-multilingual-MiniLM-L12-v2"
+        assert cfg.embeddings.model == "intfloat/multilingual-e5-large"
         assert (config_dir / "links.toml").exists()
 
     def test_default_values(self, tmp_path):
