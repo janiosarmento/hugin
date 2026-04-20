@@ -1,5 +1,7 @@
 """Built-in Markdown editor with frontmatter field editing."""
 
+import re
+
 import frontmatter
 
 from textual.app import ComposeResult
@@ -15,6 +17,15 @@ from textual.widgets import (
 )
 
 from hugin.scanner import Post
+
+
+_EMOJI_RE = re.compile(
+    "[\U0001f000-\U0001ffff"
+    "\u2600-\u27bf"
+    "\ufe00-\ufe0f"
+    "\u200d"
+    "]+",
+)
 
 
 # Fields that get dedicated Input widgets (order matters for display)
@@ -76,6 +87,7 @@ class EditorScreen(Screen[bool]):
 
     BINDINGS = [
         ("ctrl+s", "save", "Save"),
+        ("ctrl+e", "strip_emojis", "Strip emojis"),
         ("escape", "back", "Back"),
     ]
 
@@ -198,6 +210,7 @@ class EditorScreen(Screen[bool]):
                 )
 
         with Horizontal(id="editor-buttons"):
+            yield Button("Strip emojis (Ctrl+E)", id="btn-strip-emojis")
             yield Button("Save (Ctrl+S)", id="btn-save", variant="primary")
             yield Button("Cancel", id="btn-cancel-edit")
 
@@ -224,6 +237,19 @@ class EditorScreen(Screen[bool]):
             pass
 
         return False
+
+    def action_strip_emojis(self) -> None:
+        """Remove all emojis from the body text."""
+        editor = self.query_one("#body-editor", TextArea)
+        original = editor.text
+        cleaned = _EMOJI_RE.sub("", original)
+        # Collapse double spaces left behind
+        cleaned = re.sub(r"  +", " ", cleaned)
+        if cleaned == original:
+            self.notify("No emojis found")
+            return
+        editor.load_text(cleaned)
+        self.notify("Emojis removed")
 
     def action_save(self) -> None:
         """Save the post with updated frontmatter and body."""
@@ -272,7 +298,9 @@ class EditorScreen(Screen[bool]):
             self.dismiss(False)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-save":
+        if event.button.id == "btn-strip-emojis":
+            self.action_strip_emojis()
+        elif event.button.id == "btn-save":
             self.action_save()
         elif event.button.id == "btn-cancel-edit":
             self.action_back()
