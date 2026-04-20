@@ -10,7 +10,7 @@ import numpy as np
 from hugin.engines import CONFIG_DIR
 
 EMBEDDINGS_DIR = CONFIG_DIR / "embeddings"
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 DEFAULT_MODEL = "intfloat/multilingual-e5-large"
 
 
@@ -32,7 +32,9 @@ def _build_text(metadata: dict, summary_field: str, content: str = "") -> str:
     parts = []
     title = metadata.get("title", "")
     if title:
-        parts.append(str(title))
+        title_str = str(title)
+        # Repeat title to boost its weight in the embedding
+        parts.extend([title_str, title_str, title_str])
 
     tags = metadata.get("tags", [])
     if tags:
