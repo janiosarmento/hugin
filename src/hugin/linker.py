@@ -140,6 +140,9 @@ def convert_html_links_to_markdown(body: str) -> str:
         # Only convert single-line, plain-text content
         if "\n" in full:
             return full
+        # Preserve links with rel attributes (e.g. nofollow)
+        if "rel=" in full.lower():
+            return full
         href = re.search(r'href=["\']([^"\']+)["\']', full)
         text = re.search(r">(.*?)</a>", full, re.IGNORECASE)
         if href and text and "<" not in text.group(1):
@@ -233,6 +236,12 @@ def check_anchor_viable(
     return True
 
 
+def _is_nofollow_url(url: str) -> bool:
+    """Check if a URL needs rel=nofollow (affiliate links)."""
+    lower = url.lower()
+    return "amazon" in lower or "amzn" in lower
+
+
 def apply_links(
     body: str,
     suggestions: list[dict],
@@ -265,7 +274,10 @@ def apply_links(
     for suggestion in suggestions:
         anchor = suggestion["anchor_text"]
         target = suggestion["target_url"]
-        replacement = f"[{anchor}]({target})"
+        if _is_nofollow_url(target):
+            replacement = f'<a href="{target}" rel="nofollow">{anchor}</a>'
+        else:
+            replacement = f"[{anchor}]({target})"
 
         # Find first valid occurrence
         search_start = 0

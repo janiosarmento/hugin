@@ -21,6 +21,7 @@ from textual.widgets import (
     TextArea,
 )
 
+from hugin.affiliates import load_affiliates
 from hugin.config import HuginConfig
 from hugin.embeddings import EmbeddingIndex
 from hugin.tui.post_picker import PostPickerScreen
@@ -201,6 +202,7 @@ class HuginScreen(Screen):
         ("i", "incoming", "Incoming"),
         ("o", "outgoing", "Outgoing"),
         ("d", "direct_links", "Direct"),
+        ("z", "amazon", "Amzn"),
         ("l", "list_links", "List"),
         ("b", "broken_links", "Broken"),
         ("u", "suggest", "Suggest"),
@@ -895,6 +897,42 @@ class HuginScreen(Screen):
             PostPickerScreen(self.all_posts, post, url_fn),
             on_pick,
         )
+
+    def action_amazon(self) -> None:
+        """Insert affiliate links from the keyword dictionary."""
+        if self._state != STATE_BROWSING:
+            return
+
+        affiliates = load_affiliates()
+        if not affiliates:
+            self.notify("No affiliates configured. Edit ~/.hugin/affiliates.toml")
+            return
+
+        post = self.posts[self.current_index]
+        existing_urls = extract_existing_links(post.content)
+        existing_normalized = {u.rstrip("/") for u in existing_urls}
+        zones = find_protected_zones(post.content)
+
+        # Find dictionary keywords that appear in the body
+        matches = []
+        for keyword, url in affiliates.items():
+            if url.rstrip("/") in existing_normalized:
+                continue
+            pos = _find_whole_word(post.content, keyword)
+            if pos != -1 and not is_in_protected_zone(pos, len(keyword), zones):
+                matches.append({"anchor_text": keyword, "target_url": url})
+
+        if not matches:
+            self.notify("No affiliate keyword matches in this post.")
+            return
+
+        self._clear_action_area()
+        abs_path = str(post.path.resolve())
+        self._session_outgoing[abs_path] = matches
+        self._state = STATE_REVIEWING
+        self._mode = "outgoing"
+        self._show_outgoing(matches)
+        self.notify(f"{len(matches)} affiliate matches found")
 
     @work(exclusive=True)
     async def _run_outgoing_manual(
