@@ -899,10 +899,22 @@ class HuginScreen(Screen):
             validated = []
             zones = find_protected_zones(post.content)
 
+            candidate_urls = {c["url"] for c in candidates}
+            # Normalize existing URLs for comparison (strip trailing slash)
+            existing_normalized = {u.rstrip("/") for u in existing_urls}
+
             for s in suggestions:
                 anchor = s.get("anchor_text", "")
                 target = s.get("target_url", "")
                 if not anchor or not target:
+                    continue
+
+                # Reject URLs the LLM invented — only accept candidate URLs
+                if target not in candidate_urls:
+                    continue
+
+                # Skip if post already links to this destination
+                if target.rstrip("/") in existing_normalized:
                     continue
 
                 max_words = self.config.links.max_anchor_words

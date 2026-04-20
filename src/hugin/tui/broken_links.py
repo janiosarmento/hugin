@@ -65,6 +65,10 @@ class BrokenLinksScreen(ModalScreen[bool]):
     #broken-links-buttons Button {
         margin: 0 1;
     }
+
+    .hidden {
+        display: none;
+    }
     """
 
     def __init__(self, all_posts: list[Post], site: HugoSite) -> None:
@@ -77,22 +81,23 @@ class BrokenLinksScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="broken-links-modal"):
-            yield Label("", id="broken-links-title")
+            yield Label("", id="broken-links-title", classes="hidden")
             yield DataTable(
                 id="broken-links-table",
                 cursor_type="row",
                 zebra_stripes=True,
+                classes="hidden",
             )
             yield Static(
                 "No broken internal links found.",
                 id="broken-links-empty",
-                classes="hidden",
             )
             with Horizontal(id="broken-links-buttons"):
                 yield Button(
                     "Remove selected",
                     id="btn-remove",
                     variant="error",
+                    classes="hidden",
                 )
                 yield Button("Close", id="btn-close")
 
@@ -110,22 +115,22 @@ class BrokenLinksScreen(ModalScreen[bool]):
         self._selected.clear()
 
         if not self._broken:
-            title.update("Broken internal links")
+            title.add_class("hidden")
             table.add_class("hidden")
             empty.remove_class("hidden")
             btn_remove.add_class("hidden")
             return
 
         title.update(f"Broken internal links ({len(self._broken)})")
+        title.remove_class("hidden")
         table.remove_class("hidden")
         empty.add_class("hidden")
         btn_remove.remove_class("hidden")
 
         table.add_column("✓", key="selected", width=3)
         table.add_column("Source", key="source")
-        table.add_column("Anchor", key="anchor")
         table.add_column("Target", key="target")
-        table.add_column("Reason", key="reason")
+        table.add_column("Reason", key="reason", width=12)
 
         for i, bl in enumerate(self._broken):
             source_title = bl.source_post.metadata.get(
@@ -135,7 +140,6 @@ class BrokenLinksScreen(ModalScreen[bool]):
             table.add_row(
                 " ",
                 source_title,
-                bl.anchor_text,
                 bl.target_url,
                 reason_label,
                 key=f"bl-{i}",

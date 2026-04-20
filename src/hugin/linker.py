@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import re
-import tempfile
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -404,23 +401,7 @@ def write_post_with_links(
     path: Path,
     body: str,
 ) -> None:
-    """Write post with updated body using atomic write."""
-    post = frontmatter.load(str(path))
-    post.content = body
-    post.metadata["lastmod"] = datetime.now().isoformat(timespec="seconds")
+    """Write post with updated body. Delegates to writer.save_post."""
+    from hugin.writer import write_body
 
-    # Atomic write: temp file + rename
-    dir_path = path.parent
-    fd, tmp_path = tempfile.mkstemp(dir=str(dir_path), suffix=".md")
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(frontmatter.dumps(post, sort_keys=False))
-            f.write("\n")
-        os.replace(tmp_path, str(path))
-    except Exception:
-        # Clean up temp file on failure
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    write_body(path, body)

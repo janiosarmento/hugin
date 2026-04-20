@@ -1,9 +1,5 @@
 """Built-in Markdown editor with frontmatter field editing."""
 
-import os
-import tempfile
-from datetime import datetime
-
 import frontmatter
 
 from textual.app import ComposeResult
@@ -255,26 +251,11 @@ class EditorScreen(Screen[bool]):
         body_editor = self.query_one("#body-editor", TextArea)
         new_content = body_editor.text
 
-        # Update lastmod
-        new_meta["lastmod"] = datetime.now().isoformat(timespec="seconds")
+        # Build post object and save through centralised writer
+        from hugin.writer import save_post
 
-        # Build post object for frontmatter lib
         fm_post = frontmatter.Post(new_content, **new_meta)
-
-        # Atomic write
-        dir_path = post.path.parent
-        fd, tmp_path = tempfile.mkstemp(dir=str(dir_path), suffix=".md")
-        try:
-            with os.fdopen(fd, "w") as f:
-                f.write(frontmatter.dumps(fm_post, sort_keys=False))
-                f.write("\n")
-            os.replace(tmp_path, str(post.path))
-        except Exception:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        save_post(post.path, fm_post)
 
         self.notify(f"{post.filename}: saved")
         self.dismiss(True)
