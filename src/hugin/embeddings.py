@@ -10,7 +10,7 @@ import numpy as np
 from hugin.engines import CONFIG_DIR
 
 EMBEDDINGS_DIR = CONFIG_DIR / "embeddings"
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 DEFAULT_MODEL = "intfloat/multilingual-e5-large"
 
 
@@ -22,10 +22,16 @@ def _cache_path(posts_dir: Path) -> Path:
 MAX_EMBED_CHARS = 2000  # ~500 tokens, fits 512-token e5-large
 
 
-def _build_text(metadata: dict, summary_field: str, content: str = "") -> str:
+def _slug_keywords(url: str) -> str:
+    """Extract keywords from a URL slug, replacing hyphens with spaces."""
+    slug = url.strip("/").rsplit("/", 1)[-1] if "/" in url else url
+    return slug.replace("-", " ")
+
+
+def _build_text(metadata: dict, summary_field: str, content: str = "", url: str = "") -> str:
     """Build the text to embed for a post.
 
-    Priority: title > tags > headings > content paragraphs.
+    Priority: title > url keywords > tags > headings > content paragraphs.
     Truncated to MAX_EMBED_CHARS to stay within model token limits.
     Prefixed with 'query: ' as required by e5 models.
     """
@@ -35,6 +41,10 @@ def _build_text(metadata: dict, summary_field: str, content: str = "") -> str:
         title_str = str(title)
         # Repeat title to boost its weight in the embedding
         parts.extend([title_str, title_str, title_str])
+
+    if url:
+        keywords = _slug_keywords(url)
+        parts.extend([keywords, keywords])
 
     tags = metadata.get("tags", [])
     if tags:
@@ -186,7 +196,8 @@ class EmbeddingIndex:
         print_fn(f"Building embeddings for {len(stale)} posts...")
         texts = []
         for i, (post, abs_path, mtime) in enumerate(stale):
-            text = _build_text(post.metadata, self.summary_field, post.content)
+            url = url_fn(post.metadata, post.filename)
+            text = _build_text(post.metadata, self.summary_field, post.content, url)
             texts.append(text)
             if (i + 1) % 50 == 0 or i == len(stale) - 1:
                 print_fn(f"  [{i + 1}/{len(stale)}] {post.filename}")
@@ -237,7 +248,8 @@ class EmbeddingIndex:
 
         abs_path = str(post.path.resolve())
         mtime = os.path.getmtime(post.path)
-        text = _build_text(post.metadata, self.summary_field, post.content)
+        url = url_fn(post.metadata, post.filename)
+        text = _build_text(post.metadata, self.summary_field, post.content, url)
 
         # Compute embedding using numpy directly to avoid tqdm/multiprocessing
         # crash inside Textual on Python 3.14
@@ -291,7 +303,8 @@ class EmbeddingIndex:
             query_vec = np.array(query_entry["embedding"])
         elif self._model is not None:
             # Draft or uncached post — compute embedding on the fly
-            text = _build_text(post.metadata, self.summary_field, post.content)
+            slug_url = post.filename.rsplit(".", 1)[0]
+            text = _build_text(post.metadata, self.summary_field, post.content, slug_url)
             query_vec = self._encode_single(text)
         else:
             return []
