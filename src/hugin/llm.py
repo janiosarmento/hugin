@@ -280,6 +280,26 @@ POST CONTENT:
 
 Return format: ["Post title 1", "Post title 2", ...]"""
 
+RERANK_PROMPT = """\
+You are a blog editor. Given a blog post and a list of candidate posts, select ONLY the \
+candidates that are genuinely related to the post content. A post is related if a reader \
+of the current post would benefit from reading it — topical overlap, shared concepts, \
+complementary information, or direct references.
+
+Be strict: reject candidates that are only superficially related (e.g., same broad category \
+but different specific topic). Keep only strong, contextually relevant matches.
+
+POST TITLE: {title}
+
+POST BODY (first 2000 chars):
+{body}
+
+CANDIDATES:
+{candidates_json}
+
+Return a JSON array with ONLY the URLs of relevant candidates, nothing else.
+Example: ["/posts/foo/", "/posts/bar/"]"""
+
 RETRY_PROMPT = """\
 The phrase '{anchor_text}' does not appear verbatim in the post body.
 Choose a phrase from the body that exists exactly as written and would
@@ -287,6 +307,26 @@ naturally link to: {title} ({url})
 
 Post body:
 {body}"""
+
+
+def parse_rerank_response(text: str) -> list[str]:
+    """Parse LLM reranking response into list of URLs."""
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*\n?", "", text)
+    text = re.sub(r"\n?```\s*$", "", text)
+    text = text.strip()
+
+    start = text.find("[")
+    end = text.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        try:
+            result = json.loads(text[start:end + 1])
+            if isinstance(result, list):
+                return [str(item) for item in result]
+        except json.JSONDecodeError:
+            pass
+
+    return []
 
 
 def parse_anchor_response(text: str) -> list[dict]:

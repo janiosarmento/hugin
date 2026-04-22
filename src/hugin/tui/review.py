@@ -43,10 +43,12 @@ from hugin.llm import (
     ANCHOR_SYSTEM_PROMPT,
     ANCHOR_USER_TEMPLATE,
     MAX_SUMMARY_CHARS,
+    RERANK_PROMPT,
     RETRY_PROMPT,
     SUGGEST_PROMPT,
     call_llm,
     parse_anchor_response,
+    parse_rerank_response,
     parse_suggestions,
     suggest_summary,
     suggest_tags,
@@ -199,8 +201,8 @@ class HuginScreen(Screen):
         ("q", "quit", "Quit"),
         ("t", "tags", "Tags"),
         ("s", "summary", "Summary"),
-        ("i", "incoming", "Incoming"),
-        ("o", "outgoing", "Outgoing"),
+        ("i", "incoming", "In"),
+        ("o", "outgoing", "Out"),
         ("d", "direct_links", "Direct"),
         ("z", "amazon", "Amzn"),
         ("l", "list_links", "List"),
@@ -945,91 +947,81 @@ class HuginScreen(Screen):
             existing_urls = extract_existing_links(post.content)
             existing_normalized = {u.rstrip("/") for u in existing_urls}
 
-            # Deterministic pass: find slug keywords verbatim in the body
-            keyword_anchors = find_keyword_anchors(post.content, candidates)
-            keyword_anchors = [
-                s for s in keyword_anchors
-                if s["target_url"].rstrip("/") not in existing_normalized
-            ]
-
-            # LLM pass: find creative anchors for remaining candidates
-            covered_urls = {s["target_url"] for s in keyword_anchors}
-            remaining = [c for c in candidates if c["url"] not in covered_urls]
-
+            # LLM pass: send ALL candidates for anchor finding
             llm_validated = []
-            if remaining:
-                candidates_json = json.dumps([
-                    {"title": c["title"], "summary": "", "url": c["url"]}
-                    for c in remaining
-                ])
+            candidates_json = json.dumps([
+                {"title": c["title"], "summary": "", "url": c["url"]}
+                for c in candidates
+            ])
 
-                user_msg = ANCHOR_USER_TEMPLATE.format(
-                    body=post.content, candidates_json=candidates_json,
-                )
-                system = ANCHOR_SYSTEM_PROMPT.format(
-                    max_anchor_words=self.config.links.max_anchor_words,
-                )
-                prompt = f"{system}\n\n{user_msg}"
-                response = await call_llm(self.engine, prompt)
+            user_msg = ANCHOR_USER_TEMPLATE.format(
+                body=post.content, candidates_json=candidates_json,
+            )
+            system = ANCHOR_SYSTEM_PROMPT.format(
+                max_anchor_words=self.config.links.max_anchor_words,
+            )
+            prompt = f"{system}\n\n{user_msg}"
+            response = await call_llm(self.engine, prompt)
 
-                suggestions = parse_anchor_response(response)
-                zones = find_protected_zones(post.content)
-                candidate_urls = {c["url"] for c in remaining}
+            suggestions = parse_anchor_response(response)
+            zones = find_protected_zones(post.content)
+            candidate_urls = {c["url"] for c in candidates}
 
-                for s in suggestions:
-                    anchor = s.get("anchor_text", "")
-                    target = s.get("target_url", "")
-                    if not anchor or not target:
-                        continue
-                    if target not in candidate_urls:
-                        continue
-                    if target.rstrip("/") in existing_normalized:
-                        continue
+            for s in suggestions:
+                anchor = s.get("anchor_text", "")
+                target = s.get("target_url", "")
+                if not anchor or not target:
+                    continue
+                if target not in candidate_urls:
+                    continue
+                if target.rstrip("/") in existing_normalized:
+                    continue
 
-                    max_words = self.config.links.max_anchor_words
-                    if len(anchor.split()) > max_words:
-                        continue
+                max_words = self.config.links.max_anchor_words
+                if len(anchor.split()) > max_words:
+                    continue
 
-                    pos = _find_whole_word(post.content, anchor)
-                    if pos == -1:
-                        candidate_info = next(
-                            (c for c in remaining if c["url"] == target), None,
+                pos = _find_whole_word(post.content, anchor)
+                if pos == -1:
+                    candidate_info = next(
+                        (c for c in candidates if c["url"] == target), None,
+                    )
+                    if candidate_info:
+                        retry_prompt = RETRY_PROMPT.format(
+                            anchor_text=anchor,
+                            title=candidate_info["title"],
+                            url=target,
+                            body=post.content,
                         )
-                        if candidate_info:
-                            retry_prompt = RETRY_PROMPT.format(
-                                anchor_text=anchor,
-                                title=candidate_info["title"],
-                                url=target,
-                                body=post.content,
-                            )
-                            retry_response = await call_llm(self.engine, retry_prompt)
-                            retry_anchor = retry_response.strip().strip('"').strip("'")
-                            retry_pos = _find_whole_word(post.content, retry_anchor)
-                            if retry_pos != -1 and len(retry_anchor.split()) <= max_words:
-                                anchor = retry_anchor
-                                pos = retry_pos
-                            else:
-                                continue
+                        retry_response = await call_llm(self.engine, retry_prompt)
+                        retry_anchor = retry_response.strip().strip('"').strip("'")
+                        retry_pos = _find_whole_word(post.content, retry_anchor)
+                        if retry_pos != -1 and len(retry_anchor.split()) <= max_words:
+                            anchor = retry_anchor
+                            pos = retry_pos
                         else:
                             continue
-
-                    if is_in_protected_zone(pos, len(anchor), zones):
+                    else:
                         continue
 
-                    llm_validated.append({"anchor_text": anchor, "target_url": target})
+                if is_in_protected_zone(pos, len(anchor), zones):
+                    continue
 
-            # Merge: keyword anchors skip paragraph limits (user chose them),
-            # LLM anchors still respect the limit
-            llm_filtered = [
-                s for s in llm_validated
-                if check_anchor_viable(
-                    post.content, s["anchor_text"],
-                    self.config.links.max_per_paragraph,
-                )
+                llm_validated.append({"anchor_text": anchor, "target_url": target})
+
+            # Keyword anchors as fallback for candidates the LLM missed
+            llm_urls = {s["target_url"] for s in llm_validated}
+            uncovered = [c for c in candidates if c["url"] not in llm_urls]
+            keyword_fallback = find_keyword_anchors(post.content, uncovered)
+            keyword_fallback = [
+                s for s in keyword_fallback
+                if s["target_url"].rstrip("/") not in existing_normalized
             ]
-            for s in keyword_anchors:
+            for s in keyword_fallback:
                 s["_manual"] = True
-            validated = (keyword_anchors + llm_filtered)[:budget]
+
+            # LLM results first (better quality), then keyword fallbacks
+            validated = (llm_validated + keyword_fallback)[:budget]
 
             abs_path = str(post.path.resolve())
             self._session_outgoing[abs_path] = validated
@@ -1053,9 +1045,11 @@ class HuginScreen(Screen):
     async def _run_outgoing(self, post: Post, budget: int) -> None:
         try:
             existing_urls = extract_existing_links(post.content)
+            # Fetch wider pool for LLM reranking
+            pre_filter_n = max(self.config.links.candidates * 2, 20)
             candidates = self.index.find_similar(
                 post,
-                n=self.config.links.candidates,
+                n=pre_filter_n,
                 exclude_urls=existing_urls,
             )
 
@@ -1068,84 +1062,102 @@ class HuginScreen(Screen):
                 self.query_one("#section-header", Label).update("")
                 return
 
+            # LLM reranking: ask which candidates are genuinely related
+            rerank_candidates = json.dumps([
+                {"title": c["title"], "url": c["url"]}
+                for c in candidates
+            ])
+            title = post.metadata.get("title", post.filename)
+            body_preview = post.content[:2000]
+            rerank_prompt = RERANK_PROMPT.format(
+                title=title, body=body_preview,
+                candidates_json=rerank_candidates,
+            )
+            rerank_response = await call_llm(self.engine, rerank_prompt)
+            relevant_urls = set(parse_rerank_response(rerank_response))
+
+            # Keep reranked candidates + any with mention boost (score > 1.0)
+            candidates = [
+                c for c in candidates
+                if c["url"] in relevant_urls or c.get("score", 0) > 1.0
+            ][:self.config.links.candidates]
+
+            if not candidates:
+                self._stop_spinner()
+                self._state = STATE_BROWSING
+                self.index.mark_no_outgoing(post)
+                self._mark_table_row(self.current_index, "—")
+                self.notify("No relevant posts found after reranking.")
+                self.query_one("#section-header", Label).update("")
+                return
+
             existing_normalized = {u.rstrip("/") for u in existing_urls}
 
-            # Deterministic pass: find slug keywords verbatim in the body
-            keyword_anchors = find_keyword_anchors(post.content, candidates)
-            keyword_anchors = [
-                s for s in keyword_anchors
-                if s["target_url"].rstrip("/") not in existing_normalized
-            ]
+            # LLM-only pass for automatic flow (no deterministic keywords
+            # here — generic words like "gatos" cause too many false positives)
+            validated = []
+            candidates_json = json.dumps([
+                {"title": c["title"], "summary": "", "url": c["url"]}
+                for c in candidates
+            ])
 
-            # LLM pass: find creative anchors for remaining candidates
-            covered_urls = {s["target_url"] for s in keyword_anchors}
-            remaining = [c for c in candidates if c["url"] not in covered_urls]
+            user_msg = ANCHOR_USER_TEMPLATE.format(
+                body=post.content, candidates_json=candidates_json,
+            )
+            system = ANCHOR_SYSTEM_PROMPT.format(
+                max_anchor_words=self.config.links.max_anchor_words,
+            )
+            prompt = f"{system}\n\n{user_msg}"
+            response = await call_llm(self.engine, prompt)
 
-            llm_validated = []
-            if remaining:
-                candidates_json = json.dumps([
-                    {"title": c["title"], "summary": "", "url": c["url"]}
-                    for c in remaining
-                ])
+            suggestions = parse_anchor_response(response)
+            zones = find_protected_zones(post.content)
+            candidate_urls = {c["url"] for c in candidates}
 
-                user_msg = ANCHOR_USER_TEMPLATE.format(
-                    body=post.content, candidates_json=candidates_json,
-                )
-                system = ANCHOR_SYSTEM_PROMPT.format(
-                    max_anchor_words=self.config.links.max_anchor_words,
-                )
-                prompt = f"{system}\n\n{user_msg}"
-                response = await call_llm(self.engine, prompt)
+            for s in suggestions:
+                anchor = s.get("anchor_text", "")
+                target = s.get("target_url", "")
+                if not anchor or not target:
+                    continue
 
-                suggestions = parse_anchor_response(response)
-                zones = find_protected_zones(post.content)
-                candidate_urls = {c["url"] for c in remaining}
+                if target not in candidate_urls:
+                    continue
+                if target.rstrip("/") in existing_normalized:
+                    continue
 
-                for s in suggestions:
-                    anchor = s.get("anchor_text", "")
-                    target = s.get("target_url", "")
-                    if not anchor or not target:
-                        continue
+                max_words = self.config.links.max_anchor_words
+                if len(anchor.split()) > max_words:
+                    continue
 
-                    if target not in candidate_urls:
-                        continue
-                    if target.rstrip("/") in existing_normalized:
-                        continue
-
-                    max_words = self.config.links.max_anchor_words
-                    if len(anchor.split()) > max_words:
-                        continue
-
-                    pos = _find_whole_word(post.content, anchor)
-                    if pos == -1:
-                        candidate_info = next(
-                            (c for c in remaining if c["url"] == target), None,
+                pos = _find_whole_word(post.content, anchor)
+                if pos == -1:
+                    candidate_info = next(
+                        (c for c in candidates if c["url"] == target), None,
+                    )
+                    if candidate_info:
+                        retry_prompt = RETRY_PROMPT.format(
+                            anchor_text=anchor,
+                            title=candidate_info["title"],
+                            url=target,
+                            body=post.content,
                         )
-                        if candidate_info:
-                            retry_prompt = RETRY_PROMPT.format(
-                                anchor_text=anchor,
-                                title=candidate_info["title"],
-                                url=target,
-                                body=post.content,
-                            )
-                            retry_response = await call_llm(self.engine, retry_prompt)
-                            retry_anchor = retry_response.strip().strip('"').strip("'")
-                            retry_pos = _find_whole_word(post.content, retry_anchor)
-                            if retry_pos != -1 and len(retry_anchor.split()) <= max_words:
-                                anchor = retry_anchor
-                                pos = retry_pos
-                            else:
-                                continue
+                        retry_response = await call_llm(self.engine, retry_prompt)
+                        retry_anchor = retry_response.strip().strip('"').strip("'")
+                        retry_pos = _find_whole_word(post.content, retry_anchor)
+                        if retry_pos != -1 and len(retry_anchor.split()) <= max_words:
+                            anchor = retry_anchor
+                            pos = retry_pos
                         else:
                             continue
-
-                    if is_in_protected_zone(pos, len(anchor), zones):
+                    else:
                         continue
 
-                    llm_validated.append({"anchor_text": anchor, "target_url": target})
+                if is_in_protected_zone(pos, len(anchor), zones):
+                    continue
 
-            # Merge: keyword anchors first, then LLM anchors
-            validated = (keyword_anchors + llm_validated)[:budget]
+                validated.append({"anchor_text": anchor, "target_url": target})
+
+            validated = validated[:budget]
             validated = [
                 s for s in validated
                 if check_anchor_viable(

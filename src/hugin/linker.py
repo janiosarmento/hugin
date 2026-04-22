@@ -193,7 +193,7 @@ def find_keyword_anchors(
     for c in candidates:
         url = c["url"]
         slug = url.strip("/").rsplit("/", 1)[-1] if "/" in url else url
-        keywords = [k for k in slug.split("-") if len(k) >= 4]
+        keywords = [k for k in slug.split("-") if len(k) >= 6]
         # Try longest keywords first — more specific
         keywords.sort(key=len, reverse=True)
 

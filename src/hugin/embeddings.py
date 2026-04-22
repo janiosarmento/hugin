@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import os
 import re
 import unicodedata
@@ -12,7 +13,7 @@ import numpy as np
 from hugin.engines import CONFIG_DIR
 
 EMBEDDINGS_DIR = CONFIG_DIR / "embeddings"
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 DEFAULT_MODEL = "intfloat/multilingual-e5-large"
 
 
@@ -30,8 +31,9 @@ def _slug_keywords(url: str) -> str:
     return slug.replace("-", " ")
 
 
-_MIN_KEYWORD_LEN = 4
+_MIN_KEYWORD_LEN = 6
 _MENTION_BOOST = 1.0
+_TAG_BOOST_MAX = 0.5  # Maximum boost from tag overlap
 
 
 def _normalize_ascii(text: str) -> str:
@@ -216,10 +218,11 @@ class EmbeddingIndex:
                 if entry["url"] != fresh_url:
                     entry["url"] = fresh_url
                     urls_updated += 1
-                # Also refresh title in case it changed without mtime change
+                # Also refresh title and tags in case they changed
                 fresh_title = post_obj.metadata.get("title", post_obj.filename)
                 if entry.get("title") != fresh_title:
                     entry["title"] = fresh_title
+                entry["tags"] = post_obj.metadata.get("tags", [])
 
         if not stale:
             if urls_updated:
@@ -248,6 +251,7 @@ class EmbeddingIndex:
                 "mtime": mtime,
                 "url": url,
                 "title": post.metadata.get("title", post.filename),
+                "tags": post.metadata.get("tags", []),
                 "embedding": embedding.tolist(),
                 "no_outgoing": old_entry.get("no_outgoing", False),
             }
@@ -296,6 +300,7 @@ class EmbeddingIndex:
             "mtime": mtime,
             "url": url_fn(post.metadata, post.filename),
             "title": post.metadata.get("title", post.filename),
+            "tags": post.metadata.get("tags", []),
             "embedding": embedding.tolist(),
             "no_outgoing": old_entry.get("no_outgoing", False),
         }
@@ -373,6 +378,32 @@ class EmbeddingIndex:
         if body_norm:
             for r in results:
                 r["score"] += _MENTION_BOOST * _mention_score(body_norm, r["url"])
+
+        # Boost posts sharing tags (weighted by rarity)
+        query_tags = set(post.metadata.get("tags", []) if hasattr(post, "metadata") else [])
+        if query_tags:
+            # Build tag document frequency from cache
+            total_posts = len(cached)
+            tag_df: dict[str, int] = {}
+            for entry in cached.values():
+                for t in entry.get("tags", []):
+                    tag_df[t] = tag_df.get(t, 0) + 1
+
+            # IDF weight per tag: rare tags score higher
+            tag_idf = {}
+            for t, df in tag_df.items():
+                tag_idf[t] = math.log(total_posts / df) if df > 0 else 0.0
+
+            # Max possible IDF score for normalization
+            max_idf_sum = sum(tag_idf.get(t, 0) for t in query_tags) or 1.0
+
+            for r in results:
+                other_entry = cached.get(r["path"], {})
+                other_tags = set(other_entry.get("tags", []))
+                shared = query_tags & other_tags
+                if shared:
+                    idf_sum = sum(tag_idf.get(t, 0) for t in shared)
+                    r["score"] += _TAG_BOOST_MAX * (idf_sum / max_idf_sum)
 
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:n]
