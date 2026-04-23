@@ -48,10 +48,11 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
     }
     """
 
-    def __init__(self, engines: list[Engine], current_id: str) -> None:
+    def __init__(self, engines: list[Engine], current_id: str, current_model: str = "") -> None:
         super().__init__()
         self.engines = engines
         self.current_id = current_id
+        self.current_model = current_model
         self._viewing = "engines"  # "engines" or "models"
         self._selected_engine: Engine | None = None
         self._available_models: list[str] = []
@@ -80,8 +81,9 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
 
         for i, engine in enumerate(self.engines):
             active = " ●" if engine.id == self.current_id else ""
+            model = self.current_model if engine.id == self.current_id and self.current_model else engine.model
             status = "ready" if engine.available else "no key"
-            table.add_row(active, engine.id, engine.model, status, key=f"eng-{i}")
+            table.add_row(active, engine.id, model, status, key=f"eng-{i}")
 
     def _show_models(self, models: list[str]) -> None:
         self._viewing = "models"

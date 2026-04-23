@@ -463,7 +463,7 @@ class HuginScreen(Screen):
                 self._update_engine_label()
                 self.notify(f"Engine: {engine.id} ({engine.model})")
 
-        self.app.push_screen(EnginePickerScreen(engines, self.engine.id), on_pick)
+        self.app.push_screen(EnginePickerScreen(engines, self.engine.id, self.engine.model), on_pick)
 
     # --- Navigation ---
 
