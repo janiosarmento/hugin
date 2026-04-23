@@ -58,11 +58,12 @@ def _resolve_config_path() -> Path:
         return links_path
 
     if legacy_path.exists():
+        legacy_path.rename(links_path)
         print(
-            f"Warning: {legacy_path} is deprecated, rename to {links_path.name}",
+            f"Migrated {legacy_path.name} → {links_path.name}",
             file=sys.stderr,
         )
-        return legacy_path
+        return links_path
 
     # Create default
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
