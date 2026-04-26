@@ -241,16 +241,19 @@ class GitSyncResultScreen(ModalScreen):
 
     def compose(self) -> ComposeResult:
         title = "Sync complete" if self._success else "Sync failed"
+        note = "App will reload to pick up new posts." if self._success else ""
         with Vertical(id="gitresult-modal"):
             yield Label(title, id="gitresult-title")
             yield Static(self._output or "(no output)", id="gitresult-output")
+            if note:
+                yield Static(note)
             yield Button("Close", id="btn-close", variant="primary")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.dismiss()
+        self.dismiss(self._success)
 
     def action_close(self) -> None:
-        self.dismiss()
+        self.dismiss(self._success)
 
 
 class LoadingScreen(ModalScreen):
@@ -1682,9 +1685,15 @@ class HuginScreen(Screen):
 
         output = "\n".join(lines)
         self.app.call_from_thread(self._stop_spinner)
-        self.app.call_from_thread(
-            self.app.push_screen, GitSyncResultScreen(success, output)
-        )
+
+        def show_result() -> None:
+            def on_close(synced: bool) -> None:
+                if synced:
+                    self.app.exit(return_code=42)
+
+            self.app.push_screen(GitSyncResultScreen(success, output), on_close)
+
+        self.app.call_from_thread(show_result)
 
     def action_back(self) -> None:
         if self._state == STATE_LOADING:
