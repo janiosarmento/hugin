@@ -187,8 +187,8 @@ class ConfirmGitSyncScreen(ModalScreen[bool]):
             yield Label("Sync repository with GitHub?")
             yield Static("Will commit local changes, pull --rebase, then push.")
             with Horizontal(id="gitsync-buttons"):
-                yield Button("Yes (Y)", id="btn-yes", variant="primary")
-                yield Button("No (N)", id="btn-no")
+                yield Button("Yes", id="btn-yes", variant="primary")
+                yield Button("No", id="btn-no")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id == "btn-yes")
