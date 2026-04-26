@@ -1619,6 +1619,7 @@ class HuginScreen(Screen):
 
         def on_confirm(confirmed: bool) -> None:
             if confirmed:
+                self._start_spinner(self.current_index, "Syncing with GitHub...")
                 self._do_git_sync()
 
         self.app.push_screen(ConfirmGitSyncScreen(), on_confirm)
@@ -1680,6 +1681,7 @@ class HuginScreen(Screen):
                 success = False
 
         output = "\n".join(lines)
+        self.app.call_from_thread(self._stop_spinner)
         self.app.call_from_thread(
             self.app.push_screen, GitSyncResultScreen(success, output)
         )
