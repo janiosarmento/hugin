@@ -244,7 +244,7 @@ class GitSyncResultScreen(ModalScreen):
         with Vertical(id="gitresult-modal"):
             yield Label(title, id="gitresult-title")
             yield Static(self._output or "(no output)", id="gitresult-output")
-            yield Button("Close (Enter/Esc)", id="btn-close", variant="primary")
+            yield Button("Close", id="btn-close", variant="primary")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss()
