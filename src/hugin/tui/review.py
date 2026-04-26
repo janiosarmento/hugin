@@ -3,6 +3,7 @@
 import json
 import math
 import re
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -144,6 +145,114 @@ class ConfirmClearScreen(ModalScreen[bool]):
         self.dismiss(False)
 
 
+class ConfirmGitSyncScreen(ModalScreen[bool]):
+    """Confirm git sync (pull + push)."""
+
+    BINDINGS = [
+        ("y", "yes", "Yes"),
+        ("n", "no", "No"),
+        ("escape", "no", "No"),
+    ]
+
+    DEFAULT_CSS = """
+    ConfirmGitSyncScreen {
+        align: center middle;
+    }
+
+    #gitsync-modal {
+        width: 52;
+        height: auto;
+        border: solid $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #gitsync-modal Label {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #gitsync-buttons {
+        height: auto;
+        margin-top: 1;
+    }
+
+    #gitsync-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="gitsync-modal"):
+            yield Label("Sync repository with GitHub?")
+            yield Static("Will commit local changes, pull --rebase, then push.")
+            with Horizontal(id="gitsync-buttons"):
+                yield Button("Yes (Y)", id="btn-yes", variant="primary")
+                yield Button("No (N)", id="btn-no")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "btn-yes")
+
+    def action_yes(self) -> None:
+        self.dismiss(True)
+
+    def action_no(self) -> None:
+        self.dismiss(False)
+
+
+class GitSyncResultScreen(ModalScreen):
+    """Shows the result of a git sync operation."""
+
+    BINDINGS = [("escape", "close", "Close"), ("enter", "close", "Close")]
+
+    DEFAULT_CSS = """
+    GitSyncResultScreen {
+        align: center middle;
+    }
+
+    #gitresult-modal {
+        width: 70;
+        height: auto;
+        max-height: 80%;
+        border: solid $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #gitresult-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #gitresult-output {
+        margin-bottom: 1;
+        color: $text-muted;
+    }
+
+    #gitresult-close {
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self, success: bool, output: str) -> None:
+        super().__init__()
+        self._success = success
+        self._output = output
+
+    def compose(self) -> ComposeResult:
+        title = "Sync complete" if self._success else "Sync failed"
+        with Vertical(id="gitresult-modal"):
+            yield Label(title, id="gitresult-title")
+            yield Static(self._output or "(no output)", id="gitresult-output")
+            yield Button("Close (Enter/Esc)", id="btn-close", variant="primary")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss()
+
+    def action_close(self) -> None:
+        self.dismiss()
+
+
 class LoadingScreen(ModalScreen):
     """Non-interactive modal with animated spinner and status message."""
 
@@ -213,6 +322,7 @@ class HuginScreen(Screen):
         ("m", "manage_tags", "Manage"),
         ("c", "clear_caches", "Clear"),
         ("p", "project_settings", "Project"),
+        ("g", "git_sync", "Git"),
         ("escape", "back", "Back"),
     ]
 
@@ -1502,6 +1612,77 @@ class HuginScreen(Screen):
         self.notify(f"Error: {error}", severity="error")
 
     # === NAVIGATION ===
+
+    def action_git_sync(self) -> None:
+        if self._state != STATE_BROWSING:
+            return
+
+        def on_confirm(confirmed: bool) -> None:
+            if confirmed:
+                self._do_git_sync()
+
+        self.app.push_screen(ConfirmGitSyncScreen(), on_confirm)
+
+    @work(thread=True)
+    def _do_git_sync(self) -> None:
+        repo = self.directory
+        lines: list[str] = []
+        success = True
+
+        def run(cmd: list[str]) -> tuple[bool, str]:
+            result = subprocess.run(
+                cmd,
+                cwd=repo,
+                capture_output=True,
+                text=True,
+            )
+            out = (result.stdout + result.stderr).strip()
+            return result.returncode == 0, out
+
+        # Step 1: check for uncommitted changes
+        ok, status_out = run(["git", "status", "--porcelain"])
+        if not ok:
+            lines.append(f"git status failed:\n{status_out}")
+            success = False
+        elif status_out:
+            # There are local changes — stage and commit
+            lines.append("Committing local changes...")
+            ok, add_out = run(["git", "add", "-A"])
+            if not ok:
+                lines.append(f"git add failed:\n{add_out}")
+                success = False
+            else:
+                ok, commit_out = run(
+                    ["git", "commit", "-m", f"Update posts [{datetime.now():%Y-%m-%d %H:%M}]"]
+                )
+                if not ok and "nothing to commit" not in commit_out:
+                    lines.append(f"git commit failed:\n{commit_out}")
+                    success = False
+                else:
+                    lines.append(commit_out or "Nothing new to commit.")
+        else:
+            lines.append("Working tree clean — no local changes to commit.")
+
+        if success:
+            # Step 2: pull --rebase
+            lines.append("\nPulling (rebase)...")
+            ok, pull_out = run(["git", "pull", "--rebase"])
+            lines.append(pull_out)
+            if not ok:
+                success = False
+
+        if success:
+            # Step 3: push
+            lines.append("\nPushing...")
+            ok, push_out = run(["git", "push"])
+            lines.append(push_out)
+            if not ok:
+                success = False
+
+        output = "\n".join(lines)
+        self.app.call_from_thread(
+            self.app.push_screen, GitSyncResultScreen(success, output)
+        )
 
     def action_back(self) -> None:
         if self._state == STATE_LOADING:
