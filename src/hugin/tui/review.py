@@ -1672,12 +1672,14 @@ class HuginScreen(Screen):
         if success:
             # Step 2: pull --rebase
             lines.append("\nPulling (rebase)...")
+            _, remote_before = run(["git", "rev-parse", "@{upstream}"])
             ok, pull_out = run(["git", "pull", "--rebase"])
             lines.append(pull_out)
             if not ok:
                 success = False
-            elif "Already up to date." not in pull_out:
-                needs_reload = True  # New commits arrived — reload posts
+            else:
+                _, remote_after = run(["git", "rev-parse", "@{upstream}"])
+                needs_reload = remote_before != remote_after
 
         if success:
             # Step 3: push
