@@ -234,26 +234,26 @@ class GitSyncResultScreen(ModalScreen):
     }
     """
 
-    def __init__(self, success: bool, output: str) -> None:
+    def __init__(self, success: bool, output: str, needs_reload: bool = False) -> None:
         super().__init__()
         self._success = success
         self._output = output
+        self._needs_reload = needs_reload
 
     def compose(self) -> ComposeResult:
         title = "Sync complete" if self._success else "Sync failed"
-        note = "App will reload to pick up new posts." if self._success else ""
         with Vertical(id="gitresult-modal"):
             yield Label(title, id="gitresult-title")
             yield Static(self._output or "(no output)", id="gitresult-output")
-            if note:
-                yield Static(note)
+            if self._needs_reload:
+                yield Static("App will reload to pick up new posts.")
             yield Button("Close", id="btn-close", variant="primary")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.dismiss(self._success)
+        self.dismiss(self._needs_reload)
 
     def action_close(self) -> None:
-        self.dismiss(self._success)
+        self.dismiss(self._needs_reload)
 
 
 class LoadingScreen(ModalScreen):
@@ -1667,6 +1667,8 @@ class HuginScreen(Screen):
         else:
             lines.append("Working tree clean — no local changes to commit.")
 
+        needs_reload = False
+
         if success:
             # Step 2: pull --rebase
             lines.append("\nPulling (rebase)...")
@@ -1674,6 +1676,8 @@ class HuginScreen(Screen):
             lines.append(pull_out)
             if not ok:
                 success = False
+            elif "Already up to date." not in pull_out:
+                needs_reload = True  # New commits arrived — reload posts
 
         if success:
             # Step 3: push
@@ -1687,11 +1691,11 @@ class HuginScreen(Screen):
         self.app.call_from_thread(self._stop_spinner)
 
         def show_result() -> None:
-            def on_close(synced: bool) -> None:
-                if synced:
+            def on_close(reload: bool) -> None:
+                if reload:
                     self.app.exit(return_code=42)
 
-            self.app.push_screen(GitSyncResultScreen(success, output), on_close)
+            self.app.push_screen(GitSyncResultScreen(success, output, needs_reload), on_close)
 
         self.app.call_from_thread(show_result)
 
