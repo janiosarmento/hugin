@@ -30,6 +30,7 @@ from hugin.engines import Engine, load_engines, save_last_engine
 from hugin.hugo import HugoSite
 from hugin.linker import (
     _find_whole_word,
+    _is_nofollow_url,
     apply_links,
     check_anchor_viable,
     extract_existing_links,
@@ -643,7 +644,9 @@ class HuginScreen(Screen):
             table.add_row("tags", "(none)")
 
         # Link counts
-        outgoing_count = len(extract_existing_links(post.content))
+        existing_links = extract_existing_links(post.content)
+        outgoing_count = len(existing_links)
+        affiliate_count = sum(1 for url in existing_links if _is_nofollow_url(url))
         word_count = len(post.content.split())
         budget = min(
             self.config.links.max_per_post,
@@ -652,7 +655,8 @@ class HuginScreen(Screen):
         post_url = self.index.get_post_url(post)
         incoming_count = self._incoming_index.get(post_url, 0) if post_url else 0
 
-        table.add_row("links out", f"{outgoing_count}/{budget}")
+        affiliate_label = f" ({affiliate_count} aff)" if affiliate_count else ""
+        table.add_row("links out", f"{outgoing_count}/{budget}{affiliate_label}")
         table.add_row("links in", str(incoming_count))
 
         if budget == 0:
