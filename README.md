@@ -43,15 +43,18 @@ hugin --model gpt-4o            # Override model
 | `s` | Generate summary with LLM |
 | `i` | Find incoming link candidates (embedding only) |
 | `o` | Generate outgoing link suggestions (embedding + LLM) |
+| `d` | Pick a post directly and insert link |
+| `z` | Insert Amazon affiliate link |
 | `l` | List existing links (select to remove) |
 | `u` | Suggest new post topics (LLM) |
 | `e` | Open built-in editor |
+| `g` | Sync repository with GitHub (pull --rebase + push) |
 | `n` | Select engine and model |
 | `m` | Open tag manager |
 | `p` | Project settings |
 | `c` | Clear embedding cache and restart |
 | `Ctrl+P` | Change Textual theme (persists across sessions) |
-| `Escape` | Go back / dismiss |
+| `Escape` | Go back / cancel LLM call in progress |
 | `q` | Quit |
 
 ### Tag manager keybindings
@@ -93,6 +96,16 @@ The LLM receives the post content and existing tag pool, and suggests tags and s
 ### Editor
 
 Press `e` to open a full-screen editor with individual input fields for frontmatter (title, date, description, etc.) and a Markdown TextArea for the body. Tags are shown read-only (use `t` for tag editing). Saves are atomic (temp file + rename).
+
+### Git Sync
+
+On startup, hugin automatically runs `git pull --rebase` on the posts directory so you always start with the latest content from the remote. If the pull fails due to conflicts, hugin aborts the rebase and exits with a suggested recovery command:
+
+```
+git stash && git pull --rebase && git stash pop
+```
+
+During a session, press `g` to sync manually: hugin commits any local changes, pulls with rebase, then pushes. If the pull brings new commits, the app reloads the post list and rebuilds the embedding index automatically.
 
 ---
 

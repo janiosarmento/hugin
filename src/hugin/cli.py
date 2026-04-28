@@ -1,5 +1,6 @@
 """Entrypoint CLI."""
 
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -15,6 +16,26 @@ from hugin.scanner import (
     load_posts,
 )
 from hugin.state import load_state
+
+
+def _git_pull(directory: Path) -> None:
+    """Pull latest changes from remote with rebase. Abort and exit on conflict."""
+    result = subprocess.run(
+        ["git", "pull", "--rebase"],
+        cwd=directory,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        output = (result.stdout + result.stderr).strip()
+        subprocess.run(["git", "rebase", "--abort"], cwd=directory, capture_output=True)
+        click.echo(f"Git pull failed:\n{output}\n")
+        click.echo(
+            "To resolve, stash your local changes and try again:\n"
+            "  git stash && git pull --rebase && git stash pop\n"
+            "Then restart hugin."
+        )
+        raise SystemExit(1)
 
 
 @click.command()
@@ -39,6 +60,8 @@ def main(
     """hugin: manage Hugo blog posts — tags, summaries, links, and editing."""
     directory = directory.resolve()
     config = load_config()
+
+    _git_pull(directory)
 
     posts = load_posts(directory)
     if not posts:
