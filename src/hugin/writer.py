@@ -99,6 +99,24 @@ def save_post(path: Path, post) -> None:
         raise
 
 
+def save_raw(path: Path, text: str) -> None:
+    """Write raw file content as-is (no frontmatter processing). Atomic."""
+    dir_path = path.parent
+    fd, tmp_path = tempfile.mkstemp(dir=str(dir_path), suffix=".md")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+            if not text.endswith("\n"):
+                f.write("\n")
+        os.replace(tmp_path, str(path))
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def write_tags(path: Path, tags: list[str]) -> None:
     """Write the full tag list to a post, replacing any existing tags."""
     post = frontmatter.load(str(path))

@@ -87,12 +87,23 @@ class EditorScreen(Screen[bool]):
 
     BINDINGS = [
         ("ctrl+s", "save", "Save"),
+        ("ctrl+r", "toggle_raw", "Raw"),
         ("ctrl+e", "strip_emojis", "Strip emojis"),
         ("escape", "back", "Back"),
     ]
 
     DEFAULT_CSS = """
     #editor-container {
+        height: 1fr;
+    }
+
+    #raw-panel {
+        height: 1fr;
+        padding: 0 1;
+        display: none;
+    }
+
+    #raw-editor {
         height: 1fr;
     }
 
@@ -157,11 +168,20 @@ class EditorScreen(Screen[bool]):
         self._extra_fields: dict[str, str] = {}
         self._original_meta = dict(post.metadata)
         self._original_content = post.content
+        self._raw_mode = False
+        self._original_raw = post.path.read_text()
 
     def compose(self) -> ComposeResult:
         yield Static(f"Editing: {self.post.filename}", id="editor-title")
 
         with Vertical(id="editor-container"):
+            with Vertical(id="raw-panel"):
+                yield TextArea(
+                    self._original_raw,
+                    language="markdown",
+                    id="raw-editor",
+                )
+
             with Vertical(id="frontmatter-panel"):
                 meta = self.post.metadata
 
@@ -210,6 +230,7 @@ class EditorScreen(Screen[bool]):
                 )
 
         with Horizontal(id="editor-buttons"):
+            yield Button("Raw (Ctrl+R)", id="btn-toggle-raw")
             yield Button("Strip emojis (Ctrl+E)", id="btn-strip-emojis")
             yield Button("Save (Ctrl+S)", id="btn-save", variant="primary")
             yield Button("Cancel", id="btn-cancel-edit")
@@ -218,6 +239,9 @@ class EditorScreen(Screen[bool]):
 
     def _is_dirty(self) -> bool:
         """Check if anything has been modified."""
+        if self._raw_mode:
+            return self.query_one("#raw-editor", TextArea).text != self._original_raw
+
         for field_name, inp in self._field_inputs.items():
             original = self._original_meta.get(field_name, "")
             if original is None:
@@ -238,12 +262,35 @@ class EditorScreen(Screen[bool]):
 
         return False
 
+    def action_toggle_raw(self) -> None:
+        """Switch between structured and raw editing modes."""
+        self._raw_mode = not self._raw_mode
+
+        raw_panel = self.query_one("#raw-panel")
+        frontmatter_panel = self.query_one("#frontmatter-panel")
+        body_panel = self.query_one("#body-panel")
+        btn = self.query_one("#btn-toggle-raw", Button)
+
+        if self._raw_mode:
+            # Populate raw editor with current file on disk
+            raw_panel.display = True
+            frontmatter_panel.display = False
+            body_panel.display = False
+            btn.label = "Structured (Ctrl+R)"
+            self.query_one("#raw-editor", TextArea).focus()
+        else:
+            raw_panel.display = False
+            frontmatter_panel.display = True
+            body_panel.display = True
+            btn.label = "Raw (Ctrl+R)"
+            self.query_one("#body-editor", TextArea).focus()
+
     def action_strip_emojis(self) -> None:
         """Remove all emojis from the body text."""
-        editor = self.query_one("#body-editor", TextArea)
+        editor_id = "#raw-editor" if self._raw_mode else "#body-editor"
+        editor = self.query_one(editor_id, TextArea)
         original = editor.text
         cleaned = _EMOJI_RE.sub("", original)
-        # Collapse double spaces left behind
         cleaned = re.sub(r"  +", " ", cleaned)
         if cleaned == original:
             self.notify("No emojis found")
@@ -252,8 +299,16 @@ class EditorScreen(Screen[bool]):
         self.notify("Emojis removed")
 
     def action_save(self) -> None:
-        """Save the post with updated frontmatter and body."""
+        """Save the post — raw text or structured frontmatter+body."""
         post = self.post
+
+        if self._raw_mode:
+            from hugin.writer import save_raw
+            raw_text = self.query_one("#raw-editor", TextArea).text
+            save_raw(post.path, raw_text)
+            self.notify(f"{post.filename}: saved (raw)")
+            self.dismiss(True)
+            return
 
         # Build new metadata starting from original (preserves order and extra fields)
         new_meta = dict(self._original_meta)
@@ -298,7 +353,9 @@ class EditorScreen(Screen[bool]):
             self.dismiss(False)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-strip-emojis":
+        if event.button.id == "btn-toggle-raw":
+            self.action_toggle_raw()
+        elif event.button.id == "btn-strip-emojis":
             self.action_strip_emojis()
         elif event.button.id == "btn-save":
             self.action_save()

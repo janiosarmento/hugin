@@ -72,6 +72,8 @@ hugin --model gpt-4o            # Override model
 | Key | Action |
 |---|---|
 | `Ctrl+S` | Save (atomic write) |
+| `Ctrl+R` | Toggle raw mode (edit full file as plain text) |
+| `Ctrl+E` | Strip all emojis from body |
 | `Escape` | Back (confirms if unsaved changes) |
 | `Tab` | Navigate between fields |
 
