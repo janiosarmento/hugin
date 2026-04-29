@@ -29,7 +29,7 @@ from hugin.engines import Engine, load_engines, save_last_engine
 from hugin.hugo import HugoSite
 from hugin.linker import (
     _find_whole_word,
-    _is_nofollow_url,
+    _is_affiliate_url,
     apply_links,
     check_anchor_viable,
     extract_existing_links,
@@ -645,7 +645,7 @@ class HuginScreen(Screen):
         # Link counts
         existing_links = extract_existing_links(post.content)
         outgoing_count = len(existing_links)
-        affiliate_count = sum(1 for url in existing_links if _is_nofollow_url(url))
+        affiliate_count = sum(1 for url in existing_links if _is_affiliate_url(url))
         word_count = len(post.content.split())
         budget = min(
             self.config.links.max_per_post,

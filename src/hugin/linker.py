@@ -236,8 +236,8 @@ def check_anchor_viable(
     return True
 
 
-def _is_nofollow_url(url: str) -> bool:
-    """Check if a URL needs rel=nofollow (affiliate links)."""
+def _is_affiliate_url(url: str) -> bool:
+    """Check if a URL is an affiliate link (Amazon/amzn)."""
     lower = url.lower()
     return "amazon" in lower or "amzn" in lower
 
