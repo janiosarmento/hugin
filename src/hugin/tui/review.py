@@ -3,7 +3,6 @@
 import json
 import math
 import re
-import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -1633,67 +1632,12 @@ class HuginScreen(Screen):
 
     @work(thread=True)
     def _do_git_sync(self) -> None:
-        repo = self.directory
-        lines: list[str] = []
-        success = True
+        from hugin.git import git_sync
 
-        def run(cmd: list[str]) -> tuple[bool, str]:
-            result = subprocess.run(
-                cmd,
-                cwd=repo,
-                capture_output=True,
-                text=True,
-            )
-            out = (result.stdout + result.stderr).strip()
-            return result.returncode == 0, out
-
-        # Step 1: check for uncommitted changes
-        ok, status_out = run(["git", "status", "--porcelain"])
-        if not ok:
-            lines.append(f"git status failed:\n{status_out}")
-            success = False
-        elif status_out:
-            # There are local changes — stage and commit
-            lines.append("Committing local changes...")
-            ok, add_out = run(["git", "add", "-A"])
-            if not ok:
-                lines.append(f"git add failed:\n{add_out}")
-                success = False
-            else:
-                ok, commit_out = run(
-                    ["git", "commit", "-m", f"Update posts [{datetime.now():%Y-%m-%d %H:%M}]"]
-                )
-                if not ok and "nothing to commit" not in commit_out:
-                    lines.append(f"git commit failed:\n{commit_out}")
-                    success = False
-                else:
-                    lines.append(commit_out or "Nothing new to commit.")
-        else:
-            lines.append("Working tree clean — no local changes to commit.")
-
-        needs_reload = False
-
-        if success:
-            # Step 2: pull --rebase
-            lines.append("\nPulling (rebase)...")
-            _, remote_before = run(["git", "rev-parse", "@{upstream}"])
-            ok, pull_out = run(["git", "pull", "--rebase"])
-            lines.append(pull_out)
-            if not ok:
-                success = False
-            else:
-                _, remote_after = run(["git", "rev-parse", "@{upstream}"])
-                needs_reload = remote_before != remote_after
-
-        if success:
-            # Step 3: push
-            lines.append("\nPushing...")
-            ok, push_out = run(["git", "push"])
-            lines.append(push_out)
-            if not ok:
-                success = False
-
-        output = "\n".join(lines)
+        result = git_sync(self.directory)
+        success = result.success
+        needs_reload = result.needs_reload
+        output = result.output
         self.app.call_from_thread(self._stop_spinner)
 
         def show_result() -> None:

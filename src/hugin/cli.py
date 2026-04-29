@@ -1,6 +1,5 @@
 """Entrypoint CLI."""
 
-import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -19,40 +18,14 @@ from hugin.state import load_state
 
 
 def _git_sync_startup(directory: Path) -> None:
-    """On startup: push local changes first, then pull --rebase."""
+    """On startup: commit local changes, pull --rebase, push. Exit on error."""
+    from hugin.git import git_sync
 
-    def run(cmd: list[str]) -> tuple[bool, str]:
-        r = subprocess.run(cmd, cwd=directory, capture_output=True, text=True)
-        return r.returncode == 0, (r.stdout + r.stderr).strip()
-
-    # Push local changes if any
-    ok, status_out = run(["git", "status", "--porcelain"])
-    if not ok:
-        click.echo(f"Git error:\n{status_out}")
-        raise SystemExit(1)
-
-    if status_out:
-        run(["git", "add", "-A"])
-        ok, commit_out = run(
-            ["git", "commit", "-m", f"Update posts [{datetime.now():%Y-%m-%d %H:%M}]"]
-        )
-        if not ok and "nothing to commit" not in commit_out:
-            click.echo(f"Git commit failed:\n{commit_out}")
-            raise SystemExit(1)
-
-        ok, push_out = run(["git", "push"])
-        if not ok:
-            click.echo(f"Git push failed:\n{push_out}\n")
-            click.echo("Fix the push error and restart hugin.")
-            raise SystemExit(1)
-
-    # Pull with rebase
-    ok, pull_out = run(["git", "pull", "--rebase"])
-    if not ok:
-        run(["git", "rebase", "--abort"])
-        click.echo(f"Git pull failed:\n{pull_out}\n")
+    result = git_sync(directory)
+    if not result.success:
+        click.echo(f"Git sync failed:\n{result.output}\n")
         click.echo(
-            "To resolve, stash your local changes and try again:\n"
+            "To resolve conflicts, stash your changes and try again:\n"
             "  git stash && git pull --rebase && git stash pop\n"
             "Then restart hugin."
         )
