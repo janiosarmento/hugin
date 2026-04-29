@@ -274,10 +274,7 @@ def apply_links(
     for suggestion in suggestions:
         anchor = suggestion["anchor_text"]
         target = suggestion["target_url"]
-        if _is_nofollow_url(target):
-            replacement = f'<a href="{target}" rel="nofollow">{anchor}</a>'
-        else:
-            replacement = f"[{anchor}]({target})"
+        replacement = f"[{anchor}]({target})"
 
         # Find first valid occurrence
         search_start = 0
