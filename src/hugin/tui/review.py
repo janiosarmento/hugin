@@ -256,6 +256,78 @@ class GitSyncResultScreen(ModalScreen):
         self.dismiss(self._needs_reload)
 
 
+class NewPostScreen(ModalScreen[str | None]):
+    """Ask for a filename and create a new blank post."""
+
+    BINDINGS = [
+        ("escape", "cancel", "Cancel"),
+        ("enter", "confirm", "Create"),
+    ]
+
+    DEFAULT_CSS = """
+    NewPostScreen {
+        align: center middle;
+    }
+
+    #newpost-modal {
+        width: 60;
+        height: auto;
+        border: solid $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #newpost-modal Label {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #newpost-input {
+        margin-bottom: 1;
+    }
+
+    #newpost-buttons {
+        height: auto;
+        margin-top: 1;
+    }
+
+    #newpost-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="newpost-modal"):
+            yield Label("New post — enter filename:")
+            yield Input(placeholder="my-new-post.md", id="newpost-input")
+            with Horizontal(id="newpost-buttons"):
+                yield Button("Create", id="btn-create", variant="primary")
+                yield Button("Cancel", id="btn-cancel-new")
+
+    def on_mount(self) -> None:
+        self.query_one("#newpost-input", Input).focus()
+
+    def _get_filename(self) -> str:
+        name = self.query_one("#newpost-input", Input).value.strip()
+        if name and not name.endswith(".md"):
+            name += ".md"
+        return name
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-create":
+            self.action_confirm()
+        else:
+            self.dismiss(None)
+
+    def action_confirm(self) -> None:
+        name = self._get_filename()
+        if name:
+            self.dismiss(name)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class LoadingScreen(ModalScreen):
     """Non-interactive modal with animated spinner and status message."""
 
@@ -324,7 +396,8 @@ class HuginScreen(Screen):
         ("n", "pick_engine", "Engine"),
         ("m", "manage_tags", "Manage"),
         ("c", "clear_caches", "Clear"),
-        ("p", "project_settings", "Project"),
+        ("p", "new_post", "Post"),
+        (",", "project_settings", "Settings"),
         ("g", "git_sync", "Git"),
         ("escape", "back", "Back"),
     ]
@@ -1484,36 +1557,7 @@ class HuginScreen(Screen):
     def action_editor(self) -> None:
         if self._state != STATE_BROWSING:
             return
-
-        from hugin.tui.editor import EditorScreen
-
-        post = self.posts[self.current_index]
-
-        def on_return(saved: bool) -> None:
-            if saved:
-                import frontmatter as fm
-                updated = fm.load(str(post.path))
-                post.metadata = updated.metadata
-                post.content = updated.content
-                post.tags = list(updated.metadata.get("tags", []) or [])
-                post.has_tags = bool(post.tags)
-                self.index.update_post(post, self.site.post_url)
-                self._build_incoming_index()
-                # Refresh title in post list if it changed
-                from rich.text import Text
-                new_title = post.metadata.get("title", post.filename)
-                if post.metadata.get("draft"):
-                    cell = Text(f"[DRAFT] {new_title}", style="dim")
-                else:
-                    cell = Text(new_title)
-                table = self.query_one("#post-table", DataTable)
-                table.update_cell(self._row_keys[self.current_index], "title", cell)
-            self._update_detail_panel()
-
-        self.app.push_screen(
-            EditorScreen(post=post),
-            on_return,
-        )
+        self._open_editor_for_post(self.posts[self.current_index], self.current_index)
 
     # === MANAGE TAGS ===
 
@@ -1534,6 +1578,73 @@ class HuginScreen(Screen):
             ),
             on_return,
         )
+
+    # === NEW POST ===
+
+    def action_new_post(self) -> None:
+        if self._state != STATE_BROWSING:
+            return
+
+        def on_filename(filename: str | None) -> None:
+            if not filename:
+                return
+            path = self.directory / filename
+            if path.exists():
+                self.notify(f"{filename} already exists", severity="error")
+                return
+            # Write minimal frontmatter
+            now = datetime.now()
+            title = path.stem
+            content = f"---\ntitle: {title}\ndate: {now.isoformat(timespec='seconds')}\ndraft: true\n---\n"
+            path.write_text(content)
+            # Build Post object
+            import frontmatter as fm
+            loaded = fm.load(str(path))
+            post = Post(
+                path=path,
+                metadata=loaded.metadata,
+                content=loaded.content,
+                has_tags=False,
+                tags=[],
+                date=now,
+            )
+            # Insert at top of list
+            self.posts.insert(0, post)
+            self.all_posts.insert(0, post)
+            from rich.text import Text
+            table = self.query_one("#post-table", DataTable)
+            row_key = f"new-{filename}"
+            table.add_row("—", Text(f"[DRAFT] {title}", style="dim"), key=row_key)
+            self._row_keys.insert(0, row_key)
+            # Navigate to the new post and open editor
+            self.current_index = 0
+            table.move_cursor(row=0)
+            self._update_detail_panel()
+            self._open_editor_for_post(post, index=0)
+
+        self.app.push_screen(NewPostScreen(), on_filename)
+
+    def _open_editor_for_post(self, post: Post, index: int) -> None:
+        from hugin.tui.editor import EditorScreen
+
+        def on_return(saved: bool) -> None:
+            if saved:
+                import frontmatter as fm
+                from rich.text import Text
+                updated = fm.load(str(post.path))
+                post.metadata = updated.metadata
+                post.content = updated.content
+                post.tags = list(updated.metadata.get("tags", []) or [])
+                post.has_tags = bool(post.tags)
+                self.index.update_post(post, self.site.post_url)
+                self._build_incoming_index()
+                new_title = post.metadata.get("title", post.filename)
+                cell = Text(f"[DRAFT] {new_title}", style="dim") if post.metadata.get("draft") else Text(new_title)
+                table = self.query_one("#post-table", DataTable)
+                table.update_cell(self._row_keys[index], "title", cell)
+            self._update_detail_panel()
+
+        self.app.push_screen(EditorScreen(post=post), on_return)
 
     # === PROJECT SETTINGS ===
 

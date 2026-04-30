@@ -49,9 +49,10 @@ hugin --model gpt-4o            # Override model
 | `u` | Suggest new post topics (LLM) |
 | `e` | Open built-in editor |
 | `g` | Sync repository with GitHub (pull --rebase + push) |
+| `p` | Create new post |
 | `n` | Select engine and model |
 | `m` | Open tag manager |
-| `p` | Project settings |
+| `,` | Project settings |
 | `c` | Clear embedding cache and restart |
 | `Ctrl+P` | Change Textual theme (persists across sessions) |
 | `Escape` | Go back / cancel LLM call in progress |
