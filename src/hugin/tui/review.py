@@ -397,7 +397,7 @@ class HuginScreen(Screen):
         ("m", "manage_tags", "Manage"),
         ("c", "clear_caches", "Clear"),
         ("p", "new_post", "Post"),
-        (",", "project_settings", "Settings"),
+        ("comma", "project_settings", "Settings"),
         ("g", "git_sync", "Git"),
         ("escape", "back", "Back"),
     ]

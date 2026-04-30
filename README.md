@@ -52,7 +52,7 @@ hugin --model gpt-4o            # Override model
 | `p` | Create new post |
 | `n` | Select engine and model |
 | `m` | Open tag manager |
-| `,` | Project settings |
+| `,` (comma) | Project settings |
 | `c` | Clear embedding cache and restart |
 | `Ctrl+P` | Change Textual theme (persists across sessions) |
 | `Escape` | Go back / cancel LLM call in progress |
