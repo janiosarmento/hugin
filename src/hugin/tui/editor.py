@@ -279,6 +279,24 @@ class EditorScreen(Screen[bool]):
             btn.label = "Structured (Ctrl+R)"
             self.query_one("#raw-editor", TextArea).focus()
         else:
+            # Parse raw text and repopulate structured fields
+            raw_text = self.query_one("#raw-editor", TextArea).text
+            try:
+                parsed = frontmatter.loads(raw_text)
+                meta = parsed.metadata
+                for field_name, inp in self._field_inputs.items():
+                    value = meta.get(field_name, "")
+                    if value is None:
+                        value = ""
+                    if isinstance(value, list):
+                        value = ", ".join(str(v) for v in value)
+                    else:
+                        value = str(value) if value else ""
+                    inp.value = value
+                self.query_one("#body-editor", TextArea).load_text(parsed.content)
+            except Exception:
+                self.notify("Could not parse frontmatter — check raw content", severity="warning")
+
             raw_panel.display = False
             frontmatter_panel.display = True
             body_panel.display = True
