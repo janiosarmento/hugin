@@ -28,6 +28,36 @@ _EMOJI_RE = re.compile(
 )
 
 
+def _quote_frontmatter_fields(raw: str, fields: tuple[str, ...] = ("title", "description")) -> str:
+    """Wrap specified frontmatter fields in double quotes and normalise internal quotes.
+
+    - Values already in double quotes: left as-is (but single quotes inside normalised)
+    - Values in single quotes: converted to double quotes
+    - Unquoted values: wrapped in double quotes
+    - Internal double quotes are escaped; single quotes are replaced with double quotes
+    """
+    def _normalise(m: re.Match) -> str:
+        prefix = m.group(1)   # e.g. "title: "
+        value = m.group(2).strip()
+
+        # Strip surrounding quote characters
+        if (value.startswith('"') and value.endswith('"')) or \
+           (value.startswith("'") and value.endswith("'")):
+            value = value[1:-1]
+
+        # Normalise internal quotes: escape " and replace ' with "
+        value = value.replace('"', '\\"')
+        value = value.replace("'", '"')
+
+        return f'{prefix}"{value}"'
+
+    for field in fields:
+        pattern = rf'^({re.escape(field)}:\s*)(.+)$'
+        raw = re.sub(pattern, _normalise, raw, flags=re.MULTILINE)
+
+    return raw
+
+
 # Fields that get dedicated Input widgets (order matters for display)
 EDITABLE_FIELDS = ("title", "date", "lastmod", "draft", "slug", "url", "description")
 # Fields managed by other tools — show but don't edit here
@@ -281,6 +311,7 @@ class EditorScreen(Screen[bool]):
         else:
             # Parse raw text and repopulate structured fields
             raw_text = self.query_one("#raw-editor", TextArea).text
+            raw_text = _quote_frontmatter_fields(raw_text)
             try:
                 parsed = frontmatter.loads(raw_text)
             except Exception as exc:
