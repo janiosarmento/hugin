@@ -283,19 +283,23 @@ class EditorScreen(Screen[bool]):
             raw_text = self.query_one("#raw-editor", TextArea).text
             try:
                 parsed = frontmatter.loads(raw_text)
-                meta = parsed.metadata
-                for field_name, inp in self._field_inputs.items():
-                    value = meta.get(field_name, "")
-                    if value is None:
-                        value = ""
-                    if isinstance(value, list):
-                        value = ", ".join(str(v) for v in value)
-                    else:
-                        value = str(value) if value else ""
-                    inp.value = value
-                self.query_one("#body-editor", TextArea).load_text(parsed.content)
-            except Exception:
-                self.notify("Could not parse frontmatter — check raw content", severity="warning")
+            except Exception as exc:
+                # Stay in raw mode — don't switch to empty structured fields
+                self._raw_mode = True
+                self.notify(f"YAML error: {exc}", severity="error", timeout=8)
+                return
+
+            meta = parsed.metadata
+            for field_name, inp in self._field_inputs.items():
+                value = meta.get(field_name, "")
+                if value is None:
+                    value = ""
+                if isinstance(value, list):
+                    value = ", ".join(str(v) for v in value)
+                else:
+                    value = str(value) if value else ""
+                inp.value = value
+            self.query_one("#body-editor", TextArea).load_text(parsed.content)
 
             raw_panel.display = False
             frontmatter_panel.display = True
