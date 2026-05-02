@@ -1255,14 +1255,30 @@ class HuginScreen(Screen):
 
     @work(exclusive=True)
     async def _run_outgoing(self, post: Post, budget: int) -> None:
-        """Find outgoing links automatically: embed → rerank → anchor."""
+        """Find outgoing links automatically: embed + tags → rerank → anchor + keyword fallback."""
         try:
             self._set_spinner_message("Step 1/3 — Searching similar posts...")
             existing_urls = extract_existing_links(post.content)
-            pre_filter_n = max(self.config.links.candidates * 2, 20)
-            candidates = self.index.find_similar(
+            existing_normalized = {u.rstrip("/") for u in existing_urls}
+            pre_filter_n = max(self.config.links.candidates * 4, 20)
+
+            # Pool 1: semantic similarity
+            semantic = self.index.find_similar(
                 post, n=pre_filter_n, exclude_urls=existing_urls,
             )
+
+            # Pool 2: shared-tag candidates (≥2 tags)
+            tag_based = self.index.find_by_shared_tags(
+                post, n=pre_filter_n // 2, exclude_urls=existing_urls,
+            )
+
+            # Merge pools — deduplicate by URL, keep highest score
+            seen: dict[str, dict] = {}
+            for c in semantic + tag_based:
+                url = c["url"]
+                if url not in seen or c["score"] > seen[url]["score"]:
+                    seen[url] = c
+            candidates = sorted(seen.values(), key=lambda x: x["score"], reverse=True)
 
             if not candidates:
                 self._stop_spinner()
@@ -1273,7 +1289,7 @@ class HuginScreen(Screen):
                 self.query_one("#section-header", Label).update("")
                 return
 
-            # LLM reranking: filter to genuinely related posts
+            # LLM reranking — inclusive mode
             self._set_spinner_message(f"Step 2/3 — Reranking {len(candidates)} candidates...")
             rerank_json = json.dumps([
                 {"title": c["title"], "url": c["url"]} for c in candidates
@@ -1286,11 +1302,18 @@ class HuginScreen(Screen):
             rerank_response = await call_llm(self.engine, rerank_prompt)
             relevant_urls = set(parse_rerank_response(rerank_response))
 
-            # Keep reranked + mention-boosted posts
-            candidates = [
+            # Keep: reranked + mention-boosted; guarantee a minimum of 3 pass through
+            reranked = [
                 c for c in candidates
                 if c["url"] in relevant_urls or c.get("score", 0) > 1.0
-            ][:self.config.links.candidates]
+            ]
+            min_candidates = max(3, self.config.links.candidates // 2)
+            if len(reranked) < min_candidates:
+                # Supplement with highest-score candidates not yet included
+                included_urls = {c["url"] for c in reranked}
+                extras = [c for c in candidates if c["url"] not in included_urls]
+                reranked += extras[:min_candidates - len(reranked)]
+            candidates = reranked[:self.config.links.candidates]
 
             if not candidates:
                 self._stop_spinner()
@@ -1301,15 +1324,30 @@ class HuginScreen(Screen):
                 self.query_one("#section-header", Label).update("")
                 return
 
+            # LLM anchor finding
             self._set_spinner_message(f"Step 3/3 — Finding anchors for {len(candidates)} posts...")
             validated = await self._find_anchors(post, candidates, existing_urls)
             validated = [
-                s for s in validated[:budget]
+                s for s in validated
                 if check_anchor_viable(
                     post.content, s["anchor_text"],
                     self.config.links.max_per_paragraph,
                 )
             ]
+
+            # Keyword fallback for candidates the LLM missed
+            llm_urls = {s["target_url"] for s in validated}
+            uncovered = [c for c in candidates if c["url"] not in llm_urls]
+            if uncovered:
+                keyword_suggestions = find_keyword_anchors(post.content, uncovered)
+                keyword_suggestions = [
+                    s for s in keyword_suggestions
+                    if s["target_url"].rstrip("/") not in existing_normalized
+                    and s["target_url"] not in llm_urls
+                ]
+                validated = validated + keyword_suggestions
+
+            validated = validated[:budget]
             self._finish_outgoing(post, validated, mark_empty=True)
 
         except Exception as e:

@@ -408,6 +408,61 @@ class EmbeddingIndex:
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:n]
 
+    def find_by_shared_tags(
+        self,
+        post,
+        n: int = 10,
+        exclude_urls: set[str] | None = None,
+        min_shared: int = 2,
+    ) -> list[dict]:
+        """Find posts sharing at least min_shared tags with the query post.
+
+        Scored by IDF-weighted tag overlap so rare shared tags rank higher.
+        """
+        abs_path = str(post.path.resolve())
+        cached = self._cache["posts"]
+        exclude_urls = exclude_urls or set()
+
+        query_tags = set(post.metadata.get("tags", []) if hasattr(post, "metadata") else [])
+        if not query_tags:
+            return []
+
+        # Build tag IDF (same logic as find_similar)
+        total_posts = len(cached)
+        tag_df: dict[str, int] = {}
+        for entry in cached.values():
+            for t in entry.get("tags", []):
+                tag_df[t] = tag_df.get(t, 0) + 1
+        tag_idf = {t: math.log(total_posts / df) if df > 0 else 0.0 for t, df in tag_df.items()}
+        max_idf_sum = sum(tag_idf.get(t, 0) for t in query_tags) or 1.0
+
+        results = []
+        for other_path, entry in cached.items():
+            if other_path == abs_path:
+                continue
+            if entry["url"] in exclude_urls:
+                continue
+            if not Path(other_path).exists():
+                continue
+
+            other_tags = set(entry.get("tags", []))
+            shared = query_tags & other_tags
+            if len(shared) < min_shared:
+                continue
+
+            idf_sum = sum(tag_idf.get(t, 0) for t in shared)
+            score = idf_sum / max_idf_sum
+
+            results.append({
+                "path": other_path,
+                "url": entry["url"],
+                "title": entry["title"],
+                "score": score,
+            })
+
+        results.sort(key=lambda x: x["score"], reverse=True)
+        return results[:n]
+
     def get_post_url(self, post) -> str | None:
         """Get the cached URL for a post."""
         abs_path = str(post.path.resolve())

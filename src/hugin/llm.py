@@ -281,13 +281,14 @@ POST CONTENT:
 Return format: ["Post title 1", "Post title 2", ...]"""
 
 RERANK_PROMPT = """\
-You are a blog editor. Given a blog post and a list of candidate posts, select ONLY the \
-candidates that are genuinely related to the post content. A post is related if a reader \
-of the current post would benefit from reading it — topical overlap, shared concepts, \
+You are a blog editor. Given a blog post and a list of candidate posts, select the \
+candidates that are related to the post content. A post is related if a reader of the \
+current post would benefit from reading it — topical overlap, shared concepts, \
 complementary information, or direct references.
 
-Be strict: reject candidates that are only superficially related (e.g., same broad category \
-but different specific topic). Keep only strong, contextually relevant matches.
+Be INCLUSIVE rather than strict: keep candidates with meaningful topical overlap, \
+even if indirect or partial. Only reject posts that are clearly unrelated to the topic. \
+When in doubt, keep the candidate — a human editor will make the final call.
 
 POST TITLE: {title}
 
