@@ -135,6 +135,7 @@ class EditorScreen(Screen[bool]):
 
     #raw-editor {
         height: 1fr;
+        max-width: 82;
     }
 
     #frontmatter-panel {
@@ -172,6 +173,7 @@ class EditorScreen(Screen[bool]):
 
     #body-editor {
         height: 1fr;
+        max-width: 82;
     }
 
     #editor-buttons {
