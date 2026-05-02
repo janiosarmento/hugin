@@ -43,6 +43,7 @@ from hugin.linker import (
 from hugin.llm import (
     ANCHOR_SYSTEM_PROMPT,
     ANCHOR_USER_TEMPLATE,
+    LINK_KEYWORDS_PROMPT,
     MAX_SUMMARY_CHARS,
     RERANK_PROMPT,
     RETRY_PROMPT,
@@ -1257,7 +1258,20 @@ class HuginScreen(Screen):
     async def _run_outgoing(self, post: Post, budget: int) -> None:
         """Find outgoing links automatically: embed + tags → rerank → anchor + keyword fallback."""
         try:
-            self._set_spinner_message("Step 1/3 — Searching similar posts...")
+            # Step 0 (lazy): generate link keywords if not yet cached for this post
+            if not self.index.get_link_keywords(post):
+                self._set_spinner_message("Step 1/4 — Building link profile...")
+                kw_prompt = LINK_KEYWORDS_PROMPT.format(
+                    title=post.metadata.get("title", post.filename),
+                    content=post.content[:3000],
+                )
+                keywords = (await call_llm(self.engine, kw_prompt)).strip()
+                self.index.set_link_keywords(post, self.site.post_url, keywords)
+                total_steps = 4
+            else:
+                total_steps = 3
+
+            self._set_spinner_message(f"Step {total_steps - 2}/{total_steps} — Searching similar posts...")
             existing_urls = extract_existing_links(post.content)
             existing_normalized = {u.rstrip("/") for u in existing_urls}
             pre_filter_n = max(self.config.links.candidates * 4, 20)
@@ -1290,7 +1304,7 @@ class HuginScreen(Screen):
                 return
 
             # LLM reranking — inclusive mode
-            self._set_spinner_message(f"Step 2/3 — Reranking {len(candidates)} candidates...")
+            self._set_spinner_message(f"Step {total_steps - 1}/{total_steps} — Reranking {len(candidates)} candidates...")
             rerank_json = json.dumps([
                 {"title": c["title"], "url": c["url"]} for c in candidates
             ])
@@ -1325,7 +1339,7 @@ class HuginScreen(Screen):
                 return
 
             # LLM anchor finding
-            self._set_spinner_message(f"Step 3/3 — Finding anchors for {len(candidates)} posts...")
+            self._set_spinner_message(f"Step {total_steps}/{total_steps} — Finding anchors for {len(candidates)} posts...")
             validated = await self._find_anchors(post, candidates, existing_urls)
             validated = [
                 s for s in validated

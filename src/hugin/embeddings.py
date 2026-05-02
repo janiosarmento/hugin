@@ -66,19 +66,34 @@ def _mention_score(body_norm: str, url: str) -> float:
     return hits / len(keywords)
 
 
-def _build_text(metadata: dict, summary_field: str, content: str = "", url: str = "") -> str:
+def _build_text(
+    metadata: dict,
+    summary_field: str,
+    content: str = "",
+    url: str = "",
+    link_keywords: str = "",
+) -> str:
     """Build the text to embed for a post.
 
-    Priority: title > url keywords > tags > headings > content paragraphs.
+    Priority: link_keywords > title > description > url keywords > tags > content.
     Truncated to MAX_EMBED_CHARS to stay within model token limits.
     Prefixed with 'query: ' as required by e5 models.
     """
     parts = []
+
+    # LLM-generated link-discovery keywords (highest signal, repeated for weight)
+    if link_keywords:
+        parts.extend([link_keywords, link_keywords])
+
     title = metadata.get("title", "")
     if title:
         title_str = str(title)
-        # Repeat title to boost its weight in the embedding
         parts.extend([title_str, title_str, title_str])
+
+    # Description/summary field
+    summary = metadata.get(summary_field, "")
+    if summary:
+        parts.append(str(summary))
 
     if url:
         keywords = _slug_keywords(url)
@@ -236,7 +251,8 @@ class EmbeddingIndex:
         texts = []
         for i, (post, abs_path, mtime) in enumerate(stale):
             url = url_fn(post.metadata, post.filename)
-            text = _build_text(post.metadata, self.summary_field, post.content, url)
+            existing_keywords = cached.get(abs_path, {}).get("link_keywords", "")
+            text = _build_text(post.metadata, self.summary_field, post.content, url, existing_keywords)
             texts.append(text)
             if (i + 1) % 50 == 0 or i == len(stale) - 1:
                 print_fn(f"  [{i + 1}/{len(stale)}] {post.filename}")
@@ -254,6 +270,7 @@ class EmbeddingIndex:
                 "tags": post.metadata.get("tags", []),
                 "embedding": embedding.tolist(),
                 "no_outgoing": old_entry.get("no_outgoing", False),
+                "link_keywords": old_entry.get("link_keywords", ""),
             }
 
         self._save_cache()
@@ -289,20 +306,42 @@ class EmbeddingIndex:
         abs_path = str(post.path.resolve())
         mtime = os.path.getmtime(post.path)
         url = url_fn(post.metadata, post.filename)
-        text = _build_text(post.metadata, self.summary_field, post.content, url)
+        old_entry = self._cache["posts"].get(abs_path, {})
+        link_keywords = old_entry.get("link_keywords", "")
+        text = _build_text(post.metadata, self.summary_field, post.content, url, link_keywords)
 
-        # Compute embedding using numpy directly to avoid tqdm/multiprocessing
-        # crash inside Textual on Python 3.14
         embedding = self._encode_single(text)
 
-        old_entry = self._cache["posts"].get(abs_path, {})
         self._cache["posts"][abs_path] = {
             "mtime": mtime,
-            "url": url_fn(post.metadata, post.filename),
+            "url": url,
             "title": post.metadata.get("title", post.filename),
             "tags": post.metadata.get("tags", []),
             "embedding": embedding.tolist(),
             "no_outgoing": old_entry.get("no_outgoing", False),
+            "link_keywords": link_keywords,
+        }
+        self._save_cache()
+
+    def get_link_keywords(self, post) -> str:
+        """Return cached link_keywords for a post, or empty string if none."""
+        abs_path = str(post.path.resolve())
+        entry = self._cache["posts"].get(abs_path)
+        return entry.get("link_keywords", "") if entry else ""
+
+    def set_link_keywords(self, post, url_fn, keywords: str) -> None:
+        """Store LLM-generated link keywords and re-encode the post embedding."""
+        if self._model is None:
+            return
+        abs_path = str(post.path.resolve())
+        old_entry = self._cache["posts"].get(abs_path, {})
+        url = url_fn(post.metadata, post.filename)
+        text = _build_text(post.metadata, self.summary_field, post.content, url, keywords)
+        embedding = self._encode_single(text)
+        self._cache["posts"][abs_path] = {
+            **old_entry,
+            "link_keywords": keywords,
+            "embedding": embedding.tolist(),
         }
         self._save_cache()
 

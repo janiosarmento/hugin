@@ -301,6 +301,18 @@ CANDIDATES:
 Return a JSON array with ONLY the URLs of relevant candidates, nothing else.
 Example: ["/posts/foo/", "/posts/bar/"]"""
 
+LINK_KEYWORDS_PROMPT = """\
+Extract 10 to 15 keywords and key concepts from this blog post to help find related posts \
+for internal linking. Focus on: main topic, specific subjects mentioned (breeds, conditions, \
+products, techniques), and core concepts discussed. Avoid generic words.
+
+Return only a comma-separated list of keywords, nothing else.
+
+POST TITLE: {title}
+
+POST CONTENT:
+{content}"""
+
 RETRY_PROMPT = """\
 The phrase '{anchor_text}' does not appear verbatim in the post body.
 Choose a phrase from the body that exists exactly as written and would
