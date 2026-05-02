@@ -744,6 +744,10 @@ class HuginScreen(Screen):
         elif self.index.has_no_outgoing(post):
             table.add_row("outgoing", "[dim]no opportunities[/dim]")
 
+        link_keywords = self.index.get_link_keywords(post)
+        if link_keywords:
+            table.add_row("link profile", link_keywords)
+
         self.query_one("#post-meta", Static).update(table)
         self._clear_action_area()
 
