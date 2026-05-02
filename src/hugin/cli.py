@@ -84,7 +84,7 @@ def main(
 
     state = load_state(directory)
 
-    all_sorted = sorted(posts, key=lambda p: p.date or datetime.min, reverse=True)
+    all_sorted = sorted(posts, key=lambda p: (not p.metadata.get("draft"), p.date or datetime.min), reverse=True)
     batch_posts = all_sorted if batch == 0 else all_sorted[:batch]
 
     engine = get_engine(engine_id)
@@ -120,7 +120,7 @@ def main(
             # Restart: rebuild everything
             click.echo("Restarting...")
             posts = load_posts(directory)
-            all_sorted = sorted(posts, key=lambda p: p.date or datetime.min, reverse=True)
+            all_sorted = sorted(posts, key=lambda p: (not p.metadata.get("draft"), p.date or datetime.min), reverse=True)
             batch_posts = all_sorted if batch == 0 else all_sorted[:batch]
             pool = collect_tag_pool(posts)
             index = EmbeddingIndex(
