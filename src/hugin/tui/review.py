@@ -337,7 +337,7 @@ class LoadingScreen(ModalScreen):
     }
 
     #loading-box {
-        width: 46;
+        width: 60;
         height: 5;
         border: round $accent;
         background: $surface;
@@ -366,6 +366,9 @@ class LoadingScreen(ModalScreen):
 
     def on_mount(self) -> None:
         self._timer = self.set_interval(0.08, self._tick)
+
+    def set_message(self, message: str) -> None:
+        self._message = message
 
     def _tick(self) -> None:
         self._frame += 1
@@ -625,6 +628,10 @@ class HuginScreen(Screen):
             except Exception:
                 pass
             self._loading_screen = None
+
+    def _set_spinner_message(self, message: str) -> None:
+        if self._loading_screen is not None:
+            self._loading_screen.set_message(message)
 
     def _mark_table_row(self, index: int, symbol: str) -> None:
         table = self.query_one("#post-table", DataTable)
@@ -1155,7 +1162,11 @@ class HuginScreen(Screen):
         max_words = self.config.links.max_anchor_words
         validated = []
 
-        for s in suggestions:
+        for i, s in enumerate(suggestions, 1):
+            if len(suggestions) > 1:
+                self._set_spinner_message(
+                    f"Step 3/3 — Validating anchor {i}/{len(suggestions)}..."
+                )
             anchor = s.get("anchor_text", "")
             target = s.get("target_url", "")
             if not anchor or not target:
@@ -1219,6 +1230,7 @@ class HuginScreen(Screen):
         """Find anchors for manually selected candidates."""
         try:
             existing_urls = extract_existing_links(post.content)
+            self._set_spinner_message(f"Finding anchors for {len(candidates)} post(s)...")
             validated = await self._find_anchors(post, candidates, existing_urls)
 
             # Keyword anchors as fallback for candidates the LLM missed
@@ -1245,6 +1257,7 @@ class HuginScreen(Screen):
     async def _run_outgoing(self, post: Post, budget: int) -> None:
         """Find outgoing links automatically: embed → rerank → anchor."""
         try:
+            self._set_spinner_message("Step 1/3 — Searching similar posts...")
             existing_urls = extract_existing_links(post.content)
             pre_filter_n = max(self.config.links.candidates * 2, 20)
             candidates = self.index.find_similar(
@@ -1261,6 +1274,7 @@ class HuginScreen(Screen):
                 return
 
             # LLM reranking: filter to genuinely related posts
+            self._set_spinner_message(f"Step 2/3 — Reranking {len(candidates)} candidates...")
             rerank_json = json.dumps([
                 {"title": c["title"], "url": c["url"]} for c in candidates
             ])
@@ -1287,6 +1301,7 @@ class HuginScreen(Screen):
                 self.query_one("#section-header", Label).update("")
                 return
 
+            self._set_spinner_message(f"Step 3/3 — Finding anchors for {len(candidates)} posts...")
             validated = await self._find_anchors(post, candidates, existing_urls)
             validated = [
                 s for s in validated[:budget]
