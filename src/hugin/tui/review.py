@@ -614,6 +614,7 @@ class HuginScreen(Screen):
                     break
 
         self._update_detail_panel()
+        table.focus()
 
     # --- Incoming index ---
 
@@ -1920,6 +1921,10 @@ class HuginScreen(Screen):
             event.input.value = event.value[1:]
             return  # on_input_changed fires again with clean value
         query = event.value.strip().lower()
+        # Activate search mode if the user typed directly into the bar
+        if query and not self._search_mode:
+            self._search_mode = True
+            self._search_base = list(self.posts)
         if self._search_mode and query:
             filtered = [
                 p for p in self._search_base
