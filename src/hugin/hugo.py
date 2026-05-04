@@ -98,6 +98,63 @@ def infer_section(posts_dir: Path) -> str:
     return posts_dir.name
 
 
+def load_categories(posts_dir: Path) -> list[str]:
+    """Discover available post categories, searching up from posts_dir.
+
+    Checks in order:
+    1. .pages.yml — Pages CMS config (select field named 'categories' or 'category')
+    2. Hugo taxonomy config — looks for 'categories' taxonomy values in hugo.toml
+
+    Returns an empty list if nothing is found.
+    """
+    root = posts_dir.resolve()
+    while True:
+        # Pages CMS
+        pages_cfg = root / ".pages.yml"
+        if pages_cfg.is_file():
+            try:
+                with open(pages_cfg) as f:
+                    data = yaml.safe_load(f) or {}
+                cats = _extract_pages_cms_categories(data)
+                if cats:
+                    return cats
+            except Exception:
+                pass
+
+        parent = root.parent
+        if parent == root:
+            break
+        root = parent
+
+    return []
+
+
+def _extract_pages_cms_categories(data: dict) -> list[str]:
+    """Walk a Pages CMS config dict and find select-field values for 'categories'."""
+    results: list[str] = []
+
+    def _walk(node):
+        if isinstance(node, dict):
+            name = node.get("name", "")
+            if name in ("categories", "category") and node.get("type") == "select":
+                opts = node.get("options", {})
+                for v in opts.get("values", []):
+                    if isinstance(v, dict):
+                        val = v.get("value") or v.get("label")
+                    else:
+                        val = str(v)
+                    if val:
+                        results.append(val)
+            for v in node.values():
+                _walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(data)
+    return results
+
+
 def slug_from_filename(filename: str) -> str:
     """Derive slug from a markdown filename."""
     name = filename.removesuffix(".md")

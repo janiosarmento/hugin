@@ -1,5 +1,6 @@
 """Entrypoint CLI."""
 
+import asyncio
 from datetime import datetime
 from pathlib import Path
 
@@ -174,3 +175,71 @@ def _show_report(posts: list, directory: Path, index: EmbeddingIndex) -> None:
     click.echo()
     click.echo(f"Embeddings cached:           {len(cached)}")
     click.echo(f"Embeddings missing:          {len(posts) - len(cached)}")
+
+
+@click.command("build-profiles")
+@click.argument(
+    "directory",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=".",
+)
+@click.option("--engine", "engine_id", default=None, help="ID do motor de AI.")
+@click.option("--force", is_flag=True, help="Regerar mesmo posts que já têm perfil.")
+@click.option("--drafts", is_flag=True, help="Incluir posts com draft: true.")
+def build_profiles(
+    directory: Path,
+    engine_id: str | None,
+    force: bool,
+    drafts: bool,
+) -> None:
+    """Generate link profiles (keywords) for all posts in batch."""
+    from hugin.llm import LINK_KEYWORDS_PROMPT, call_llm
+
+    directory = directory.resolve()
+    config = load_config()
+    engine = get_engine(engine_id)
+    posts = load_posts(directory)
+
+    if not drafts:
+        posts = [p for p in posts if not p.metadata.get("draft", False)]
+
+    index = EmbeddingIndex(
+        posts_dir=directory,
+        model_name=config.embeddings.model,
+        summary_field=config.frontmatter.summary_field,
+    )
+    index._load_cache()
+
+    to_process = [p for p in posts if force or not index.get_link_keywords(p)]
+    already = len(posts) - len(to_process)
+
+    click.echo(f"Posts totais:    {len(posts)}")
+    click.echo(f"Já com perfil:   {already}")
+    click.echo(f"A gerar:         {len(to_process)}")
+    if not to_process:
+        click.echo("Nada a fazer.")
+        return
+    click.echo()
+
+    async def run() -> None:
+        errors = 0
+        for i, post in enumerate(to_process, 1):
+            title = post.metadata.get("title", post.filename)
+            click.echo(f"[{i}/{len(to_process)}] {title[:70]}", nl=False)
+            try:
+                prompt = LINK_KEYWORDS_PROMPT.format(
+                    title=title,
+                    content=post.content[:3000],
+                )
+                keywords = (await call_llm(engine, prompt)).strip()
+                index.store_link_keywords(post, keywords)
+                click.echo(f" ✓")
+            except Exception as e:
+                click.echo(f" ✗ {e}")
+                errors += 1
+
+        click.echo()
+        click.echo(f"Concluído. {len(to_process) - errors} gerados, {errors} erros.")
+        click.echo("Execute 'hugin <dir>' para rebuild dos embeddings com os novos perfis.")
+
+    asyncio.run(run())

@@ -13,10 +13,16 @@ In Norse mythology, **Hugin** (*huginn*, "thought") is one of Odin's two ravens 
 - **Tag generation** — LLM suggests tags, preferring reuse from your existing tag pool. New tags are marked with a sparkle emoji.
 - **Summary generation** — LLM writes meta descriptions with personality, not generic SEO filler. Auto-retries if too long.
 - **Internal link discovery** — Finds posts that could link to the selected post using semantic similarity (no LLM needed).
-- **Outgoing link suggestions** — LLM identifies natural anchor text in the post body that could link to related posts.
-- **Topic suggestions** — LLM suggests new post ideas that complement the current one, filtered by semantic similarity to avoid duplicates.
-- **Built-in editor** — Edit frontmatter fields and post body directly in the TUI, with atomic saves.
+- **Outgoing link suggestions** — Embedding + tag matching finds candidates; LLM reranks and finds verbatim anchor text. A link profile (LLM-generated keywords) is built lazily per post to improve future searches.
+- **Direct post picker** — Manually select any post and let the LLM find a natural anchor for it.
+- **Amazon affiliate links** — Scans your affiliates dictionary and inserts matching links with one keystroke.
+- **Topic suggestions** — LLM suggests new post ideas that complement the current one.
+- **News → post ideas** — Search Google News for a topic, let the LLM generate post ideas from the headlines, and create draft `.md` files with a category, frontmatter, and a source comment block — in one keystroke.
+- **Built-in editor** — Edit frontmatter fields and post body directly in the TUI, with raw mode for full-file editing. Atomic saves.
+- **New post creation** — Create a blank post with minimal frontmatter, opens straight into the editor.
+- **Inline search** — Press `/` to filter the post list in real-time by title or filename. `Enter`/`Escape` restores the full list.
 - **Tag management** — Audit, rename, merge, and delete tags across your entire blog.
+- **Git sync** — Commit local changes, pull with rebase, and push, directly from the TUI.
 - **Copy to clipboard** — One-click button to copy the full `.md` file (frontmatter + body) to the clipboard.
 - **Human in the loop** — Every suggestion goes through a TUI review before touching your files.
 
@@ -33,6 +39,17 @@ hugin --engine cerebras         # Use a specific engine
 hugin --model gpt-4o            # Override model
 ```
 
+### Batch link-profile generation
+
+```bash
+hugin-profiles ~/blog/content/posts           # Generate link profiles for all posts
+hugin-profiles ~/blog/content/posts --force   # Regenerate even if profiles already exist
+hugin-profiles ~/blog/content/posts --drafts  # Include draft posts
+hugin-profiles ~/blog/content/posts --engine cerebras
+```
+
+`hugin-profiles` generates LLM link profiles for every post in a directory and saves them to the keyword cache. Runs incrementally — already-profiled posts are skipped unless `--force` is given. Interrupted runs can be safely resumed.
+
 ---
 
 ## Keybindings
@@ -46,10 +63,13 @@ hugin --model gpt-4o            # Override model
 | `d` | Pick a post directly and insert link |
 | `z` | Insert Amazon affiliate link |
 | `l` | List existing links (select to remove) |
+| `b` | Check for broken links |
 | `u` | Suggest new post topics (LLM) |
+| `w` | News → post ideas (search Google News, generate drafts) |
 | `e` | Open built-in editor |
-| `g` | Sync repository with GitHub (pull --rebase + push) |
 | `p` | Create new post |
+| `/` | Inline search — filter post list by title or filename |
+| `g` | Sync repository with GitHub (commit + pull --rebase + push) |
 | `n` | Select engine and model |
 | `m` | Open tag manager |
 | `,` (comma) | Project settings |
@@ -75,6 +95,7 @@ hugin --model gpt-4o            # Override model
 | `Ctrl+S` | Save (atomic write) |
 | `Ctrl+R` | Toggle raw mode (edit full file as plain text) |
 | `Ctrl+E` | Strip all emojis from body |
+| `Ctrl+L` | Convert HTML links (`<a href="...">`) to Markdown links |
 | `Escape` | Back (confirms if unsaved changes) |
 | `Tab` | Navigate between fields |
 
@@ -88,27 +109,55 @@ The LLM receives the post content and existing tag pool, and suggests tags and s
 
 ### Internal Links
 
-1. **Embeddings** (local, no LLM) — On first run, Hugin downloads a multilingual sentence-transformers model (~400 MB, one time) and builds an embedding index of all posts using title + tags + description. The index is cached in `~/.hugin/embeddings/`. Draft posts are excluded from the index — if a published post is changed to draft, it is automatically removed from the cache on the next run.
+**Embedding index** (local, no LLM) — On first run, Hugin downloads a multilingual sentence-transformers model (`intfloat/multilingual-e5-large`, ~500 MB, one time) and builds an embedding index of all posts. Each post is represented by title + description + tags + headings + body paragraphs. The index is cached in `~/.hugin/embeddings/`. Draft posts are excluded.
 
-2. **Incoming (`i`)** — Pure cosine similarity search. Shows which posts are most related to the selected one. Clickable links navigate to the post in the list.
+**Incoming (`i`)** — Pure cosine similarity search. Shows which posts are most related to the selected one. Clickable links navigate to the post in the list.
 
-3. **Outgoing (`o`)** — Embeddings find candidate posts, then the LLM reads the full post body and candidates to find verbatim phrases that would naturally serve as anchor text. Each suggestion is validated (must exist exactly in the text, not in a protected zone, not in a saturated paragraph) before being shown.
+**Outgoing (`o`)** — Multi-stage pipeline:
 
-4. **Apply** — Checked suggestions are inserted as Markdown links. The post's embedding is recomputed and the cache updated.
+1. **Link profile** (lazy, one LLM call per post, cached) — On the first run for a post, the LLM extracts 10–15 focused keywords describing the post's topics. The profile is visible in the detail panel and used to improve similarity matching. Profiles are stored in a separate `_kw.json` file that survives embedding cache clears. Pressing `o` always regenerates the profile for the current post.
+
+2. **Candidate search** — Two pools are merged: semantic similarity (top 4× candidates) and tag-based candidates (posts sharing ≥2 tags, ranked by IDF-weighted overlap). Pools are deduplicated and ranked by score, which includes cosine similarity + mention boost (slug keywords found in body) + tag IDF boost.
+
+3. **LLM reranking** — The LLM filters the merged pool to genuinely related posts. It runs in inclusive mode — borderline candidates are kept for human review. A minimum of 3 candidates always passes through regardless of the LLM response.
+
+4. **LLM anchor finding** — The LLM identifies verbatim phrases in the post body that would naturally serve as anchor text for each candidate. Each anchor is validated: must exist exactly in the text, not inside a heading/code/existing link, not in a paragraph already at its link limit.
+
+5. **Keyword fallback** — Candidates the LLM missed get a deterministic keyword search (slug terms ≥6 chars) as a fallback.
+
+**Apply** — Checked suggestions are inserted as Markdown links. The post's embedding is recomputed and the cache updated.
+
+### News → Post Ideas (`w`)
+
+Press `w` to open the news ideas screen:
+
+1. Enter a search term (e.g. `cats`, `kubernetes`, `finanças`).
+2. Hugin fetches the top 25 headlines from Google News RSS (language and region follow the query — no geo-restriction).
+3. The LLM generates up to 8 post ideas inspired by the headlines. Each idea has a title, a 1–2 sentence description, and a category automatically matched to your blog's existing categories (read from `.pages.yml` if present).
+4. Review the ideas with checkboxes. Press `Ctrl+S` or "Create drafts" to write the selected posts as `.md` files.
+
+Each draft is created with:
+- Frontmatter: `title`, `date`, `categories`, `draft: true`
+- A comment block in the body with the idea description, the search query, and the related headlines
+
+### Inline Search (`/`)
+
+Press `/` from the main screen to activate the post filter. Start typing — the list updates in real-time, matching against title and filename. Press `Enter` or `Escape` to restore the full list with the cursor on the last selected post.
 
 ### Editor
 
-Press `e` to open a full-screen editor with individual input fields for frontmatter (title, date, description, etc.) and a Markdown TextArea for the body. Tags are shown read-only (use `t` for tag editing). Saves are atomic (temp file + rename).
+Press `e` to open a full-screen editor. Frontmatter fields (title, date, slug, description, etc.) are individual inputs; the body is a Markdown TextArea limited to 80 columns.
+
+Press `Ctrl+R` to toggle **raw mode**: the entire file is shown as plain text in a single TextArea. Useful for pasting LLM-generated frontmatter. When switching back to structured mode, `title` and `description` values are automatically quoted to prevent YAML parse errors. Saves are atomic (temp file + rename).
 
 ### Git Sync
 
-On startup, hugin automatically runs `git pull --rebase` on the posts directory so you always start with the latest content from the remote. If the pull fails due to conflicts, hugin aborts the rebase and exits with a suggested recovery command:
+On startup, Hugin:
+1. Commits any local changes (`git add -A && git commit`)
+2. Pushes to remote — exits with a fix suggestion if push fails
+3. Pulls with rebase — exits with a stash suggestion if there are conflicts
 
-```
-git stash && git pull --rebase && git stash pop
-```
-
-During a session, press `g` to sync manually: hugin commits any local changes, pulls with rebase, then pushes. If the pull brings new commits, the app reloads the post list and rebuilds the embedding index automatically.
+During a session, press `g` to sync manually. The same flow runs: commit → pull --rebase → push. If the pull brings new commits from remote, the app reloads the post list and rebuilds the embedding index automatically.
 
 ---
 
@@ -150,17 +199,24 @@ candidates        = 10   # embedding candidates to send to LLM
 max_anchor_words  = 5    # max words in an anchor phrase
 
 [embeddings]
-model = "paraphrase-multilingual-MiniLM-L12-v2"
+model = "intfloat/multilingual-e5-large"
 
 [frontmatter]
-summary_field = "description"  # field used for embeddings
+summary_field = "description"  # frontmatter field used in embeddings
 ```
 
-Falls back to `~/.hugin/munin.toml` if `links.toml` doesn't exist (legacy support).
+### Affiliate links (`~/.hugin/affiliates.toml`)
+
+Maps keywords to affiliate URLs. Press `z` in the main screen to scan the current post and insert matching links automatically.
+
+```toml
+"caixa de areia" = "https://amzn.to/abc123"
+"arranhador" = "https://amzn.to/def456"
+```
 
 ### Project settings (`~/.hugin/projects/<hash>.toml`)
 
-Per-project overrides, editable via the `p` key in the TUI:
+Per-project overrides, editable via the `,` key in the TUI:
 
 ```toml
 [summary]
@@ -193,9 +249,11 @@ Hugin reads your Hugo config (`hugo.toml`, `config.toml`, or `config/_default/`)
 | `~/.hugin/last_engine.json` | Last selected engine + model |
 | `~/.hugin/theme.json` | Textual theme selection |
 | `~/.hugin/links.toml` | Global link settings |
+| `~/.hugin/affiliates.toml` | Affiliate link dictionary |
 | `~/.hugin/projects/<hash>.toml` | Per-project settings |
 | `~/.hugin/state/<hash>.json` | Processing state per directory (last post, timestamps) |
 | `~/.hugin/embeddings/<hash>.json` | Embedding cache per directory |
+| `~/.hugin/embeddings/<hash>_kw.json` | Link-profile keywords per post (survives cache clears) |
 
 ---
 
@@ -233,9 +291,12 @@ chmod +x ~/.local/bin/hugin
 | **Tags** | Any instruction-following model | Simple task: read post, output JSON array |
 | **Summaries** | Mid-size models (8B+) | Needs to write concise, natural prose |
 | **Link anchors** | Instruction models, not reasoning | Must find verbatim text in the post body |
+| **Reranking / link profile** | 32B+ models preferred | Better judgment on topical relevance |
 | **Topic suggestions** | Mid-size models (8B+) | Needs to understand the post and suggest specific angles |
 
 **Avoid reasoning models for link anchors** — they spend tokens "thinking" instead of finding text matches. Use Llama, Gemma, Qwen (with thinking disabled), or similar instruction-tuned models.
+
+**For reranking and link profiles**, larger models (32B+) produce significantly better results. Local models via LM Studio work well on Apple Silicon with MLX.
 
 ---
 

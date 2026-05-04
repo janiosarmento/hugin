@@ -401,6 +401,7 @@ class HuginScreen(Screen):
         ("m", "manage_tags", "Manage"),
         ("c", "clear_caches", "Clear"),
         ("p", "new_post", "Post"),
+        ("w", "news_ideas", "News"),
         ("comma", "project_settings", "Settings"),
         ("g", "git_sync", "Git"),
         ("escape", "back", "Back"),
@@ -490,6 +491,16 @@ class HuginScreen(Screen):
         display: none;
     }
 
+    #search-bar {
+        height: 3;
+        border: tall transparent;
+        background: $panel;
+    }
+
+    #search-bar:focus {
+        border: tall $accent;
+    }
+
     """
 
     BANNER = """\
@@ -538,6 +549,8 @@ class HuginScreen(Screen):
         self._session_outgoing: dict[str, list[dict]] = {}
         self._loading_screen: LoadingScreen | None = None
         self._project = load_project(directory)
+        self._search_mode: bool = False
+        self._search_base: list = []  # full self.posts saved during search
 
     @property
     def _words_per_link(self) -> int:
@@ -550,6 +563,7 @@ class HuginScreen(Screen):
 
         with Horizontal(id="review-container"):
             with Vertical(id="post-list-panel"):
+                yield Input(placeholder="/ to search", id="search-bar")
                 table = DataTable(id="post-table", cursor_type="row", zebra_stripes=True)
                 yield table
 
@@ -1262,18 +1276,15 @@ class HuginScreen(Screen):
     async def _run_outgoing(self, post: Post, budget: int) -> None:
         """Find outgoing links automatically: embed + tags → rerank → anchor + keyword fallback."""
         try:
-            # Step 0 (lazy): generate link keywords if not yet cached for this post
-            if not self.index.get_link_keywords(post):
-                self._set_spinner_message("Step 1/4 — Building link profile...")
-                kw_prompt = LINK_KEYWORDS_PROMPT.format(
-                    title=post.metadata.get("title", post.filename),
-                    content=post.content[:3000],
-                )
-                keywords = (await call_llm(self.engine, kw_prompt)).strip()
-                self.index.set_link_keywords(post, self.site.post_url, keywords)
-                total_steps = 4
-            else:
-                total_steps = 3
+            # Step 0: always regenerate link profile on explicit trigger
+            self._set_spinner_message("Step 1/4 — Building link profile...")
+            kw_prompt = LINK_KEYWORDS_PROMPT.format(
+                title=post.metadata.get("title", post.filename),
+                content=post.content[:3000],
+            )
+            keywords = (await call_llm(self.engine, kw_prompt)).strip()
+            self.index.set_link_keywords(post, self.site.post_url, keywords)
+            total_steps = 4
 
             self._set_spinner_message(f"Step {total_steps - 2}/{total_steps} — Searching similar posts...")
             existing_urls = extract_existing_links(post.content)
@@ -1387,6 +1398,10 @@ class HuginScreen(Screen):
             return
 
         header.update("Outgoing link suggestions:")
+        url_to_title = {
+            entry["url"]: entry.get("title", "")
+            for entry in self.index._cache.get("posts", {}).values()
+        }
         for item in suggestions:
             anchor = item["anchor_text"]
             url = item["target_url"]
@@ -1396,7 +1411,11 @@ class HuginScreen(Screen):
             container.mount(cb)
             context_text = f"[dim]{before}[/dim][bold reverse]{anchor}[/bold reverse][dim]{after}[/dim]"
             container.mount(Static(context_text, classes="outgoing-context"))
-            container.mount(Static(f"→ {url}", classes="outgoing-url"))
+            title = url_to_title.get(url, "") or url_to_title.get(url.rstrip("/") + "/", "")
+            dest = f"→ {url}"
+            if title:
+                dest += f"\n  [dim]{title}[/dim]"
+            container.mount(Static(dest, classes="outgoing-url"))
 
         self.query_one("#btn-apply", Button).label = "Insert links"
         self.query_one("#review-buttons").remove_class("hidden")
@@ -1695,6 +1714,52 @@ class HuginScreen(Screen):
 
         self.app.push_screen(NewPostScreen(), on_filename)
 
+    def action_news_ideas(self) -> None:
+        """Open the news → post ideas screen."""
+        if self._state != STATE_BROWSING:
+            return
+
+        from hugin.tui.news_ideas import NewsIdeasScreen
+
+        def on_created(paths: list) -> None:
+            if not paths:
+                return
+            import frontmatter as fm
+            from rich.text import Text
+
+            table = self.query_one("#post-table", DataTable)
+            now = datetime.now()
+            first_new_index = len(self.posts)
+            for path in paths:
+                try:
+                    loaded = fm.load(str(path))
+                except Exception:
+                    continue
+                post = Post(
+                    path=path,
+                    metadata=loaded.metadata,
+                    content=loaded.content,
+                    has_tags=False,
+                    tags=[],
+                    date=now,
+                )
+                self.posts.append(post)
+                self.all_posts.append(post)
+                title = loaded.metadata.get("title", path.stem)
+                row_key = f"news-{path.name}"
+                table.add_row("—", Text(f"[DRAFT] {title}", style="dim"), key=row_key)
+                self._row_keys.append(row_key)
+
+            self.current_index = first_new_index
+            table.move_cursor(row=first_new_index)
+            self._update_detail_panel()
+            self.notify(f"{len(paths)} draft(s) created")
+
+        self.app.push_screen(
+            NewsIdeasScreen(engine=self.engine, directory=self.directory),
+            on_created,
+        )
+
     def _open_editor_for_post(self, post: Post, index: int) -> None:
         from hugin.tui.editor import EditorScreen
 
@@ -1831,7 +1896,88 @@ class HuginScreen(Screen):
 
         self.app.call_from_thread(show_result)
 
+    # === SEARCH ===
+
+    def on_key(self, event) -> None:
+        """Intercept '/' to activate search when the table has focus."""
+        if (
+            event.key == "slash"
+            and self._state == STATE_BROWSING
+            and not self._search_mode
+        ):
+            event.stop()
+            self._search_mode = True
+            self._search_base = list(self.posts)
+            bar = self.query_one("#search-bar", Input)
+            bar.value = ""
+            bar.focus()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "search-bar":
+            return
+        # Strip leading slash that leaks from the activation key
+        if event.value.startswith("/"):
+            event.input.value = event.value[1:]
+            return  # on_input_changed fires again with clean value
+        query = event.value.strip().lower()
+        if self._search_mode and query:
+            filtered = [
+                p for p in self._search_base
+                if query in p.filename.lower()
+                or query in str(p.metadata.get("title", "")).lower()
+            ]
+        else:
+            filtered = list(self._search_base) if self._search_mode else list(self.posts)
+        self.posts = filtered
+        self._rebuild_post_table()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "search-bar":
+            self._close_search()
+
+    def _close_search(self) -> None:
+        """Exit search mode: restore full list, cursor on selected post."""
+        if not self._search_mode:
+            return
+        selected_post = self.posts[self.current_index] if self.posts else None
+        self.posts = self._search_base
+        self._search_base = []
+        self._search_mode = False
+        bar = self.query_one("#search-bar", Input)
+        bar.value = ""
+        self._rebuild_post_table()
+        if selected_post:
+            for i, p in enumerate(self.posts):
+                if p.path == selected_post.path:
+                    self.current_index = i
+                    self.query_one("#post-table", DataTable).move_cursor(row=i)
+                    break
+        self._update_detail_panel()
+        self.query_one("#post-table", DataTable).focus()
+
+    def _rebuild_post_table(self) -> None:
+        """Clear and repopulate the post table from self.posts."""
+        from rich.text import Text
+        table = self.query_one("#post-table", DataTable)
+        table.clear()
+        self._row_keys = []
+        for i, post in enumerate(self.posts):
+            title = post.metadata.get("title", post.filename)
+            cell = Text(f"[DRAFT] {title}", style="dim") if post.metadata.get("draft") else Text(title)
+            status = "—" if self.index.has_no_outgoing(post) else " "
+            key = f"search-{i}-{post.filename}"
+            table.add_row(status, cell, key=key)
+            self._row_keys.append(key)
+        # Reset cursor to first row
+        self.current_index = 0
+        if self.posts:
+            table.move_cursor(row=0)
+            self._update_detail_panel()
+
     def action_back(self) -> None:
+        if self._search_mode:
+            self._close_search()
+            return
         if self._state == STATE_LOADING:
             self.workers.cancel_all()
             self._stop_spinner()

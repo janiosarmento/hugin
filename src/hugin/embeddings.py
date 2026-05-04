@@ -22,6 +22,11 @@ def _cache_path(posts_dir: Path) -> Path:
     return EMBEDDINGS_DIR / f"{dir_hash}.json"
 
 
+def _keywords_path(posts_dir: Path) -> Path:
+    dir_hash = hashlib.md5(str(posts_dir.resolve()).encode()).hexdigest()
+    return EMBEDDINGS_DIR / f"{dir_hash}_kw.json"
+
+
 MAX_EMBED_CHARS = 2000  # ~500 tokens, fits 512-token e5-large
 
 
@@ -148,6 +153,8 @@ class EmbeddingIndex:
         self._model = None
         self._cache: dict = {"version": CACHE_VERSION, "posts": {}}
         self._cache_path = _cache_path(self.posts_dir)
+        self._keywords_path = _keywords_path(self.posts_dir)
+        self._keywords: dict[str, str] = {}  # abs_path → keywords
 
     def _load_model(self, print_fn=print):
         """Load the sentence-transformers model with ONNX backend."""
@@ -169,6 +176,12 @@ class EmbeddingIndex:
                     self._cache = data
             except (json.JSONDecodeError, KeyError):
                 pass
+        if self._keywords_path.exists():
+            try:
+                with open(self._keywords_path) as f:
+                    self._keywords = json.load(f)
+            except (json.JSONDecodeError, KeyError):
+                self._keywords = {}
 
     def _save_cache(self) -> None:
         """Write cache to disk."""
@@ -176,8 +189,17 @@ class EmbeddingIndex:
         with open(self._cache_path, "w") as f:
             json.dump(self._cache, f)
 
+    def _save_keywords(self) -> None:
+        """Write link keywords to their own file (survives cache clears)."""
+        EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
+        with open(self._keywords_path, "w") as f:
+            json.dump(self._keywords, f)
+
     def clear_cache(self) -> None:
-        """Delete the embedding cache file and reset in-memory cache."""
+        """Delete the embedding cache file and reset in-memory cache.
+
+        Keywords are intentionally preserved in their own file.
+        """
         if self._cache_path.exists():
             self._cache_path.unlink()
         self._cache = {"version": CACHE_VERSION, "posts": {}}
@@ -251,7 +273,7 @@ class EmbeddingIndex:
         texts = []
         for i, (post, abs_path, mtime) in enumerate(stale):
             url = url_fn(post.metadata, post.filename)
-            existing_keywords = cached.get(abs_path, {}).get("link_keywords", "")
+            existing_keywords = self._keywords.get(abs_path, "")
             text = _build_text(post.metadata, self.summary_field, post.content, url, existing_keywords)
             texts.append(text)
             if (i + 1) % 50 == 0 or i == len(stale) - 1:
@@ -270,7 +292,6 @@ class EmbeddingIndex:
                 "tags": post.metadata.get("tags", []),
                 "embedding": embedding.tolist(),
                 "no_outgoing": old_entry.get("no_outgoing", False),
-                "link_keywords": old_entry.get("link_keywords", ""),
             }
 
         self._save_cache()
@@ -307,7 +328,7 @@ class EmbeddingIndex:
         mtime = os.path.getmtime(post.path)
         url = url_fn(post.metadata, post.filename)
         old_entry = self._cache["posts"].get(abs_path, {})
-        link_keywords = old_entry.get("link_keywords", "")
+        link_keywords = self._keywords.get(abs_path, "")
         text = _build_text(post.metadata, self.summary_field, post.content, url, link_keywords)
 
         embedding = self._encode_single(text)
@@ -319,28 +340,69 @@ class EmbeddingIndex:
             "tags": post.metadata.get("tags", []),
             "embedding": embedding.tolist(),
             "no_outgoing": old_entry.get("no_outgoing", False),
-            "link_keywords": link_keywords,
         }
         self._save_cache()
 
     def get_link_keywords(self, post) -> str:
         """Return cached link_keywords for a post, or empty string if none."""
         abs_path = str(post.path.resolve())
-        entry = self._cache["posts"].get(abs_path)
-        return entry.get("link_keywords", "") if entry else ""
+        return self._keywords.get(abs_path, "")
+
+    @staticmethod
+    def _normalize_keywords(keywords: str) -> str | None:
+        """Deduplicate and validate a comma-separated keyword string.
+
+        Returns the cleaned string, or None if the response looks like a
+        hallucination (repetition loop or rambling paragraph).
+        """
+        parts = [k.strip() for k in keywords.split(",") if k.strip()]
+        if not parts:
+            return None
+        # Deduplicate preserving order (case-insensitive)
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for p in parts:
+            key = p.lower()
+            if key not in seen:
+                seen.add(key)
+                deduped.append(p)
+        # Reject if we ended up with fewer than 3 unique keywords
+        if len(deduped) < 3:
+            return None
+        # Reject if any single keyword is suspiciously long (paragraph fragment)
+        if any(len(k.split()) > 6 for k in deduped):
+            return None
+        return ", ".join(deduped)
+
+    def store_link_keywords(self, post, keywords: str) -> None:
+        """Persist link keywords without re-encoding the embedding.
+
+        Use this for batch generation; embeddings will pick up the new keywords
+        on the next build() call.
+        """
+        cleaned = self._normalize_keywords(keywords)
+        if not cleaned:
+            raise ValueError("Keywords failed validation (repetition or malformed)")
+        abs_path = str(post.path.resolve())
+        self._keywords[abs_path] = cleaned
+        self._save_keywords()
 
     def set_link_keywords(self, post, url_fn, keywords: str) -> None:
         """Store LLM-generated link keywords and re-encode the post embedding."""
         if self._model is None:
             return
+        cleaned = self._normalize_keywords(keywords)
+        if not cleaned:
+            raise ValueError("Keywords failed validation (repetition or malformed)")
         abs_path = str(post.path.resolve())
+        self._keywords[abs_path] = cleaned
+        self._save_keywords()
         old_entry = self._cache["posts"].get(abs_path, {})
         url = url_fn(post.metadata, post.filename)
         text = _build_text(post.metadata, self.summary_field, post.content, url, keywords)
         embedding = self._encode_single(text)
         self._cache["posts"][abs_path] = {
             **old_entry,
-            "link_keywords": keywords,
             "embedding": embedding.tolist(),
         }
         self._save_cache()

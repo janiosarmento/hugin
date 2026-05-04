@@ -25,6 +25,7 @@ dev = [
 
 [project.scripts]
 hugin = "hugin.cli:main"
+hugin-profiles = "hugin.cli:build_profiles"
 
 [tool.setuptools.packages.find]
 where = ["src"]

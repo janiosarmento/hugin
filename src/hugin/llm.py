@@ -97,6 +97,21 @@ def parse_response(text: str) -> list[str]:
     raise ValueError(f"Não foi possível extrair tags da resposta do LLM: {text[:200]}")
 
 
+def _is_repetition_loop(text: str, threshold: float = 0.5) -> bool:
+    """Return True if the response looks like a repetition hallucination.
+
+    Splits on whitespace and commas, then checks whether the most common
+    token makes up more than `threshold` of all tokens.
+    """
+    import re
+    tokens = [t.strip(".,;:!?\"'").lower() for t in re.split(r"[\s,]+", text) if t.strip()]
+    if len(tokens) < 10:
+        return False
+    from collections import Counter
+    top_count = Counter(tokens).most_common(1)[0][1]
+    return top_count / len(tokens) > threshold
+
+
 async def call_llm(engine: Engine, prompt: str) -> str:
     headers = {"Content-Type": "application/json"}
     if engine.api_key:
@@ -117,7 +132,10 @@ async def call_llm(engine: Engine, prompt: str) -> str:
         response.raise_for_status()
 
     data = response.json()
-    return data["choices"][0]["message"]["content"]
+    text = data["choices"][0]["message"]["content"]
+    if _is_repetition_loop(text):
+        raise ValueError("Model returned a repetition loop — skipping")
+    return text
 
 
 async def suggest_tags(
@@ -379,4 +397,42 @@ def parse_suggestions(text: str) -> list[str]:
         except json.JSONDecodeError:
             pass
 
+    return []
+
+
+NEWS_IDEAS_PROMPT = """\
+You are a content strategist. Based on the news items below about "{query}", \
+generate blog post ideas.
+
+NEWS ITEMS:
+{news_items}
+
+Generate {n_ideas} engaging post ideas inspired by these news. \
+Each idea should be a topic readers actively search for — not a news summary.
+
+{categories_instruction}
+
+Return a JSON array only, no explanation:
+[{{"title": "Post title here", "description": "1-2 sentences on what the post covers"{category_field}}}]"""
+
+
+def parse_news_ideas(text: str) -> list[dict]:
+    """Parse LLM response into list of {title, description} dicts."""
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*\n?", "", text)
+    text = re.sub(r"\n?```\s*$", "", text)
+    start = text.find("[")
+    end = text.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        try:
+            result = json.loads(text[start:end + 1])
+            if isinstance(result, list):
+                return [
+                    item for item in result
+                    if isinstance(item, dict)
+                    and item.get("title")
+                    and item.get("description")
+                ]
+        except json.JSONDecodeError:
+            pass
     return []

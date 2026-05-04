@@ -119,6 +119,7 @@ class EditorScreen(Screen[bool]):
         ("ctrl+s", "save", "Save"),
         ("ctrl+r", "toggle_raw", "Raw"),
         ("ctrl+e", "strip_emojis", "Strip emojis"),
+        ("ctrl+l", "links_to_markdown", "HTML→MD links"),
         ("escape", "back", "Back"),
     ]
 
@@ -264,6 +265,7 @@ class EditorScreen(Screen[bool]):
         with Horizontal(id="editor-buttons"):
             yield Button("Raw (Ctrl+R)", id="btn-toggle-raw")
             yield Button("Strip emojis (Ctrl+E)", id="btn-strip-emojis")
+            yield Button("HTML→MD links (Ctrl+L)", id="btn-links-to-md")
             yield Button("Save (Ctrl+S)", id="btn-save", variant="primary")
             yield Button("Cancel", id="btn-cancel-edit")
 
@@ -340,6 +342,19 @@ class EditorScreen(Screen[bool]):
             btn.label = "Raw (Ctrl+R)"
             self.query_one("#body-editor", TextArea).focus()
 
+    def action_links_to_markdown(self) -> None:
+        """Convert HTML anchor tags to Markdown links in the body text."""
+        from hugin.linker import convert_html_links_to_markdown
+        editor_id = "#raw-editor" if self._raw_mode else "#body-editor"
+        editor = self.query_one(editor_id, TextArea)
+        original = editor.text
+        converted = convert_html_links_to_markdown(original)
+        if converted == original:
+            self.notify("No convertible HTML links found")
+            return
+        editor.load_text(converted)
+        self.notify("HTML links converted to Markdown")
+
     def action_strip_emojis(self) -> None:
         """Remove all emojis from the body text."""
         editor_id = "#raw-editor" if self._raw_mode else "#body-editor"
@@ -412,6 +427,8 @@ class EditorScreen(Screen[bool]):
             self.action_toggle_raw()
         elif event.button.id == "btn-strip-emojis":
             self.action_strip_emojis()
+        elif event.button.id == "btn-links-to-md":
+            self.action_links_to_markdown()
         elif event.button.id == "btn-save":
             self.action_save()
         elif event.button.id == "btn-cancel-edit":
