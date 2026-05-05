@@ -186,11 +186,13 @@ def _show_report(posts: list, directory: Path, index: EmbeddingIndex) -> None:
 @click.option("--engine", "engine_id", default=None, help="ID do motor de AI.")
 @click.option("--force", is_flag=True, help="Regerar mesmo posts que já têm perfil.")
 @click.option("--drafts", is_flag=True, help="Incluir posts com draft: true.")
+@click.option("-r", "--reset", is_flag=True, help="Apagar todos os link profiles antes de gerar.")
 def build_profiles(
     directory: Path,
     engine_id: str | None,
     force: bool,
     drafts: bool,
+    reset: bool,
 ) -> None:
     """Generate link profiles (keywords) for all posts in batch."""
     from hugin.llm import LINK_KEYWORDS_PROMPT, call_llm
@@ -210,7 +212,11 @@ def build_profiles(
     )
     index._load_cache()
 
-    to_process = [p for p in posts if force or not index.get_link_keywords(p)]
+    if reset:
+        index.clear_keywords()
+        click.echo("Link profile cache cleared.")
+
+    to_process = [p for p in posts if force or reset or not index.get_link_keywords(p)]
     already = len(posts) - len(to_process)
 
     click.echo(f"Posts totais:    {len(posts)}")

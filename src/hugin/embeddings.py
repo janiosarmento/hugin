@@ -204,6 +204,12 @@ class EmbeddingIndex:
             self._cache_path.unlink()
         self._cache = {"version": CACHE_VERSION, "posts": {}}
 
+    def clear_keywords(self) -> None:
+        """Delete the keyword cache file and reset in-memory keywords."""
+        if self._keywords_path.exists():
+            self._keywords_path.unlink()
+        self._keywords = {}
+
     def build(
         self,
         posts: list,
