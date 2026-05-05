@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "hugo_tagger",
+  "project_id": "d37e4142-a619-4594-ac2f-e8edb1d4dcfb"
+}
