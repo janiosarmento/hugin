@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import frontmatter
 from markdown_it import MarkdownIt
+from hugin.normalizer import strip_accents
 
 if TYPE_CHECKING:
     from hugin.scanner import Post
@@ -188,6 +189,9 @@ def find_keyword_anchors(
         List of dicts with 'anchor_text' and 'target_url'
     """
     zones = find_protected_zones(body)
+    # Normalize body once for accent-insensitive matching; positions are preserved
+    # because strip_accents maps each character 1-to-1 (é→e, ã→a, etc.).
+    body_norm = strip_accents(body.lower())
     results = []
 
     for c in candidates:
@@ -195,7 +199,7 @@ def find_keyword_anchors(
         slug = url.strip("/").rsplit("/", 1)[-1] if "/" in url else url
         parts = slug.split("-")
 
-        # Build candidates: full phrase, then progressively shorter sub-phrases,
+        # Build candidates: full phrase first, then progressively shorter sub-phrases,
         # then individual words (≥6 chars). Longer phrases ranked first.
         phrase_candidates: list[str] = []
         for length in range(len(parts), 0, -1):
@@ -206,9 +210,12 @@ def find_keyword_anchors(
                 phrase_candidates.append(phrase)
 
         for kw in phrase_candidates:
-            pattern = r"(?<!\w)" + re.escape(kw) + r"(?!\w)"
-            m = re.search(pattern, body, re.IGNORECASE)
-            if m and not is_in_protected_zone(m.start(), len(kw), zones):
+            # Match against normalized body so accented slugs find accented body text
+            kw_norm = strip_accents(kw.lower())
+            pattern = r"(?<!\w)" + re.escape(kw_norm) + r"(?!\w)"
+            m = re.search(pattern, body_norm)
+            if m and not is_in_protected_zone(m.start(), len(kw_norm), zones):
+                # Extract original (accented) text from body at the same position
                 anchor = body[m.start():m.end()]
                 results.append({"anchor_text": anchor, "target_url": url})
                 break
