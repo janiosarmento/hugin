@@ -193,12 +193,20 @@ def find_keyword_anchors(
     for c in candidates:
         url = c["url"]
         slug = url.strip("/").rsplit("/", 1)[-1] if "/" in url else url
-        keywords = [k for k in slug.split("-") if len(k) >= 6]
-        # Try longest keywords first — more specific
-        keywords.sort(key=len, reverse=True)
+        parts = slug.split("-")
 
-        for kw in keywords:
-            pattern = r"(?<![\w\-])" + re.escape(kw) + r"(?![\w\-])"
+        # Build candidates: full phrase, then progressively shorter sub-phrases,
+        # then individual words (≥6 chars). Longer phrases ranked first.
+        phrase_candidates: list[str] = []
+        for length in range(len(parts), 0, -1):
+            for start in range(len(parts) - length + 1):
+                phrase = " ".join(parts[start:start + length])
+                if length == 1 and len(phrase) < 6:
+                    continue
+                phrase_candidates.append(phrase)
+
+        for kw in phrase_candidates:
+            pattern = r"(?<!\w)" + re.escape(kw) + r"(?!\w)"
             m = re.search(pattern, body, re.IGNORECASE)
             if m and not is_in_protected_zone(m.start(), len(kw), zones):
                 anchor = body[m.start():m.end()]

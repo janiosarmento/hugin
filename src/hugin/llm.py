@@ -264,7 +264,8 @@ You are a technical blog editor. Your task is to identify natural anchor text wi
 
 Rules:
 - The anchor_text must appear verbatim in the post body.
-- Keep anchors SHORT: 1 to {max_anchor_words} words. Prefer specific technical terms, tool names, or concepts. Never use full sentences or long phrases.
+- Prefer MULTI-WORD phrases over single words when the full phrase appears in the text. A compound term ("leucemia felina", "doença renal crônica", "sistema imune") is a better anchor than any single word from it.
+- Anchors must be between 1 and {max_anchor_words} words. Prefer the longest meaningful phrase that fits naturally, not the shortest. Never use full sentences.
 - Do not suggest anchors inside headings, code blocks, inline code, images, or existing links.
 - Suggest at most one anchor per candidate post.
 - Omit candidates for which no natural anchor exists — do not force one.
