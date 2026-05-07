@@ -14,6 +14,7 @@ dependencies = [
     "textual[syntax]>=0.80.0",
     "sentence-transformers[onnx]>=3.0",
     "markdown-it-py>=3.0",
+    "tomlkit>=0.13.0",
 ]
 
 [project.optional-dependencies]

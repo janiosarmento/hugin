@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import tomlkit
 import yaml
 
 # Date prefix pattern in filenames: YYYY-MM-DD-
@@ -78,24 +79,120 @@ def get_permalink_pattern(config: dict[str, Any], section: str) -> str:
     return DEFAULT_PERMALINK
 
 
-def infer_section(posts_dir: Path) -> str:
-    """Infer the Hugo content section from the directory structure."""
-    parts = posts_dir.resolve().parts
-    try:
-        content_idx = parts.index("content")
-        # Section is the first directory after content/
-        # Handle multilingual: content/pt/posts -> section is "posts" (skip language dir)
-        remaining = parts[content_idx + 1:]
-        if len(remaining) >= 2 and len(remaining[0]) <= 3:
-            # Likely a language code (pt, en, es, fr)
-            return remaining[1]
-        elif remaining:
-            return remaining[0]
-    except ValueError:
-        pass
+def resolve_url(
+    metadata: dict[str, Any],
+    filename: str,
+    section: str,
+    permalink_pattern: str,
+) -> str:
+    """Resolve the canonical URL for a post."""
+    # Frontmatter url overrides everything
+    if "url" in metadata:
+        url = str(metadata["url"])
+        if not url.startswith("/"):
+            url = "/" + url
+        if not url.endswith("/"):
+            url += "/"
+        return url
 
-    # Fallback: use the directory name itself
-    return posts_dir.name
+    # Slug from frontmatter or filename
+    slug = metadata.get("slug") or _slug_from_filename(filename)
+
+    date = metadata.get("date")
+    if date and hasattr(date, "year"):
+        year = str(date.year)
+        month = f"{date.month:02d}"
+        day = f"{date.day:02d}"
+    else:
+        year = month = day = ""
+
+    url = permalink_pattern
+    url = url.replace(":slug", slug)
+    url = url.replace(":section", section)
+    url = url.replace(":year", year)
+    url = url.replace(":month", month)
+    url = url.replace(":day", day)
+
+    if not url.startswith("/"):
+        url = "/" + url
+    if not url.endswith("/"):
+        url += "/"
+
+    return url
+
+
+def _slug_from_filename(filename: str) -> str:
+    """Derive a slug from a filename."""
+    stem = Path(filename).stem
+    # Strip YYYY-MM-DD- date prefix
+    stem = DATE_PREFIX_RE.sub("", stem)
+    return stem
+
+
+def ensure_ignored_in_hugo(posts_dir: Path, filenames: list[str]) -> list[str]:
+    """Ensure filenames appear in Hugo's ignoreFiles config.
+
+    Finds the Hugo config file, adds any missing entries to ignoreFiles
+    as anchored regex patterns (e.g. CLAUDE\\.md → "^CLAUDE\\.md$"),
+    and saves the file in-place preserving formatting.
+
+    Returns a list of filenames that were actually added (empty if all
+    were already present or no Hugo config was found).
+    """
+    config_path = find_hugo_config(posts_dir)
+    if not config_path:
+        return []
+
+    suffix = config_path.suffix.lower()
+    # Build anchored regex patterns for each filename
+    patterns = {name: f"^{re.escape(name)}$" for name in filenames}
+
+    if suffix == ".toml":
+        return _ensure_ignored_toml(config_path, patterns)
+    elif suffix in (".yaml", ".yml"):
+        return _ensure_ignored_yaml(config_path, patterns)
+    return []
+
+
+def _ensure_ignored_toml(config_path: Path, patterns: dict[str, str]) -> list[str]:
+    """Add missing ignoreFiles patterns to a TOML Hugo config."""
+    text = config_path.read_text(encoding="utf-8")
+    doc = tomlkit.parse(text)
+
+    existing: list[str] = list(doc.get("ignoreFiles", []))
+    added = []
+    for name, pattern in patterns.items():
+        if pattern not in existing:
+            existing.append(pattern)
+            added.append(name)
+
+    if added:
+        doc["ignoreFiles"] = existing
+        config_path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+
+    return added
+
+
+def _ensure_ignored_yaml(config_path: Path, patterns: dict[str, str]) -> list[str]:
+    """Add missing ignoreFiles patterns to a YAML Hugo config."""
+    text = config_path.read_text(encoding="utf-8")
+    data = yaml.safe_load(text) or {}
+
+    existing: list[str] = list(data.get("ignoreFiles", []))
+    added = []
+    for name, pattern in patterns.items():
+        if pattern not in existing:
+            existing.append(pattern)
+            added.append(name)
+
+    if added:
+        data["ignoreFiles"] = existing
+        config_path.write_text(
+            yaml.dump(data, allow_unicode=True, default_flow_style=False),
+            encoding="utf-8",
+        )
+
+    return added
 
 
 def load_categories(posts_dir: Path) -> list[str]:
@@ -114,7 +211,7 @@ def load_categories(posts_dir: Path) -> list[str]:
         if pages_cfg.is_file():
             try:
                 with open(pages_cfg) as f:
-                    data = yaml.safe_load(f) or {}
+                    data = yaml.safe_load(f)
                 cats = _extract_pages_cms_categories(data)
                 if cats:
                     return cats
@@ -126,129 +223,58 @@ def load_categories(posts_dir: Path) -> list[str]:
             break
         root = parent
 
+    # Fallback: Hugo taxonomy
+    config_path = find_hugo_config(posts_dir)
+    if config_path:
+        config = parse_hugo_config(config_path)
+        taxonomies = config.get("taxonomies", {})
+        if "category" in taxonomies or "categories" in taxonomies:
+            # Taxonomy is defined but values aren't in config; return empty
+            pass
+
     return []
 
 
-def _extract_pages_cms_categories(data: dict) -> list[str]:
-    """Walk a Pages CMS config dict and find select-field values for 'categories'."""
-    results: list[str] = []
+def _extract_pages_cms_categories(data: Any) -> list[str]:
+    """Walk a Pages CMS config dict to find a select field named categories/category."""
+    if not isinstance(data, dict):
+        return []
 
-    def _walk(node):
-        if isinstance(node, dict):
-            name = node.get("name", "")
-            if name in ("categories", "category") and node.get("type") == "select":
-                opts = node.get("options", {})
-                for v in opts.get("values", []):
-                    if isinstance(v, dict):
-                        val = v.get("value") or v.get("label")
-                    else:
-                        val = str(v)
-                    if val:
-                        results.append(val)
-            for v in node.values():
-                _walk(v)
-        elif isinstance(node, list):
-            for item in node:
-                _walk(item)
+    # Check if this node is a select field with the right name
+    if (
+        data.get("type") == "select"
+        and data.get("name", "").rstrip("s") == "categor"  # category or categories
+        and isinstance(data.get("options"), list)
+    ):
+        return [str(o) for o in data["options"] if o]
 
-    _walk(data)
-    return results
+    # Recurse into all dict values and lists
+    for value in data.values():
+        if isinstance(value, dict):
+            result = _extract_pages_cms_categories(value)
+            if result:
+                return result
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    result = _extract_pages_cms_categories(item)
+                    if result:
+                        return result
 
-
-def slug_from_filename(filename: str) -> str:
-    """Derive slug from a markdown filename."""
-    name = filename.removesuffix(".md")
-    # Strip date prefix if present
-    name = DATE_PREFIX_RE.sub("", name)
-    return name
-
-
-def _parse_date(value) -> datetime | None:
-    """Parse a date from frontmatter value."""
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value
-    try:
-        return datetime.fromisoformat(str(value))
-    except (ValueError, TypeError):
-        return None
-
-
-def resolve_url(
-    metadata: dict,
-    filename: str,
-    section: str,
-    permalink_pattern: str,
-) -> str:
-    """Resolve the URL for a single post.
-
-    Priority:
-    1. Frontmatter 'url' field (verbatim)
-    2. Frontmatter 'slug' field
-    3. Filename-derived slug
-    """
-    # 1. Explicit url in frontmatter
-    url = metadata.get("url")
-    if url:
-        # Ensure it starts with / and ends with /
-        if not url.startswith("/"):
-            url = "/" + url
-        if not url.endswith("/"):
-            url = url + "/"
-        return url
-
-    # 2. Slug from frontmatter or filename
-    slug = metadata.get("slug") or slug_from_filename(filename)
-
-    # Parse date for token substitution
-    date = _parse_date(metadata.get("date"))
-
-    # Check for unsupported tokens
-    tokens_in_pattern = set(re.findall(r":\w+", permalink_pattern))
-    unsupported = tokens_in_pattern - SUPPORTED_TOKENS
-    if unsupported:
-        # Fallback to default pattern
-        permalink_pattern = DEFAULT_PERMALINK
-
-    # Substitute tokens
-    url = permalink_pattern
-    url = url.replace(":section", section)
-    url = url.replace(":slug", str(slug))
-
-    if date:
-        url = url.replace(":year", str(date.year))
-        url = url.replace(":month", f"{date.month:02d}")
-        url = url.replace(":day", f"{date.day:02d}")
-    else:
-        # If date tokens exist but no date, strip them
-        url = url.replace(":year/", "")
-        url = url.replace(":month/", "")
-        url = url.replace(":day/", "")
-
-    # Normalize
-    if not url.startswith("/"):
-        url = "/" + url
-    if not url.endswith("/"):
-        url = url + "/"
-    # Clean double slashes
-    while "//" in url:
-        url = url.replace("//", "/")
-
-    return url
+    return []
 
 
 class HugoSite:
-    """Represents a Hugo site's configuration relevant to URL inference."""
+    """Resolves Hugo post URLs using the site's permalink configuration."""
 
     def __init__(self, posts_dir: Path) -> None:
         self.posts_dir = posts_dir.resolve()
+        self.section = posts_dir.name
         self.config: dict[str, Any] = {}
-        self.section = infer_section(self.posts_dir)
         self.permalink_pattern = DEFAULT_PERMALINK
         self._warnings: list[str] = []
 
-        config_path = find_hugo_config(self.posts_dir)
+        config_path = find_hugo_config(posts_dir)
         if config_path:
             self.config = parse_hugo_config(config_path)
             self.permalink_pattern = get_permalink_pattern(

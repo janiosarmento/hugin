@@ -43,9 +43,14 @@ def _is_toml_frontmatter(path: Path) -> bool:
     return first_line == "+++"
 
 
+AGENT_FILES = frozenset({"CLAUDE.md", "AGENTS.md"})
+
+
 def load_posts(directory: Path) -> list[Post]:
     posts = []
     for path in sorted(directory.glob("*.md")):
+        if path.name in AGENT_FILES:
+            continue
         if _is_toml_frontmatter(path):
             print(f"Aviso: {path.name} usa TOML frontmatter, ignorado.")
             continue

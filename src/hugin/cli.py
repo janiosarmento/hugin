@@ -9,7 +9,8 @@ import click
 from hugin.config import load_config
 from hugin.embeddings import EmbeddingIndex
 from hugin.engines import get_engine
-from hugin.hugo import HugoSite
+from hugin.hugo import HugoSite, ensure_ignored_in_hugo
+from hugin.scanner import AGENT_FILES
 from hugin.scanner import (
     collect_tag_pool,
     find_duplicate_tags,
@@ -67,6 +68,11 @@ def main(
     site = HugoSite(directory)
     for w in site.warnings:
         click.echo(f"Warning: {w}")
+
+    # Ensure agent instruction files are excluded from Hugo builds
+    added = ensure_ignored_in_hugo(directory, sorted(AGENT_FILES))
+    for name in added:
+        click.echo(f"Added {name} to Hugo ignoreFiles.")
 
     # Build/update embedding index
     index = EmbeddingIndex(
