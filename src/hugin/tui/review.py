@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from textual import work
+from textual.binding import Binding
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
@@ -386,27 +387,27 @@ class HuginScreen(Screen):
     """Unified screen: tags, summaries, links, editor."""
 
     BINDINGS = [
-        ("q", "quit", "Quit"),
+        Binding("q", "quit", "Quit", show=False),
+        Binding("escape", "back", "Back", show=False),
         ("t", "tags", "Tags"),
-        ("s", "summary", "Summary"),
+        ("m", "manage_tags", "Mngr"),
+        ("s", "summary", "Summ"),
         ("i", "incoming", "In"),
         ("o", "outgoing", "Out"),
         ("d", "direct_links", "Direct"),
         ("z", "amazon", "Amzn"),
         ("l", "list_links", "List"),
         ("b", "broken_links", "Broken"),
-        ("u", "suggest", "Suggest"),
-        ("e", "editor", "Editor"),
+        ("u", "suggest", "Sugg"),
+        ("e", "editor", "Edit"),
         ("n", "pick_engine", "Engine"),
-        ("m", "manage_tags", "Manage"),
-        ("c", "clear_caches", "Clear"),
+        ("c", "clear_caches", "Clr"),
         ("p", "new_post", "Post"),
         ("w", "news_ideas", "News"),
-        ("r", "redirects", "Redirects"),
+        ("r", "redirects", "Redirs"),
         ("shift+x", "delete_post", "Delete"),
-        ("comma", "project_settings", "Settings"),
         ("g", "git_sync", "Git"),
-        ("escape", "back", "Back"),
+        ("comma", "project_settings", "Sett"),
     ]
 
     DEFAULT_CSS = """
