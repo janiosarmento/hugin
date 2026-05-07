@@ -405,7 +405,7 @@ class HuginScreen(Screen):
         ("p", "new_post", "Post"),
         ("w", "news_ideas", "News"),
         ("r", "redirects", "Redirs"),
-        ("shift+x", "delete_post", "Delete"),
+        ("X", "delete_post", "Delete"),
         ("g", "git_sync", "Git"),
         ("comma", "project_settings", "Sett"),
     ]
