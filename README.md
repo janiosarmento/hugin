@@ -37,18 +37,20 @@ hugin --batch 20                # Limit to 20 most recent posts
 hugin --report                  # Stats only, no LLM
 hugin --engine cerebras         # Use a specific engine
 hugin --model gpt-4o            # Override model
+hugin -c                        # Clear embedding cache before starting
 ```
 
 ### Batch link-profile generation
 
 ```bash
-hugin-profiles ~/blog/content/posts           # Generate link profiles for all posts
-hugin-profiles ~/blog/content/posts --force   # Regenerate even if profiles already exist
-hugin-profiles ~/blog/content/posts --drafts  # Include draft posts
+hugin-profiles ~/blog/content/posts             # Generate link profiles for all posts
+hugin-profiles ~/blog/content/posts --force     # Regenerate even if profiles already exist
+hugin-profiles ~/blog/content/posts --reset     # Delete all profiles and regenerate from scratch
+hugin-profiles ~/blog/content/posts --drafts    # Include draft posts
 hugin-profiles ~/blog/content/posts --engine cerebras
 ```
 
-`hugin-profiles` generates LLM link profiles for every post in a directory and saves them to the keyword cache. Runs incrementally — already-profiled posts are skipped unless `--force` is given. Interrupted runs can be safely resumed.
+`hugin-profiles` generates LLM link profiles for every post in a directory and saves them to the keyword cache. Runs incrementally — already-profiled posts are skipped unless `--force` or `--reset` is given. `--reset` deletes the entire keyword cache before running. Interrupted runs can be safely resumed.
 
 ---
 
@@ -123,7 +125,7 @@ The LLM receives the post content and existing tag pool, and suggests tags and s
 
 4. **LLM anchor finding** — The LLM identifies verbatim phrases in the post body that would naturally serve as anchor text for each candidate. Each anchor is validated: must exist exactly in the text, not inside a heading/code/existing link, not in a paragraph already at its link limit.
 
-5. **Keyword fallback** — Candidates the LLM missed get a deterministic keyword search (slug terms ≥6 chars) as a fallback.
+5. **Keyword fallback** — Candidates the LLM missed get a deterministic search derived from the target post's URL slug. Hugin tries the full slug phrase first ("leucemia felina"), then progressively shorter sub-phrases, then individual words (≥6 chars). Matching is accent-insensitive so slugs without diacritics still find accented body text. The longest matching phrase is used as anchor.
 
 **Apply** — Checked suggestions are inserted as Markdown links. The post's embedding is recomputed and the cache updated.
 
@@ -240,6 +242,13 @@ Hugin reads your Hugo config (`hugo.toml`, `config.toml`, or `config/_default/`)
 - Frontmatter `slug` field
 - Filename-derived slugs (strips `YYYY-MM-DD-` date prefix)
 - Multilingual content directories
+
+### AI agent file handling
+
+If your content directory contains `CLAUDE.md` or `AGENTS.md` (instruction files for AI coding agents), Hugin automatically:
+
+- **Excludes them from the post list** — they never appear in the TUI or get processed as posts.
+- **Adds them to Hugo's `ignoreFiles`** — on first run, Hugin finds your `hugo.toml` (or `config.yaml`) and appends anchored regex patterns (`^CLAUDE\.md$`, `^AGENTS\.md$`) to the `ignoreFiles` list so Hugo doesn't include them in the build. This is idempotent — repeated runs don't duplicate entries.
 
 ### Persistence
 
