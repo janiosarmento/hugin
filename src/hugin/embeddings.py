@@ -210,6 +210,16 @@ class EmbeddingIndex:
             self._keywords_path.unlink()
         self._keywords = {}
 
+    def remove_post(self, post) -> None:
+        """Remove a single post from both caches (embedding + keywords)."""
+        abs_path = str(post.path.resolve())
+        if abs_path in self._cache.get("posts", {}):
+            del self._cache["posts"][abs_path]
+            self._save_cache()
+        if abs_path in self._keywords:
+            del self._keywords[abs_path]
+            self._save_keywords()
+
     def build(
         self,
         posts: list,

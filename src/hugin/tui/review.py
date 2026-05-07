@@ -402,6 +402,8 @@ class HuginScreen(Screen):
         ("c", "clear_caches", "Clear"),
         ("p", "new_post", "Post"),
         ("w", "news_ideas", "News"),
+        ("r", "redirects", "Redirects"),
+        ("shift+x", "delete_post", "Delete"),
         ("comma", "project_settings", "Settings"),
         ("g", "git_sync", "Git"),
         ("escape", "back", "Back"),
@@ -1759,6 +1761,112 @@ class HuginScreen(Screen):
         self.app.push_screen(
             NewsIdeasScreen(engine=self.engine, directory=self.directory),
             on_created,
+        )
+
+    # === REDIRECTS ===
+
+    def action_redirects(self) -> None:
+        """Open the redirects manager screen."""
+        if self._state != STATE_BROWSING:
+            return
+        from hugin.redirects import find_redirects_file
+        from hugin.tui.redirects_screen import RedirectsScreen
+
+        path = find_redirects_file(self.directory)
+        if path is None:
+            self.notify("No static/ directory found — cannot locate _redirects.", severity="warning")
+            return
+
+        # Create the file if it doesn't exist yet
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+
+        self.app.push_screen(RedirectsScreen(path))
+
+    # === DELETE POST ===
+
+    def action_delete_post(self) -> None:
+        """Delete the current post and optionally add a redirect."""
+        if self._state != STATE_BROWSING or self._search_mode:
+            return
+
+        post = self.posts[self.current_index]
+        post_url = self.index.get_post_url(post)
+
+        # Collect similar posts BEFORE removing from index
+        from hugin.linker import extract_existing_links
+        existing_urls = extract_existing_links(post.content)
+        candidates = self.index.find_similar(post, n=3, exclude_urls=existing_urls)
+
+        from hugin.tui.redirects_screen import ConfirmDeleteScreen, RedirectSuggestScreen
+
+        def on_confirm(confirmed: bool) -> None:
+            if not confirmed:
+                return
+
+            # Delete the file
+            try:
+                post.path.unlink()
+            except Exception as e:
+                self.notify(f"Error deleting file: {e}", severity="error")
+                return
+
+            # Remove from embedding index
+            self.index.remove_post(post)
+
+            # Remove from in-memory lists
+            idx = self.current_index
+            row_key = self._row_keys[idx]
+            self.posts.pop(idx)
+            self._row_keys.pop(idx)
+            for i, p in enumerate(self.all_posts):
+                if p.path == post.path:
+                    self.all_posts.pop(i)
+                    break
+
+            # Remove from DataTable and update cursor
+            table = self.query_one("#post-table", DataTable)
+            table.remove_row(row_key)
+
+            filename = post.filename
+            if self.posts:
+                self.current_index = min(idx, len(self.posts) - 1)
+                table.move_cursor(row=self.current_index)
+                self._update_detail_panel()
+            else:
+                self.current_index = 0
+                self._clear_action_area()
+                self.query_one("#progress-label", Label).update("No posts")
+
+            self.notify(f"Deleted: {filename}")
+
+            # Offer redirect only if we know the URL
+            if not post_url:
+                return
+
+            from hugin.redirects import append_redirect, find_redirects_file
+            redirects_path = find_redirects_file(self.directory)
+            if redirects_path is None:
+                return
+
+            def on_redirect(dest: str | None) -> None:
+                if not dest:
+                    return
+                append_redirect(redirects_path, post_url, dest)
+                self.notify(f"Redirect: {post_url} → {dest}")
+
+            self.app.push_screen(
+                RedirectSuggestScreen(origin=post_url, candidates=candidates),
+                on_redirect,
+            )
+
+        self.app.push_screen(
+            ConfirmDeleteScreen(
+                title=post.metadata.get("title", post.filename),
+                url=post_url or "",
+            ),
+            on_confirm,
         )
 
     def _open_editor_for_post(self, post: Post, index: int) -> None:
