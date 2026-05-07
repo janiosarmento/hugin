@@ -1702,18 +1702,10 @@ class HuginScreen(Screen):
                 tags=[],
                 date=now,
             )
-            # Insert at top of list
+            # Insert at top of list and rebuild table to keep index consistent
             self.posts.insert(0, post)
             self.all_posts.insert(0, post)
-            from rich.text import Text
-            table = self.query_one("#post-table", DataTable)
-            row_key = f"new-{filename}"
-            table.add_row("—", Text(f"[DRAFT] {title}", style="dim"), key=row_key)
-            self._row_keys.insert(0, row_key)
-            # Navigate to the new post and open editor
-            self.current_index = 0
-            table.move_cursor(row=0)
-            self._update_detail_panel()
+            self._rebuild_post_table()   # sets current_index=0, moves cursor, updates panel
             self._open_editor_for_post(post, index=0)
 
         self.app.push_screen(NewPostScreen(), on_filename)
