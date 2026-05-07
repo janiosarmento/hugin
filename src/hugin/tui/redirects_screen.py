@@ -353,8 +353,8 @@ class RedirectsScreen(Screen[bool]):
 
     def on_mount(self) -> None:
         table = self.query_one("#rd-table", DataTable)
-        table.add_column("Origin", key="origin", width=40)
-        table.add_column("Destination", key="dest", width=40)
+        table.add_column("Origin", key="origin")
+        table.add_column("Destination", key="dest")
         table.add_column("Code", key="code", width=6)
         self._reload()
         table.focus()
