@@ -584,4 +584,4 @@ class EmbeddingIndex:
         """Get the cached URL for a post."""
         abs_path = str(post.path.resolve())
         entry = self._cache["posts"].get(abs_path)
-        return entry["url"] if entry else None
+        return entry.get("url") if entry else None
