@@ -138,12 +138,13 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
                 headers["Authorization"] = f"Bearer {engine.api_key}"
 
             async with httpx.AsyncClient(timeout=engine.timeout) as client:
-                response = await client.get(
-                    f"{engine.url}/models",
-                    headers=headers,
-                )
-                if response.status_code in (401, 403, 404, 405):
-                    # Endpoint blocked or not supported — use configured model
+                url = f"{engine.url}/models"
+                response = await client.get(url, headers=headers)
+                if response.status_code in (403, 405):
+                    # Some servers block GET on /models — fall back to POST
+                    response = await client.post(url, headers=headers)
+                if response.status_code in (401, 404):
+                    # Endpoint not available — use configured model
                     self.dismiss(engine)
                     return
                 response.raise_for_status()
