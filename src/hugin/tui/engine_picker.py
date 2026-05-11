@@ -143,8 +143,8 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
                 if response.status_code in (403, 405):
                     # Some servers block GET on /models — fall back to POST
                     response = await client.post(url, headers=headers)
-                if response.status_code in (401, 404):
-                    # Endpoint not available — use configured model
+                if response.status_code in (401, 403, 404):
+                    # Endpoint not available or forbidden — use configured model
                     self.dismiss(engine)
                     return
                 response.raise_for_status()
