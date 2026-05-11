@@ -142,6 +142,10 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
                     f"{engine.url}/models",
                     headers=headers,
                 )
+                if response.status_code in (401, 403, 404, 405):
+                    # Endpoint blocked or not supported — use configured model
+                    self.dismiss(engine)
+                    return
                 response.raise_for_status()
 
             data = response.json()
