@@ -6,7 +6,7 @@ from textual import work
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import DataTable, Footer, Label, Static
+from textual.widgets import DataTable, Footer, Input, Label, Static
 
 from hugin.engines import Engine
 
@@ -42,6 +42,11 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
         max-height: 20;
     }
 
+    #model-input {
+        margin-top: 1;
+        margin-bottom: 1;
+    }
+
     #picker-hint {
         margin-top: 1;
         color: $text-muted;
@@ -53,7 +58,7 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
         self.engines = engines
         self.current_id = current_id
         self.current_model = current_model
-        self._viewing = "engines"  # "engines" or "models"
+        self._viewing = "engines"  # "engines", "models", or "manual"
         self._selected_engine: Engine | None = None
         self._available_models: list[str] = []
 
@@ -61,16 +66,20 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
         with Vertical(id="engine-modal"):
             yield Label("Select engine", id="modal-title")
             yield DataTable(id="picker-table", cursor_type="row", zebra_stripes=True)
+            yield Input(placeholder="model name", id="model-input")
             yield Static("Enter to select, Escape to cancel", id="picker-hint")
         yield Footer()
 
     def on_mount(self) -> None:
+        self.query_one("#model-input", Input).display = False
         self._show_engines()
 
     def _show_engines(self) -> None:
         self._viewing = "engines"
         self.query_one("#modal-title", Label).update("Select engine")
         self.query_one("#picker-hint", Static).update("Enter to select, Escape to cancel")
+        self.query_one("#picker-table", DataTable).display = True
+        self.query_one("#model-input", Input).display = False
 
         table = self.query_one("#picker-table", DataTable)
         table.clear(columns=True)
@@ -85,6 +94,8 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
             status = "ready" if engine.available else "no key"
             table.add_row(active, engine.id, model, status, key=f"eng-{i}")
 
+        table.focus()
+
     def _show_models(self, models: list[str]) -> None:
         self._viewing = "models"
         self._available_models = models
@@ -96,6 +107,8 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
         self.query_one("#picker-hint", Static).update(
             "Enter to select, Escape to go back"
         )
+        self.query_one("#picker-table", DataTable).display = True
+        self.query_one("#model-input", Input).display = False
 
         table = self.query_one("#picker-table", DataTable)
         table.clear(columns=True)
@@ -105,6 +118,26 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
         for i, model_id in enumerate(models):
             active = " ●" if model_id == engine.model else ""
             table.add_row(active, model_id, key=f"model-{i}")
+
+        table.focus()
+
+    def _show_manual_input(self, reason: str) -> None:
+        """Show a text input so the user can type a model name manually."""
+        self._viewing = "manual"
+        engine = self._selected_engine
+
+        self.query_one("#modal-title", Label).update(
+            f"Model for {engine.id}"
+        )
+        self.query_one("#picker-hint", Static).update(
+            f"{reason}  Enter to confirm, Escape to go back"
+        )
+        self.query_one("#picker-table", DataTable).display = False
+
+        inp = self.query_one("#model-input", Input)
+        inp.value = engine.model or ""
+        inp.display = True
+        inp.focus()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         index = event.cursor_row
@@ -128,6 +161,16 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
                 self._selected_engine.model = self._available_models[index]
                 self.dismiss(self._selected_engine)
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if self._viewing != "manual":
+            return
+        model = event.value.strip()
+        if not model:
+            self.notify("Enter a model name.", severity="warning")
+            return
+        self._selected_engine.model = model
+        self.dismiss(self._selected_engine)
+
     @work(exclusive=True)
     async def _fetch_models(self, engine: Engine) -> None:
         self.query_one("#picker-hint", Static).update("Loading models...")
@@ -143,9 +186,11 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
                 if response.status_code in (403, 405):
                     # Some servers block GET on /models — fall back to POST
                     response = await client.post(url, headers=headers)
-                if response.status_code in (401, 403, 404):
-                    # Endpoint not available or forbidden — use configured model
-                    self.dismiss(engine)
+                if response.status_code == 401:
+                    self._show_manual_input("Auth error — type model name:")
+                    return
+                if response.status_code in (403, 404):
+                    self._show_manual_input("Can't list models — type model name:")
                     return
                 response.raise_for_status()
 
@@ -157,19 +202,16 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
             models.sort()
 
             if not models:
-                # API doesn't list models, use the configured one
-                self.dismiss(engine)
+                self._show_manual_input("No models returned — type model name:")
                 return
 
             self._show_models(models)
 
         except Exception as e:
-            # Can't list models — just use the engine with its default model
-            self.notify(f"Can't list models: {e}", severity="warning")
-            self.dismiss(engine)
+            self._show_manual_input(f"Error: {e} — type model name:")
 
     def action_cancel(self) -> None:
-        if self._viewing == "models":
+        if self._viewing in ("models", "manual"):
             self._show_engines()
         else:
             self.dismiss(None)
