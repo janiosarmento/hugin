@@ -268,7 +268,7 @@ class EmbeddingIndex:
             post_obj = posts_by_path.get(path_key)
             if post_obj:
                 fresh_url = url_fn(post_obj.metadata, post_obj.filename)
-                if entry["url"] != fresh_url:
+                if entry.get("url", "") != fresh_url:
                     entry["url"] = fresh_url
                     urls_updated += 1
                 # Also refresh title and tags in case they changed
@@ -472,7 +472,7 @@ class EmbeddingIndex:
         for other_path, entry in cached.items():
             if other_path == abs_path:
                 continue
-            if entry["url"] in exclude_urls:
+            if entry.get("url", "") in exclude_urls:
                 continue
             if not Path(other_path).exists():
                 continue
@@ -485,7 +485,7 @@ class EmbeddingIndex:
 
             results.append({
                 "path": other_path,
-                "url": entry["url"],
+                "url": entry.get("url", ""),
                 "title": entry["title"],
                 "score": score,
             })
@@ -557,7 +557,7 @@ class EmbeddingIndex:
         for other_path, entry in cached.items():
             if other_path == abs_path:
                 continue
-            if entry["url"] in exclude_urls:
+            if entry.get("url", "") in exclude_urls:
                 continue
             if not Path(other_path).exists():
                 continue
@@ -572,7 +572,7 @@ class EmbeddingIndex:
 
             results.append({
                 "path": other_path,
-                "url": entry["url"],
+                "url": entry.get("url", ""),
                 "title": entry["title"],
                 "score": score,
             })
