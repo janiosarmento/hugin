@@ -176,7 +176,7 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
         self.query_one("#picker-hint", Static).update("Loading models...")
 
         try:
-            headers = {}
+            headers = {"User-Agent": "hugin/0.1"}
             if engine.api_key:
                 headers["Authorization"] = f"Bearer {engine.api_key}"
 

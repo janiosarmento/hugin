@@ -113,7 +113,7 @@ def _is_repetition_loop(text: str, threshold: float = 0.5) -> bool:
 
 
 async def call_llm(engine: Engine, prompt: str) -> str:
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json", "User-Agent": "hugin/0.1"}
     if engine.api_key:
         headers["Authorization"] = f"Bearer {engine.api_key}"
 
