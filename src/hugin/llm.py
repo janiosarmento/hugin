@@ -334,6 +334,7 @@ Extract 10 to 15 keywords and key concepts from a blog post to help find related
 for internal linking. Focus on: main topic, specific subjects mentioned (breeds, conditions, \
 products, techniques), and core concepts discussed. Avoid generic words.
 
+Return keywords in the same language as the post content.
 Return only a comma-separated list of keywords, nothing else."""
 
 LINK_KEYWORDS_USER_TEMPLATE = """\
