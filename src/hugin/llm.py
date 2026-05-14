@@ -7,7 +7,7 @@ import httpx
 
 from hugin.engines import Engine
 
-PROMPT_TEMPLATE = """\
+TAG_SYSTEM_PROMPT = """\
 You are a blog post tag generator. Analyze the following blog post and suggest relevant tags.
 
 CRITICAL: You MUST pick tags from the EXISTING POOL below whenever possible. Creating a new tag is a LAST RESORT — only when absolutely no existing tag covers the topic. If in doubt, use the existing tag.
@@ -24,13 +24,14 @@ RULES:
 - EVERY tag you suggest should ideally already exist in the pool below
 - A new tag is acceptable ONLY if the post covers a topic with zero coverage in the existing pool
 
+Respond with a JSON array of strings, nothing else. Example: ["tag-one", "tag-two", "tag-three"]"""
+
+TAG_USER_TEMPLATE = """\
 EXISTING TAGS IN THIS BLOG (use these, most popular first):
 {pool}
 
 POST CONTENT:
-{content}
-
-Respond with a JSON array of strings, nothing else. Example: ["tag-one", "tag-two", "tag-three"]"""
+{content}"""
 
 TOKEN_ESTIMATE_DIVISOR = 4
 MAX_TOKENS_CONTENT = 4000
@@ -65,8 +66,7 @@ def _truncate_post(metadata: dict, content: str) -> str:
 def build_prompt(metadata: dict, content: str, pool_str: str) -> str:
     if _estimate_tokens(content) > MAX_TOKENS_CONTENT:
         content = _truncate_post(metadata, content)
-
-    return PROMPT_TEMPLATE.format(pool=pool_str, content=content)
+    return TAG_USER_TEMPLATE.format(pool=pool_str, content=content)
 
 
 def parse_response(text: str) -> list[str]:
@@ -112,14 +112,22 @@ def _is_repetition_loop(text: str, threshold: float = 0.5) -> bool:
     return top_count / len(tokens) > threshold
 
 
-async def call_llm(engine: Engine, prompt: str) -> str:
+async def call_llm(engine: Engine, prompt: str, system: str | None = None) -> str:
     headers = {"Content-Type": "application/json", "User-Agent": "hugin/0.1"}
     if engine.api_key:
         headers["Authorization"] = f"Bearer {engine.api_key}"
 
+    messages = []
+    if system:
+        messages.append({
+            "role": "system",
+            "content": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+        })
+    messages.append({"role": "user", "content": prompt})
+
     payload = {
         "model": engine.model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": messages,
         "temperature": 0.3,
     }
 
@@ -145,7 +153,7 @@ async def suggest_tags(
     pool_str: str,
 ) -> list[str]:
     prompt = build_prompt(metadata, content, pool_str)
-    response_text = await call_llm(engine, prompt)
+    response_text = await call_llm(engine, prompt, system=TAG_SYSTEM_PROMPT)
     return parse_response(response_text)
 
 
@@ -299,7 +307,7 @@ POST CONTENT:
 
 Return format: ["Post title 1", "Post title 2", ...]"""
 
-RERANK_PROMPT = """\
+RERANK_SYSTEM = """\
 You are a blog editor. Given a blog post and a list of candidate posts, select the \
 candidates that are related to the post content. A post is related if a reader of the \
 current post would benefit from reading it — topical overlap, shared concepts, \
@@ -309,24 +317,26 @@ Be INCLUSIVE rather than strict: keep candidates with meaningful topical overlap
 even if indirect or partial. Only reject posts that are clearly unrelated to the topic. \
 When in doubt, keep the candidate — a human editor will make the final call.
 
+Return a JSON array with ONLY the URLs of relevant candidates, nothing else.
+Example: ["/posts/foo/", "/posts/bar/"]"""
+
+RERANK_USER_TEMPLATE = """\
 POST TITLE: {title}
 
 POST BODY (first 2000 chars):
 {body}
 
 CANDIDATES:
-{candidates_json}
+{candidates_json}"""
 
-Return a JSON array with ONLY the URLs of relevant candidates, nothing else.
-Example: ["/posts/foo/", "/posts/bar/"]"""
-
-LINK_KEYWORDS_PROMPT = """\
-Extract 10 to 15 keywords and key concepts from this blog post to help find related posts \
+LINK_KEYWORDS_SYSTEM = """\
+Extract 10 to 15 keywords and key concepts from a blog post to help find related posts \
 for internal linking. Focus on: main topic, specific subjects mentioned (breeds, conditions, \
 products, techniques), and core concepts discussed. Avoid generic words.
 
-Return only a comma-separated list of keywords, nothing else.
+Return only a comma-separated list of keywords, nothing else."""
 
+LINK_KEYWORDS_USER_TEMPLATE = """\
 POST TITLE: {title}
 
 POST CONTENT:

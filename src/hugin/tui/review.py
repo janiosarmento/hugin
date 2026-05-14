@@ -44,9 +44,11 @@ from hugin.linker import (
 from hugin.llm import (
     ANCHOR_SYSTEM_PROMPT,
     ANCHOR_USER_TEMPLATE,
-    LINK_KEYWORDS_PROMPT,
     MAX_SUMMARY_CHARS,
-    RERANK_PROMPT,
+    RERANK_SYSTEM,
+    RERANK_USER_TEMPLATE,
+    LINK_KEYWORDS_SYSTEM,
+    LINK_KEYWORDS_USER_TEMPLATE,
     RETRY_PROMPT,
     SUGGEST_PROMPT,
     call_llm,
@@ -1176,8 +1178,7 @@ class HuginScreen(Screen):
         system = ANCHOR_SYSTEM_PROMPT.format(
             max_anchor_words=self.config.links.max_anchor_words,
         )
-        prompt = f"{system}\n\n{user_msg}"
-        response = await call_llm(self.engine, prompt)
+        response = await call_llm(self.engine, user_msg, system=system)
 
         suggestions = parse_anchor_response(response)
         zones = find_protected_zones(post.content)
@@ -1282,11 +1283,11 @@ class HuginScreen(Screen):
         try:
             # Step 0: always regenerate link profile on explicit trigger
             self._set_spinner_message("Step 1/4 — Building link profile...")
-            kw_prompt = LINK_KEYWORDS_PROMPT.format(
+            kw_prompt = LINK_KEYWORDS_USER_TEMPLATE.format(
                 title=post.metadata.get("title", post.filename),
                 content=post.content[:3000],
             )
-            keywords = (await call_llm(self.engine, kw_prompt)).strip()
+            keywords = (await call_llm(self.engine, kw_prompt, system=LINK_KEYWORDS_SYSTEM)).strip()
             self.index.set_link_keywords(post, self.site.post_url, keywords)
             total_steps = 4
 
@@ -1327,12 +1328,12 @@ class HuginScreen(Screen):
             rerank_json = json.dumps([
                 {"title": c["title"], "url": c["url"]} for c in candidates
             ])
-            rerank_prompt = RERANK_PROMPT.format(
+            rerank_prompt = RERANK_USER_TEMPLATE.format(
                 title=post.metadata.get("title", post.filename),
                 body=post.content[:2000],
                 candidates_json=rerank_json,
             )
-            rerank_response = await call_llm(self.engine, rerank_prompt)
+            rerank_response = await call_llm(self.engine, rerank_prompt, system=RERANK_SYSTEM)
             relevant_urls = set(parse_rerank_response(rerank_response))
 
             # Keep: reranked + mention-boosted; guarantee a minimum of 3 pass through

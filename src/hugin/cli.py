@@ -201,7 +201,7 @@ def build_profiles(
     reset: bool,
 ) -> None:
     """Generate link profiles (keywords) for all posts in batch."""
-    from hugin.llm import LINK_KEYWORDS_PROMPT, call_llm
+    from hugin.llm import LINK_KEYWORDS_SYSTEM, LINK_KEYWORDS_USER_TEMPLATE, call_llm
 
     directory = directory.resolve()
     config = load_config()
@@ -239,11 +239,11 @@ def build_profiles(
             title = post.metadata.get("title", post.filename)
             click.echo(f"[{i}/{len(to_process)}] {title[:70]}", nl=False)
             try:
-                prompt = LINK_KEYWORDS_PROMPT.format(
+                prompt = LINK_KEYWORDS_USER_TEMPLATE.format(
                     title=title,
                     content=post.content[:3000],
                 )
-                keywords = (await call_llm(engine, prompt)).strip()
+                keywords = (await call_llm(engine, prompt, system=LINK_KEYWORDS_SYSTEM)).strip()
                 index.store_link_keywords(post, keywords)
                 click.echo(f" ✓")
             except Exception as e:
