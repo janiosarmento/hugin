@@ -341,6 +341,12 @@ class EmbeddingIndex:
             return
 
         abs_path = str(post.path.resolve())
+        if post.metadata.get("draft"):
+            if abs_path in self._cache["posts"]:
+                del self._cache["posts"][abs_path]
+                self._save_cache()
+            return
+
         mtime = os.path.getmtime(post.path)
         url = url_fn(post.metadata, post.filename)
         old_entry = self._cache["posts"].get(abs_path, {})
@@ -413,6 +419,10 @@ class EmbeddingIndex:
         abs_path = str(post.path.resolve())
         self._keywords[abs_path] = cleaned
         self._save_keywords()
+
+        if post.metadata.get("draft"):
+            return
+
         old_entry = self._cache["posts"].get(abs_path, {})
         url = url_fn(post.metadata, post.filename)
         text = _build_text(post.metadata, self.summary_field, post.content, url, keywords)
@@ -485,7 +495,8 @@ class EmbeddingIndex:
         elif self._model is not None:
             # Draft or uncached post — compute embedding on the fly
             slug_url = post.filename.rsplit(".", 1)[0]
-            text = _build_text(post.metadata, self.summary_field, post.content, slug_url)
+            link_keywords = self.get_link_keywords(post)
+            text = _build_text(post.metadata, self.summary_field, post.content, slug_url, link_keywords)
             query_vec = self._encode_single(text)
         else:
             return []
