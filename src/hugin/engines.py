@@ -1,6 +1,5 @@
 """Leitura e gerenciamento do cadastro de motores de AI."""
 
-import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,9 +65,20 @@ def _ensure_engines_file() -> Path:
     return ENGINES_FILE
 
 
-def _get_api_key(engine_id: str) -> str | None:
-    key = os.environ.get(f"{engine_id.upper()}_API_KEY", "")
-    return key if key else None
+def _get_api_key(engine_id: str, secret: str | None = None) -> str | None:
+    """Retrieve API key from the secrets vault.
+
+    Looks up `secret` path (default: "{engine_id}.api_key") via secrets-resolver.
+    Returns None if the secret doesn't exist or the vault is not configured.
+    """
+    from secrets_resolver import get_secret
+    from secrets_resolver.exceptions import SecretsResolverError
+
+    path = secret or f"{engine_id}.api_key"
+    try:
+        return get_secret(path)
+    except SecretsResolverError:
+        return None
 
 
 def load_engines() -> list[Engine]:
@@ -83,7 +93,7 @@ def load_engines() -> list[Engine]:
             url=config["url"],
             model=config["model"],
             timeout=config.get("timeout", DEFAULT_TIMEOUT),
-            api_key=_get_api_key(engine_id),
+            api_key=_get_api_key(engine_id, config.get("secret")),
         ))
     return engines
 
