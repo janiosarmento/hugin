@@ -1406,6 +1406,7 @@ class HuginScreen(Screen):
         url_to_title = {
             entry["url"]: entry.get("title", "")
             for entry in self.index._cache.get("posts", {}).values()
+            if "url" in entry
         }
         for item in suggestions:
             anchor = item["anchor_text"]

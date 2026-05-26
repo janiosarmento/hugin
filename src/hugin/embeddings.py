@@ -417,8 +417,31 @@ class EmbeddingIndex:
         url = url_fn(post.metadata, post.filename)
         text = _build_text(post.metadata, self.summary_field, post.content, url, keywords)
         embedding = self._encode_single(text)
+
+        mtime = old_entry.get("mtime")
+        if mtime is None:
+            mtime = os.path.getmtime(post.path)
+
+        cached_url = old_entry.get("url")
+        if cached_url is None:
+            cached_url = url
+
+        title = old_entry.get("title")
+        if title is None:
+            title = post.metadata.get("title", post.filename)
+
+        tags = old_entry.get("tags")
+        if tags is None:
+            tags = post.metadata.get("tags", [])
+
+        no_outgoing = old_entry.get("no_outgoing", False)
+
         self._cache["posts"][abs_path] = {
-            **old_entry,
+            "mtime": mtime,
+            "url": cached_url,
+            "title": title,
+            "tags": tags,
+            "no_outgoing": no_outgoing,
             "embedding": embedding.tolist(),
         }
         self._save_cache()
@@ -475,6 +498,8 @@ class EmbeddingIndex:
             if entry.get("url", "") in exclude_urls:
                 continue
             if not Path(other_path).exists():
+                continue
+            if "embedding" not in entry or "title" not in entry:
                 continue
 
             other_vec = np.array(entry["embedding"])
@@ -560,6 +585,8 @@ class EmbeddingIndex:
             if entry.get("url", "") in exclude_urls:
                 continue
             if not Path(other_path).exists():
+                continue
+            if "title" not in entry:
                 continue
 
             other_tags = set(entry.get("tags", []))
