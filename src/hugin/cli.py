@@ -101,7 +101,7 @@ def main(
     if not engine.available:
         click.echo(
             f"Motor '{engine.id}' sem API key. "
-            f"Defina {engine.id.upper()}_API_KEY no ambiente."
+            f"Adicione com: set-secret {engine.id}.api_key"
         )
         raise SystemExit(1)
 

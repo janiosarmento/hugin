@@ -149,7 +149,7 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
                 engine = self.engines[index]
                 if not engine.available:
                     self.notify(
-                        f"No API key. Set {engine.id.upper()}_API_KEY",
+                        f"No API key. Run: set-secret {engine.id}.api_key",
                         severity="warning",
                     )
                     return
