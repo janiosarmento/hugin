@@ -1871,7 +1871,16 @@ class HuginScreen(Screen):
             if saved:
                 import frontmatter as fm
                 from rich.text import Text
-                updated = fm.load(str(post.path))
+                import yaml
+                try:
+                    updated = fm.load(str(post.path))
+                except (yaml.YAMLError, Exception) as e:
+                    self.notify(
+                        f"Saved but can't parse frontmatter: {e}",
+                        severity="error", timeout=8,
+                    )
+                    self._update_detail_panel()
+                    return
                 post.metadata = updated.metadata
                 post.content = updated.content
                 post.tags = list(updated.metadata.get("tags", []) or [])

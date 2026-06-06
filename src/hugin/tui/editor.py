@@ -375,6 +375,12 @@ class EditorScreen(Screen[bool]):
         if self._raw_mode:
             from hugin.writer import save_raw
             raw_text = self.query_one("#raw-editor", TextArea).text
+            # Validate frontmatter before saving
+            try:
+                frontmatter.loads(raw_text)
+            except Exception as exc:
+                self.notify(f"Can't save — invalid YAML: {exc}", severity="error", timeout=8)
+                return
             save_raw(post.path, raw_text)
             self.notify(f"{post.filename}: saved (raw)")
             self.dismiss(True)
