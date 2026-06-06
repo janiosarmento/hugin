@@ -31,31 +31,53 @@ _EMOJI_RE = re.compile(
 def _quote_frontmatter_fields(raw: str, fields: tuple[str, ...] = ("title", "description")) -> str:
     """Wrap specified frontmatter fields in double quotes and normalise internal quotes.
 
+    Handles multi-line YAML values (block indentation).
     - Values already in double quotes: left as-is (but single quotes inside normalised)
     - Values in single quotes: converted to double quotes
     - Unquoted values: wrapped in double quotes
     - Internal double quotes are escaped; single quotes are replaced with double quotes
     """
-    def _normalise(m: re.Match) -> str:
-        prefix = m.group(1)   # e.g. "title: "
-        value = m.group(2).strip()
+    def _quote_value(text: str) -> str:
+        text = text.strip()
+        if (text.startswith('"') and text.endswith('"')) or \
+           (text.startswith("'") and text.endswith("'")):
+            text = text[1:-1]
+        text = text.replace('"', '\\"')
+        text = text.replace("'", '"')
+        return f'"{text}"'
 
-        # Strip surrounding quote characters
-        if (value.startswith('"') and value.endswith('"')) or \
-           (value.startswith("'") and value.endswith("'")):
-            value = value[1:-1]
+    lines = raw.splitlines(keepends=True)
+    out = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        # Check if line starts with a target field
+        matched = None
+        for field in fields:
+            prefix = f"{field}:"
+            if line.startswith(prefix) and len(line) > len(prefix) and line[len(prefix)] in (" ", "\t"):
+                matched = field
+                key = prefix
+                break
+            if line.strip() == prefix:  # key: with nothing after
+                matched = field
+                key = prefix
+                break
 
-        # Normalise internal quotes: escape " and replace ' with "
-        value = value.replace('"', '\\"')
-        value = value.replace("'", '"')
+        if matched:
+            # Collect full value: rest of first line + indented continuation lines
+            value_parts = [line[len(key):]]
+            while i + 1 < len(lines) and lines[i + 1][0] in (" ", "\t"):
+                i += 1
+                value_parts.append(lines[i])
+            full_value = "".join(value_parts)
+            out.append(f'{key} {_quote_value(full_value)}\n')
+        else:
+            out.append(line)
 
-        return f'{prefix}"{value}"'
+        i += 1
 
-    for field in fields:
-        pattern = rf'^({re.escape(field)}:\s*)(.+)$'
-        raw = re.sub(pattern, _normalise, raw, flags=re.MULTILINE)
-
-    return raw
+    return "".join(out)
 
 
 # Fields that get dedicated Input widgets (order matters for display)
