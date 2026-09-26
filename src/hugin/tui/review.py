@@ -1138,15 +1138,20 @@ class HuginScreen(Screen):
 
         # Find dictionary keywords that appear in the body
         matches = []
+        already_linked = 0
         for keyword, url in affiliates.items():
             if url.rstrip("/") in existing_normalized:
+                already_linked += 1
                 continue
             pos = _find_whole_word(post.content, keyword)
             if pos != -1 and not is_in_protected_zone(pos, len(keyword), zones):
                 matches.append({"anchor_text": keyword, "target_url": url})
 
         if not matches:
-            self.notify("No affiliate keyword matches in this post.")
+            if already_linked:
+                self.notify("All possible affiliate links are already added to this post.")
+            else:
+                self.notify("No affiliate keyword matches in this post.")
             return
 
         self._clear_action_area()
