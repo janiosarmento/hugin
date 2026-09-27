@@ -1,6 +1,7 @@
 """Testes do módulo engines."""
 
-import os
+import secrets_resolver
+from secrets_resolver.exceptions import SecretFileNotFound
 
 from hugin.engines import Engine, _get_api_key
 
@@ -32,14 +33,24 @@ class TestEngine:
 
 
 class TestGetApiKey:
-    def test_reads_env_var(self, monkeypatch):
-        monkeypatch.setenv("TEST_API_KEY", "sk-abc")
+    def test_reads_secret_from_vault(self, monkeypatch):
+        monkeypatch.setattr(secrets_resolver, "get_secret", lambda path: "sk-abc")
         assert _get_api_key("test") == "sk-abc"
 
     def test_returns_none_if_missing(self, monkeypatch):
-        monkeypatch.delenv("NONEXISTENT_API_KEY", raising=False)
+        def _raise(path):
+            raise SecretFileNotFound(f"no secret file for {path}")
+
+        monkeypatch.setattr(secrets_resolver, "get_secret", _raise)
         assert _get_api_key("nonexistent") is None
 
-    def test_returns_none_if_empty(self, monkeypatch):
-        monkeypatch.setenv("EMPTY_API_KEY", "")
-        assert _get_api_key("empty") is None
+    def test_uses_custom_secret_path(self, monkeypatch):
+        seen = {}
+
+        def _fake_get_secret(path):
+            seen["path"] = path
+            return "sk-custom"
+
+        monkeypatch.setattr(secrets_resolver, "get_secret", _fake_get_secret)
+        assert _get_api_key("test", secret="custom.path") == "sk-custom"
+        assert seen["path"] == "custom.path"

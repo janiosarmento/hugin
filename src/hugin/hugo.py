@@ -80,6 +80,18 @@ def get_permalink_pattern(config: dict[str, Any], section: str) -> str:
     return DEFAULT_PERMALINK
 
 
+def _parse_date(value: Any) -> datetime | None:
+    """Parse a date from a frontmatter value."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except (ValueError, TypeError):
+        return None
+
+
 def resolve_url(
     metadata: dict[str, Any],
     filename: str,
@@ -97,32 +109,60 @@ def resolve_url(
         return url
 
     # Slug from frontmatter or filename
-    slug = metadata.get("slug") or _slug_from_filename(filename)
+    slug = metadata.get("slug") or slug_from_filename(filename)
 
-    date = metadata.get("date")
-    if date and hasattr(date, "year"):
-        year = str(date.year)
-        month = f"{date.month:02d}"
-        day = f"{date.day:02d}"
-    else:
-        year = month = day = ""
+    date = _parse_date(metadata.get("date"))
+
+    # Unsupported tokens fall back to the default pattern
+    tokens_in_pattern = set(re.findall(r":\w+", permalink_pattern))
+    if tokens_in_pattern - SUPPORTED_TOKENS:
+        permalink_pattern = DEFAULT_PERMALINK
 
     url = permalink_pattern
-    url = url.replace(":slug", slug)
     url = url.replace(":section", section)
-    url = url.replace(":year", year)
-    url = url.replace(":month", month)
-    url = url.replace(":day", day)
+    url = url.replace(":slug", str(slug))
+
+    if date:
+        url = url.replace(":year", str(date.year))
+        url = url.replace(":month", f"{date.month:02d}")
+        url = url.replace(":day", f"{date.day:02d}")
+    else:
+        # Date tokens with no date available: strip the whole path segment
+        url = url.replace(":year/", "")
+        url = url.replace(":month/", "")
+        url = url.replace(":day/", "")
 
     if not url.startswith("/"):
         url = "/" + url
     if not url.endswith("/"):
         url += "/"
+    while "//" in url:
+        url = url.replace("//", "/")
 
     return url
 
 
-def _slug_from_filename(filename: str) -> str:
+def infer_section(posts_dir: Path) -> str:
+    """Infer the Hugo content section from the directory structure."""
+    parts = posts_dir.resolve().parts
+    try:
+        content_idx = parts.index("content")
+        # Section is the first directory after content/
+        # Handle multilingual: content/pt/posts -> section is "posts" (skip language dir)
+        remaining = parts[content_idx + 1:]
+        if len(remaining) >= 2 and len(remaining[0]) <= 3:
+            # Likely a language code (pt, en, es, fr)
+            return remaining[1]
+        elif remaining:
+            return remaining[0]
+    except ValueError:
+        pass
+
+    # Fallback: use the directory name itself
+    return posts_dir.name
+
+
+def slug_from_filename(filename: str) -> str:
     """Derive a slug from a filename."""
     stem = Path(filename).stem
     # Strip YYYY-MM-DD- date prefix
@@ -280,7 +320,7 @@ class HugoSite:
 
     def __init__(self, posts_dir: Path) -> None:
         self.posts_dir = posts_dir.resolve()
-        self.section = posts_dir.name
+        self.section = infer_section(self.posts_dir)
         self.config: dict[str, Any] = {}
         self.permalink_pattern = DEFAULT_PERMALINK
         self._warnings: list[str] = []
