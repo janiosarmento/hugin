@@ -117,6 +117,38 @@ def save_raw(path: Path, text: str) -> None:
         raise
 
 
+def create_post(
+    path: Path,
+    *,
+    title: str,
+    slug: str,
+    category: str | None = None,
+    body: str = "",
+) -> frontmatter.Post:
+    """Create a new post with a complete frontmatter skeleton.
+
+    Fields the caller can't determine yet (translationKey, thumbnail,
+    description, categories/tags without a known value) are filled with
+    "TBD" placeholders rather than left out, so PagesCMS's schema
+    validation doesn't fail on missing required fields.
+    """
+    metadata = {
+        "title": title,
+        "slug": slug,
+        "translationKey": "TBD",
+        "date": datetime.now(),
+        "thumbnail": "TBD",
+        "categories": [category] if category else ["TBD"],
+        "toc": False,
+        "draft": True,
+        "description": "TBD",
+        "tags": ["TBD"],
+    }
+    post = frontmatter.Post(body, **metadata)
+    save_post(path, post)
+    return post
+
+
 def write_tags(path: Path, tags: list[str]) -> None:
     """Write the full tag list to a post, replacing any existing tags."""
     post = frontmatter.load(str(path))

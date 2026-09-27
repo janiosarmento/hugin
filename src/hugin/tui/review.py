@@ -1693,21 +1693,18 @@ class HuginScreen(Screen):
             if path.exists():
                 self.notify(f"{filename} already exists", severity="error")
                 return
-            # Write minimal frontmatter
-            now = datetime.now()
             title = path.stem
-            content = f"---\ntitle: {title}\ndate: {now.isoformat(timespec='seconds')}\ndraft: true\n---\n"
-            path.write_text(content)
-            # Build Post object
-            import frontmatter as fm
-            loaded = fm.load(str(path))
+            from hugin.hugo import slugify
+            from hugin.writer import create_post
+
+            fm_post = create_post(path, title=title, slug=slugify(title))
             post = Post(
                 path=path,
-                metadata=loaded.metadata,
-                content=loaded.content,
+                metadata=fm_post.metadata,
+                content=fm_post.content,
                 has_tags=False,
                 tags=[],
-                date=now,
+                date=fm_post.metadata["date"],
             )
             # Insert at top of list and rebuild table to keep index consistent
             self.posts.insert(0, post)

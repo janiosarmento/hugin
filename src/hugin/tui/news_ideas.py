@@ -7,9 +7,6 @@ Flow:
   4. User picks ideas via checkboxes → "Create drafts" writes .md files.
 """
 
-import re
-import unicodedata
-from datetime import datetime
 from pathlib import Path
 
 from textual import work
@@ -19,15 +16,7 @@ from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, LoadingIndicator, Static
 
-
-def _slugify(title: str) -> str:
-    """Convert a title to a URL-friendly slug."""
-    s = unicodedata.normalize("NFKD", title.lower())
-    s = "".join(c for c in s if not unicodedata.combining(c))
-    s = re.sub(r"[^\w\s-]", "", s)
-    s = re.sub(r"[\s_]+", "-", s.strip())
-    s = re.sub(r"-+", "-", s).strip("-")
-    return s
+from hugin.hugo import slugify as _slugify
 
 
 class NewsIdeasScreen(Screen):
@@ -269,8 +258,9 @@ class NewsIdeasScreen(Screen):
             f"Notícias relacionadas:\n{headlines}\n-->\n"
         )
 
+        from hugin.writer import create_post
+
         created: list[Path] = []
-        now = datetime.now()
         for idea in selected:
             slug = _slugify(idea["title"])
             if not slug:
@@ -279,7 +269,8 @@ class NewsIdeasScreen(Screen):
             # Avoid overwriting — append suffix if needed
             suffix = 1
             while path.exists():
-                path = self.directory / f"{slug}-{suffix}.md"
+                slug = f"{_slugify(idea['title'])}-{suffix}"
+                path = self.directory / f"{slug}.md"
                 suffix += 1
             title = idea["title"].replace('"', "'")
             body = source_comment.format(idea["description"])
@@ -287,15 +278,7 @@ class NewsIdeasScreen(Screen):
             # Validate against known categories; fall back to first if invalid
             if self._categories and category not in self._categories:
                 category = self._categories[0]
-            cat_line = f'categories: ["{category}"]\n' if category else ""
-            content = (
-                f'---\ntitle: "{title}"\n'
-                f"date: {now.isoformat(timespec='seconds')}\n"
-                f"{cat_line}"
-                f"draft: true\n---\n\n"
-                f"{body}"
-            )
-            path.write_text(content)
+            create_post(path, title=title, slug=slug, category=category or None, body=body)
             created.append(path)
 
         self.dismiss(created)

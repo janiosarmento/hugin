@@ -2,6 +2,7 @@
 
 import re
 import tomllib
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -127,6 +128,16 @@ def _slug_from_filename(filename: str) -> str:
     # Strip YYYY-MM-DD- date prefix
     stem = DATE_PREFIX_RE.sub("", stem)
     return stem
+
+
+def slugify(text: str) -> str:
+    """Convert arbitrary text (e.g. a title) into a URL-friendly slug."""
+    s = unicodedata.normalize("NFKD", text.lower())
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = re.sub(r"[^\w\s-]", "", s)
+    s = re.sub(r"[\s_]+", "-", s.strip())
+    s = re.sub(r"-+", "-", s).strip("-")
+    return s
 
 
 def ensure_ignored_in_hugo(posts_dir: Path, filenames: list[str]) -> list[str]:
