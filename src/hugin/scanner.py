@@ -183,6 +183,21 @@ def collect_tag_pool(posts: list[Post]) -> dict[str, int]:
     return dict(counter.most_common())
 
 
+def collect_keyword_pool(posts: list[Post], limit: int = 20) -> dict[str, int]:
+    """Build the keyword vocabulary pool from the most recent posts only.
+
+    Old backlog posts are out of scope for keyword tagging, so the pool
+    that steers "prefer an existing keyword" only needs to reflect current
+    editorial vocabulary — the `limit` most recent posts (by date).
+    """
+    recent = sorted(posts, key=lambda p: p.date or datetime.min, reverse=True)[:limit]
+    counter: Counter[str] = Counter()
+    for post in recent:
+        for keyword in post.metadata.get("keywords") or []:
+            counter[keyword] += 1
+    return dict(counter.most_common())
+
+
 def format_pool_for_prompt(pool: dict[str, int], limit: int = 100) -> str:
     items = list(pool.items())[:limit]
     return ", ".join(f"{tag} ({count})" for tag, count in items)

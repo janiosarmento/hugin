@@ -118,3 +118,46 @@ def normalize_tags(
         result.append(tag)
 
     return result
+
+
+def normalize_keyword(keyword: str) -> str:
+    """Normalize a keyword: lowercase, accent-free, hyphen-separated.
+
+    Unlike tags, keywords never keep accents/diacritics — they're an
+    internal vocabulary for the related-posts algorithm, not reader-facing.
+    """
+    keyword = strip_accents(keyword.strip())
+    keyword = re.sub(r"\s+", "-", keyword)
+    keyword = re.sub(r"-+", "-", keyword).strip("-")
+    return keyword
+
+
+def normalize_keywords(
+    raw_keywords: list[str],
+    existing_keywords: list[str],
+    pool: dict[str, int],
+) -> list[str]:
+    """Normalize LLM-suggested keywords, preferring existing pool spellings."""
+    pool_lower = {k.lower(): k for k in pool}
+    existing_lower = {k.lower() for k in existing_keywords}
+
+    result = []
+    seen = set()
+
+    for raw in raw_keywords:
+        keyword = normalize_keyword(raw)
+        if not keyword:
+            continue
+
+        if keyword.lower() in pool_lower:
+            keyword = pool_lower[keyword.lower()]
+
+        if keyword.lower() in existing_lower:
+            continue
+        if keyword.lower() in seen:
+            continue
+
+        seen.add(keyword.lower())
+        result.append(keyword)
+
+    return result

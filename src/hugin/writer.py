@@ -57,10 +57,11 @@ def _ensure_datetime_fields(meta: dict) -> None:
 
 
 def _reorder_metadata(meta: dict) -> dict:
-    """Ensure description is penultimate and tags is last."""
+    """Ensure description, tags, then keywords come last, in that order."""
     ordered = {}
     desc = meta.pop("description", None)
     tags = meta.pop("tags", None)
+    keywords = meta.pop("keywords", None)
 
     for key, value in meta.items():
         ordered[key] = value
@@ -69,6 +70,8 @@ def _reorder_metadata(meta: dict) -> dict:
         ordered["description"] = desc
     if tags is not None:
         ordered["tags"] = tags
+    if keywords is not None:
+        ordered["keywords"] = keywords
 
     return ordered
 
@@ -153,6 +156,13 @@ def write_tags(path: Path, tags: list[str]) -> None:
     """Write the full tag list to a post, replacing any existing tags."""
     post = frontmatter.load(str(path))
     post.metadata["tags"] = tags
+    save_post(path, post)
+
+
+def write_keywords(path: Path, keywords: list[str]) -> None:
+    """Write the full keyword list to a post, replacing any existing keywords."""
+    post = frontmatter.load(str(path))
+    post.metadata["keywords"] = keywords
     save_post(path, post)
 
 

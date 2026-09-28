@@ -55,14 +55,15 @@ from hugin.llm import (
     parse_anchor_response,
     parse_rerank_response,
     parse_suggestions,
+    suggest_keywords,
     suggest_summary,
     suggest_tags,
 )
-from hugin.normalizer import normalize_tag, normalize_tags, strip_accents
-from hugin.scanner import Post, format_pool_for_prompt
+from hugin.normalizer import normalize_keyword, normalize_keywords, normalize_tag, normalize_tags, strip_accents
+from hugin.scanner import Post, collect_keyword_pool, format_pool_for_prompt
 from hugin.project import ProjectConfig, load_project
 from hugin.state import mark_processed, save_state, get_last_post, set_last_post
-from hugin.writer import write_summary, write_tags
+from hugin.writer import write_keywords, write_summary, write_tags
 
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
@@ -392,6 +393,7 @@ class HuginScreen(Screen):
         Binding("q", "quit", "Quit", show=False),
         Binding("escape", "back", "Back", show=False),
         ("t", "tags", "Tags"),
+        ("k", "keywords", "Kwds"),
         ("m", "manage_tags", "Mngr"),
         ("s", "summary", "Summ"),
         ("i", "incoming", "In"),
@@ -541,6 +543,9 @@ class HuginScreen(Screen):
         self.suggested_tags: list[str] = []
         self._existing_checkboxes: list[Checkbox] = []
         self._suggested_checkboxes: list[Checkbox] = []
+        self.suggested_keywords: list[str] = []
+        self._existing_keyword_checkboxes: list[Checkbox] = []
+        self._suggested_keyword_checkboxes: list[Checkbox] = []
         self._outgoing_checkboxes: list[Checkbox] = []
         self._listed_links: list[dict] = []
         self._row_keys: list[str] = []
@@ -784,6 +789,9 @@ class HuginScreen(Screen):
         self._suggested_summary = ""
         self._existing_checkboxes = []
         self._suggested_checkboxes = []
+        self.suggested_keywords = []
+        self._existing_keyword_checkboxes = []
+        self._suggested_keyword_checkboxes = []
         self._outgoing_checkboxes = []
         self._listed_links = []
         self._suggested_topics = []
@@ -931,6 +939,103 @@ class HuginScreen(Screen):
             parts.append(f"+{len(manual)} manual")
         if removed:
             parts.append(f"-{len(removed)}")
+        msg = ", ".join(parts) if parts else "no changes"
+        self.notify(f"{post.filename}: {msg}")
+
+        self._state = STATE_BROWSING
+        self._update_detail_panel()
+        self.query_one("#post-table", DataTable).focus()
+
+    # === KEYWORDS (hidden taxonomy for related-posts) ===
+
+    def action_keywords(self) -> None:
+        if self._state != STATE_BROWSING:
+            return
+        self._state = STATE_LOADING
+        post = self.posts[self.current_index]
+        self._clear_action_area()
+        self._mode = "keywords"
+        self._start_spinner(self.current_index, "Generating keywords...")
+        self._call_llm_keywords(post)
+
+    @work(exclusive=True)
+    async def _call_llm_keywords(self, post: Post) -> None:
+        keyword_pool = collect_keyword_pool(self.all_posts)
+        pool_str = format_pool_for_prompt(keyword_pool)
+        try:
+            raw_keywords = await suggest_keywords(
+                self.engine, post.metadata, post.content, pool_str,
+            )
+            existing_keywords = post.metadata.get("keywords") or []
+            normalized = normalize_keywords(raw_keywords, existing_keywords, keyword_pool)
+            self._display_keywords(normalized, keyword_pool)
+        except Exception as e:
+            self._display_error(self._format_error(e))
+
+    def _display_keywords(self, keywords: list[str], keyword_pool: dict[str, int]) -> None:
+        self._state = STATE_REVIEWING
+        self._stop_spinner()
+        self.suggested_keywords = keywords
+        self._existing_keyword_checkboxes = []
+        self._suggested_keyword_checkboxes = []
+
+        container = self.query_one("#suggested-tags-container")
+        container.remove_children()
+
+        post = self.posts[self.current_index]
+        existing_keywords = post.metadata.get("keywords") or []
+
+        if existing_keywords:
+            container.mount(Label("Existing:", classes="section-label"))
+            for keyword in existing_keywords:
+                cb = Checkbox(keyword, value=True)
+                self._existing_keyword_checkboxes.append(cb)
+                container.mount(cb)
+
+        if keywords:
+            container.mount(Label("Suggested:", classes="section-label"))
+            pool_lower = {k.lower() for k in keyword_pool}
+            for keyword in keywords:
+                is_new = keyword.lower() not in pool_lower
+                label = f"✨ {keyword}" if is_new else keyword
+                cb = Checkbox(label, value=True)
+                self._suggested_keyword_checkboxes.append(cb)
+                container.mount(cb)
+
+        self.query_one("#section-header", Label).update("")
+        self.query_one("#manual-tags-input", Input).remove_class("hidden")
+        self.query_one("#review-buttons").remove_class("hidden")
+        self.query_one("#btn-apply", Button).label = "Apply"
+        self.query_one("#btn-apply", Button).focus()
+
+    def _apply_keywords(self) -> None:
+        post = self.posts[self.current_index]
+
+        kept = [cb.label.plain for cb in self._existing_keyword_checkboxes if cb.value]
+        added = [
+            cb.label.plain.removeprefix("✨ ")
+            for cb in self._suggested_keyword_checkboxes if cb.value
+        ]
+
+        manual_raw = self.query_one("#manual-tags-input", Input).value
+        manual = [normalize_keyword(k) for k in manual_raw.split(",") if k.strip()]
+        manual = [k for k in manual if k]
+
+        final_keywords = kept + added + manual
+
+        write_keywords(post.path, final_keywords)
+        mark_processed(self.state, post.filename)
+        save_state(self.directory, self.state)
+
+        post.metadata["keywords"] = final_keywords
+        post.metadata["lastmod"] = datetime.now().isoformat(timespec="seconds")
+        self._stop_spinner(done=True)
+
+        parts = []
+        if added:
+            parts.append(f"+{len(added)}")
+        if manual:
+            parts.append(f"+{len(manual)} manual")
         msg = ", ".join(parts) if parts else "no changes"
         self.notify(f"{post.filename}: {msg}")
 
@@ -1933,6 +2038,8 @@ class HuginScreen(Screen):
         if event.button.id == "btn-apply":
             if self._mode == "tags":
                 self._apply_tags()
+            elif self._mode == "keywords":
+                self._apply_keywords()
             elif self._mode == "summary":
                 self._apply_summary()
             elif self._mode == "list":

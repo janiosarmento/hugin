@@ -69,6 +69,64 @@ def build_prompt(metadata: dict, content: str, pool_str: str) -> str:
     return TAG_USER_TEMPLATE.format(pool=pool_str, content=content)
 
 
+KEYWORD_SYSTEM_PROMPT = """\
+You are a blog editorial keyword extractor. Keywords are a HIDDEN taxonomy \
+used only to feed a "related posts" algorithm — readers never see them, so \
+don't optimize for SEO or navigation.
+
+CRITICAL: You MUST reuse a keyword from the EXISTING POOL below whenever it \
+fits. Coining a new keyword is a LAST RESORT — only when the post's \
+underlying theme is genuinely not covered by any pool keyword yet.
+
+RULES:
+- Suggest between 3 and 6 keywords per post
+- A keyword captures the underlying THEME connecting posts, not the specific \
+subject (that's what tags are for) and not the broad bucket (that's what \
+categories are for). Example: a post about a specific pen and a post about a \
+specific notebook can both get the keyword "journaling" even though they \
+share no tag or category
+- Lowercase, no accents/diacritics, hyphen instead of space \
+(e.g. "canetas-tinteiro", not "Canetas Tinteiro")
+- Keywords must be in the same language as the post content
+- EVERY keyword you suggest should ideally already exist in the pool below
+
+Respond with a JSON array of strings, nothing else. \
+Example: ["keyword-one", "keyword-two"]"""
+
+KEYWORD_USER_TEMPLATE = """\
+EXISTING KEYWORDS FROM RECENT POSTS (use these, most common first):
+{pool}
+
+POST CATEGORY: {category}
+POST TAGS: {tags}
+
+POST CONTENT:
+{content}"""
+
+
+def build_keyword_prompt(metadata: dict, content: str, pool_str: str) -> str:
+    if _estimate_tokens(content) > MAX_TOKENS_CONTENT:
+        content = _truncate_post(metadata, content)
+    categories = metadata.get("categories") or []
+    category = ", ".join(categories) if categories else "(none)"
+    tags = metadata.get("tags") or []
+    tags_str = ", ".join(tags) if tags else "(none)"
+    return KEYWORD_USER_TEMPLATE.format(
+        pool=pool_str, category=category, tags=tags_str, content=content,
+    )
+
+
+async def suggest_keywords(
+    engine: Engine,
+    metadata: dict,
+    content: str,
+    pool_str: str,
+) -> list[str]:
+    prompt = build_keyword_prompt(metadata, content, pool_str)
+    response_text = await call_llm(engine, prompt, system=KEYWORD_SYSTEM_PROMPT)
+    return parse_response(response_text)
+
+
 def parse_response(text: str) -> list[str]:
     text = text.strip()
 

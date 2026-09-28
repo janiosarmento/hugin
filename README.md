@@ -59,6 +59,7 @@ hugin-profiles ~/blog/content/posts --engine cerebras
 | Key | Action |
 |---|---|
 | `t` | Generate tags with LLM |
+| `k` | Generate keywords with LLM (hidden taxonomy for related posts) |
 | `s` | Generate summary with LLM |
 | `i` | Find incoming link candidates (embedding only) |
 | `o` | Generate outgoing link suggestions (embedding + LLM) |
@@ -108,6 +109,12 @@ hugin-profiles ~/blog/content/posts --engine cerebras
 ### Tags & Summaries
 
 The LLM receives the post content and existing tag pool, and suggests tags and summaries. You review each suggestion with checkboxes before applying.
+
+### Keywords (`k`)
+
+A separate, hidden taxonomy (`keywords` front matter field) used only to feed the blog's "related posts" algorithm — never shown to readers, no listing page. Unlike tags (the specific subject) or categories (the broad bucket), a keyword captures the underlying theme connecting posts that don't necessarily share a tag.
+
+The LLM is given the pool of keywords already used across the **20 most recent posts** (older posts are out of scope) and strongly prefers reusing one over coining a new one — a controlled vocabulary is the whole point, since a fresh keyword per post would never match anything. Suggestions are lowercase, accent-stripped, hyphen-separated (`canetas-tinteiro`), and reviewed with checkboxes like tags.
 
 ### Internal Links
 
