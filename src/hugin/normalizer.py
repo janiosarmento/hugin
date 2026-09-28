@@ -5,6 +5,21 @@ import unicodedata
 from difflib import SequenceMatcher
 
 
+def detect_language(content: str) -> str:
+    """Simple language detection based on common function words."""
+    sample = content[:2000].lower()
+    indicators = {
+        "Portuguese": ["não", "como", "para", "este", "uma", "com", "mais", "são", "também", "pode"],
+        "English": ["the", "and", "that", "this", "with", "from", "have", "will", "your", "can"],
+        "Spanish": ["pero", "puede", "todos", "tiene", "muy", "hacer", "cuando", "donde", "ahora", "hay"],
+        "French": ["les", "des", "une", "pour", "dans", "avec", "cette", "sont", "mais", "tout"],
+    }
+    scores = {}
+    for lang, words in indicators.items():
+        scores[lang] = sum(1 for w in words if f" {w} " in f" {sample} ")
+    return max(scores, key=scores.get) if max(scores.values()) > 0 else "English"
+
+
 def strip_accents(text: str) -> str:
     """Remove accents/diacritics from text."""
     normalized = unicodedata.normalize("NFD", text.lower())

@@ -59,7 +59,7 @@ from hugin.llm import (
     suggest_summary,
     suggest_tags,
 )
-from hugin.normalizer import normalize_keyword, normalize_keywords, normalize_tag, normalize_tags, strip_accents
+from hugin.normalizer import detect_language, normalize_keyword, normalize_keywords, normalize_tag, normalize_tags, strip_accents
 from hugin.scanner import Post, collect_keyword_pool, format_pool_for_prompt
 from hugin.project import ProjectConfig, load_project
 from hugin.state import mark_processed, save_state, get_last_post, set_last_post
@@ -960,7 +960,8 @@ class HuginScreen(Screen):
 
     @work(exclusive=True)
     async def _call_llm_keywords(self, post: Post) -> None:
-        keyword_pool = collect_keyword_pool(self.all_posts)
+        language = detect_language(post.content)
+        keyword_pool = collect_keyword_pool(self.all_posts, language=language)
         pool_str = format_pool_for_prompt(keyword_pool)
         try:
             raw_keywords = await suggest_keywords(

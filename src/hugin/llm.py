@@ -6,6 +6,7 @@ import re
 import httpx
 
 from hugin.engines import Engine
+from hugin.normalizer import detect_language
 
 TAG_SYSTEM_PROMPT = """\
 You are a blog post tag generator. Analyze the following blog post and suggest relevant tags.
@@ -74,9 +75,23 @@ You are a blog editorial keyword extractor. Keywords are a HIDDEN taxonomy \
 used only to feed a "related posts" algorithm — readers never see them, so \
 don't optimize for SEO or navigation.
 
-CRITICAL: You MUST reuse a keyword from the EXISTING POOL below whenever it \
-fits. Coining a new keyword is a LAST RESORT — only when the post's \
-underlying theme is genuinely not covered by any pool keyword yet.
+LANGUAGE IS NON-NEGOTIABLE: every keyword you output MUST be in {language}, \
+the language of the post content, no exceptions — even if that means \
+coining a new one instead of reusing a pool entry in another language. The \
+pool below has already been filtered to {language} posts; if it's empty or \
+sparse, that just means this language doesn't have much vocabulary yet — \
+coin new {language} keywords rather than borrow from another language.
+
+ACCURACY BEATS REPETITION: a keyword's only job is to precisely name the \
+post's underlying theme. Reusing a pool keyword is a tiebreaker, not a \
+mandate — reuse it ONLY when it genuinely, precisely fits, not because it's \
+merely adjacent or in the same general area. A loosely-fitting reused \
+keyword pollutes the related-posts signal more than a well-chosen new one \
+does, so when nothing in the pool truly fits, coin a new keyword instead of \
+stretching one that almost fits. Example of what NOT to do: a post about a \
+custom task-management app is NOT "product-analysis" just because that \
+keyword exists in the pool — if the pool has nothing about task management \
+or productivity tools, coin one.
 
 RULES:
 - Suggest between 3 and 6 keywords per post
@@ -87,14 +102,13 @@ specific notebook can both get the keyword "journaling" even though they \
 share no tag or category
 - Lowercase, no accents/diacritics, hyphen instead of space \
 (e.g. "canetas-tinteiro", not "Canetas Tinteiro")
-- Keywords must be in the same language as the post content
-- EVERY keyword you suggest should ideally already exist in the pool below
 
 Respond with a JSON array of strings, nothing else. \
 Example: ["keyword-one", "keyword-two"]"""
 
 KEYWORD_USER_TEMPLATE = """\
-EXISTING KEYWORDS FROM RECENT POSTS (use these, most common first):
+EXISTING {language} KEYWORDS FROM RECENT POSTS (most common first — reuse \
+one only if it precisely fits; otherwise coin a new one):
 {pool}
 
 POST CATEGORY: {category}
@@ -104,7 +118,9 @@ POST CONTENT:
 {content}"""
 
 
-def build_keyword_prompt(metadata: dict, content: str, pool_str: str) -> str:
+def build_keyword_prompt(
+    metadata: dict, content: str, pool_str: str, language: str,
+) -> str:
     if _estimate_tokens(content) > MAX_TOKENS_CONTENT:
         content = _truncate_post(metadata, content)
     categories = metadata.get("categories") or []
@@ -112,7 +128,8 @@ def build_keyword_prompt(metadata: dict, content: str, pool_str: str) -> str:
     tags = metadata.get("tags") or []
     tags_str = ", ".join(tags) if tags else "(none)"
     return KEYWORD_USER_TEMPLATE.format(
-        pool=pool_str, category=category, tags=tags_str, content=content,
+        pool=pool_str or "(none yet)", category=category, tags=tags_str,
+        content=content, language=language,
     )
 
 
@@ -122,8 +139,10 @@ async def suggest_keywords(
     content: str,
     pool_str: str,
 ) -> list[str]:
-    prompt = build_keyword_prompt(metadata, content, pool_str)
-    response_text = await call_llm(engine, prompt, system=KEYWORD_SYSTEM_PROMPT)
+    language = detect_language(content)
+    prompt = build_keyword_prompt(metadata, content, pool_str, language)
+    system = KEYWORD_SYSTEM_PROMPT.format(language=language)
+    response_text = await call_llm(engine, prompt, system=system)
     return parse_response(response_text)
 
 
@@ -228,20 +247,6 @@ NO "Descubra", "Aprenda", "Saiba", "Discover", "Learn". {style}
 {content}"""
 
 
-def _detect_language(content: str) -> str:
-    """Simple language detection based on common words."""
-    sample = content[:2000].lower()
-    indicators = {
-        "Portuguese": ["não", "como", "para", "este", "uma", "com", "mais", "são", "também", "pode"],
-        "English": ["the", "and", "that", "this", "with", "from", "have", "will", "your", "can"],
-        "Spanish": ["pero", "puede", "todos", "tiene", "muy", "hacer", "cuando", "donde", "ahora", "hay"],
-        "French": ["les", "des", "une", "pour", "dans", "avec", "cette", "sont", "mais", "tout"],
-    }
-    scores = {}
-    for lang, words in indicators.items():
-        scores[lang] = sum(1 for w in words if f" {w} " in f" {sample} ")
-    return max(scores, key=scores.get) if max(scores.values()) > 0 else "English"
-
 
 def build_summary_prompt(
     metadata: dict,
@@ -252,7 +257,7 @@ def build_summary_prompt(
     if _estimate_tokens(content) > MAX_TOKENS_CONTENT:
         content = _truncate_post(metadata, content)
 
-    language = _detect_language(content)
+    language = detect_language(content)
 
     current = metadata.get("description", "")
     if current:
@@ -297,7 +302,7 @@ async def suggest_summary(
     response_text = await call_llm(engine, prompt)
     summary = parse_summary_response(response_text)
 
-    language = _detect_language(content)
+    language = detect_language(content)
 
     word_count = len(summary.split())
     for _ in range(MAX_SHORTEN_RETRIES):

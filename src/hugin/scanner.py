@@ -8,6 +8,7 @@ from pathlib import Path
 
 import frontmatter
 
+from hugin.normalizer import detect_language
 from hugin.state import get_last_processed
 
 
@@ -183,13 +184,22 @@ def collect_tag_pool(posts: list[Post]) -> dict[str, int]:
     return dict(counter.most_common())
 
 
-def collect_keyword_pool(posts: list[Post], limit: int = 20) -> dict[str, int]:
+def collect_keyword_pool(
+    posts: list[Post], limit: int = 20, language: str | None = None,
+) -> dict[str, int]:
     """Build the keyword vocabulary pool from the most recent posts only.
 
     Old backlog posts are out of scope for keyword tagging, so the pool
     that steers "prefer an existing keyword" only needs to reflect current
     editorial vocabulary — the `limit` most recent posts (by date).
+
+    On a multilingual blog, mixing languages into one pool pushes the LLM
+    to "reuse" a keyword from the wrong language (the reuse instruction
+    tends to win over the language rule). When `language` is given, only
+    posts detected as that language are considered.
     """
+    if language is not None:
+        posts = [p for p in posts if detect_language(p.content) == language]
     recent = sorted(posts, key=lambda p: p.date or datetime.min, reverse=True)[:limit]
     counter: Counter[str] = Counter()
     for post in recent:
