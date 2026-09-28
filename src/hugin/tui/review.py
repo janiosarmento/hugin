@@ -9,7 +9,7 @@ from pathlib import Path
 from textual import work
 from textual.binding import Binding
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button,
@@ -386,32 +386,112 @@ class LoadingScreen(ModalScreen):
             pass
 
 
+_KEY_DISPLAY = {
+    "question_mark": "?",
+    "comma": ",",
+    "escape": "Esc",
+}
+
+
+def _display_key(key: str) -> str:
+    return _KEY_DISPLAY.get(key, key.upper() if len(key) == 1 else key)
+
+
+class HelpScreen(ModalScreen):
+    """Lists every keybinding of the screen that opened it, hidden or not."""
+
+    BINDINGS = [("escape", "close", "Close"), ("question_mark", "close", "Close")]
+
+    DEFAULT_CSS = """
+    HelpScreen {
+        align: center middle;
+    }
+
+    #help-modal {
+        width: 64;
+        height: auto;
+        max-height: 80%;
+        border: solid $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #help-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #help-list {
+        height: auto;
+        max-height: 24;
+    }
+
+    .help-row {
+        height: auto;
+    }
+
+    .help-key {
+        width: 8;
+        color: $accent;
+        text-style: bold;
+    }
+
+    .help-desc {
+        width: 1fr;
+    }
+    """
+
+    def __init__(self, bindings: list[Binding]) -> None:
+        super().__init__()
+        self._bindings = bindings
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="help-modal"):
+            yield Label("Keybindings", id="help-title")
+            with VerticalScroll(id="help-list"):
+                for binding in self._bindings:
+                    text = binding.tooltip or binding.description
+                    if not text:
+                        continue
+                    with Horizontal(classes="help-row"):
+                        yield Label(_display_key(binding.key), classes="help-key")
+                        yield Static(text, classes="help-desc")
+            yield Button("Close", id="btn-close", variant="primary")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss()
+
+    def action_close(self) -> None:
+        self.dismiss()
+
+
 class HuginScreen(Screen):
     """Unified screen: tags, summaries, links, editor."""
 
     BINDINGS = [
-        Binding("q", "quit", "Quit", show=False),
-        Binding("escape", "back", "Back", show=False),
-        ("t", "tags", "Tags"),
-        ("k", "keywords", "Kwds"),
-        ("m", "manage_tags", "Mngr"),
-        ("s", "summary", "Summ"),
-        ("i", "incoming", "In"),
-        ("o", "outgoing", "Out"),
-        ("d", "direct_links", "Direct"),
-        ("z", "amazon", "Amzn"),
-        ("l", "list_links", "List"),
-        ("b", "broken_links", "Broken"),
-        ("u", "suggest", "Sugg"),
-        ("e", "editor", "Edit"),
-        ("n", "pick_engine", "Engine"),
-        ("c", "clear_caches", "Clr"),
-        ("p", "new_post", "Post"),
-        ("w", "news_ideas", "News"),
-        ("r", "redirects", "Redirs"),
-        ("X", "delete_post", "Delete"),
-        ("g", "git_sync", "Git"),
-        ("comma", "project_settings", "Sett"),
+        Binding("q", "quit", "Quit", show=False, tooltip="Quit Hugin"),
+        Binding("escape", "back", "Back", show=False, tooltip="Go back / cancel an in-progress LLM call"),
+        Binding("question_mark", "help", "Help", tooltip="Show all keybindings, including the hidden ones"),
+        Binding("t", "tags", "Tags", tooltip="Generate tags with LLM"),
+        Binding("k", "keywords", "Kwds", tooltip="Generate keywords with LLM (hidden taxonomy for related posts)"),
+        Binding("s", "summary", "Summ", tooltip="Generate summary with LLM"),
+        Binding("i", "incoming", "In", tooltip="Find incoming link candidates (embedding only)"),
+        Binding("o", "outgoing", "Out", tooltip="Generate outgoing link suggestions (embedding + LLM)"),
+        Binding("e", "editor", "Edit", tooltip="Open built-in editor"),
+        Binding("p", "new_post", "Post", tooltip="Create a new post"),
+        Binding("g", "git_sync", "Git", tooltip="Sync repository with GitHub (commit + pull --rebase + push)"),
+        Binding("m", "manage_tags", "Mngr", show=False, tooltip="Open tag manager"),
+        Binding("d", "direct_links", "Direct", show=False, tooltip="Pick a post directly and insert a link"),
+        Binding("z", "amazon", "Amzn", show=False, tooltip="Insert Amazon affiliate link"),
+        Binding("l", "list_links", "List", show=False, tooltip="List existing links (select to remove)"),
+        Binding("b", "broken_links", "Broken", show=False, tooltip="Check for broken links"),
+        Binding("u", "suggest", "Sugg", show=False, tooltip="Suggest new post topics with LLM"),
+        Binding("w", "news_ideas", "News", show=False, tooltip="News → post ideas (search Google News, generate drafts)"),
+        Binding("n", "pick_engine", "Engine", show=False, tooltip="Select LLM engine and model"),
+        Binding("c", "clear_caches", "Clr", show=False, tooltip="Clear embedding cache and restart"),
+        Binding("r", "redirects", "Redirs", show=False, tooltip="Manage URL redirects (_redirects file)"),
+        Binding("X", "delete_post", "Delete", show=False, tooltip="Delete the current post (with confirmation)"),
+        Binding("comma", "project_settings", "Sett", show=False, tooltip="Project settings"),
     ]
 
     DEFAULT_CSS = """
@@ -2226,3 +2306,8 @@ class HuginScreen(Screen):
         set_last_post(self.state, post.filename)
         save_state(self.directory, self.state)
         self.app.exit()
+
+    def action_help(self) -> None:
+        if self._state != STATE_BROWSING:
+            return
+        self.app.push_screen(HelpScreen(self.BINDINGS))

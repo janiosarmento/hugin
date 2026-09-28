@@ -56,30 +56,40 @@ hugin-profiles ~/blog/content/posts --engine cerebras
 
 ## Keybindings
 
+Press `?` at any time on the main screen for a modal listing every keybinding below, including the ones no longer shown in the footer.
+
 | Key | Action |
 |---|---|
+| `?` | Show all keybindings (hidden ones included) |
 | `t` | Generate tags with LLM |
 | `k` | Generate keywords with LLM (hidden taxonomy for related posts) |
 | `s` | Generate summary with LLM |
 | `i` | Find incoming link candidates (embedding only) |
 | `o` | Generate outgoing link suggestions (embedding + LLM) |
+| `e` | Open built-in editor |
+| `p` | Create new post |
+| `g` | Sync repository with GitHub (commit + pull --rebase + push) |
+| `/` | Inline search — filter post list by title or filename |
+| `Ctrl+P` | Change Textual theme (persists across sessions) |
+| `Escape` | Go back / cancel LLM call in progress |
+| `q` | Quit |
+
+Hidden from the footer to keep it uncluttered, but still active — press `?` to see this list in the app:
+
+| Key | Action |
+|---|---|
 | `d` | Pick a post directly and insert link |
 | `z` | Insert Amazon affiliate link |
 | `l` | List existing links (select to remove) |
 | `b` | Check for broken links |
 | `u` | Suggest new post topics (LLM) |
 | `w` | News → post ideas (search Google News, generate drafts) |
-| `e` | Open built-in editor |
-| `p` | Create new post |
-| `/` | Inline search — filter post list by title or filename |
-| `g` | Sync repository with GitHub (commit + pull --rebase + push) |
 | `n` | Select engine and model |
 | `m` | Open tag manager |
-| `,` (comma) | Project settings |
 | `c` | Clear embedding cache and restart |
-| `Ctrl+P` | Change Textual theme (persists across sessions) |
-| `Escape` | Go back / cancel LLM call in progress |
-| `q` | Quit |
+| `r` | Manage URL redirects (`_redirects` file) |
+| `X` | Delete the current post (with confirmation) |
+| `,` (comma) | Project settings |
 
 ### Tag manager keybindings
 
