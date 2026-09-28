@@ -163,8 +163,21 @@ class EmbeddingIndex:
 
         print_fn(f"Loading embedding model ({self.model_name})...")
 
+        import onnxruntime as ort
         from sentence_transformers import SentenceTransformer
-        self._model = SentenceTransformer(self.model_name, backend="onnx")
+
+        # Silence startup noise that otherwise leaks into the terminal before
+        # the Textual TUI takes over: the "multiple ONNX files found" warning
+        # (we always want the default full-precision model.onnx, not a
+        # quantized variant) and onnxruntime's native (non-Python-logging)
+        # execution-provider diagnostics, neither of which indicate a problem.
+        session_options = ort.SessionOptions()
+        session_options.log_severity_level = 3  # 3 = Error, suppresses Warning-level provider logs
+        self._model = SentenceTransformer(
+            self.model_name,
+            backend="onnx",
+            model_kwargs={"file_name": "model.onnx", "session_options": session_options},
+        )
 
     def _load_cache(self) -> None:
         """Load existing cache from disk."""

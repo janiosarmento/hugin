@@ -892,7 +892,9 @@ class HuginScreen(Screen):
                 container.mount(cb)
 
         self.query_one("#section-header", Label).update("")
-        self.query_one("#manual-tags-input", Input).remove_class("hidden")
+        manual_input = self.query_one("#manual-tags-input", Input)
+        manual_input.placeholder = "Manual tags (comma-separated)"
+        manual_input.remove_class("hidden")
         self.query_one("#review-buttons").remove_class("hidden")
         self.query_one("#btn-apply", Button).label = "Apply"
         self.query_one("#btn-apply", Button).focus()
@@ -1004,7 +1006,9 @@ class HuginScreen(Screen):
                 container.mount(cb)
 
         self.query_one("#section-header", Label).update("")
-        self.query_one("#manual-tags-input", Input).remove_class("hidden")
+        manual_input = self.query_one("#manual-tags-input", Input)
+        manual_input.placeholder = "Manual keywords (comma-separated)"
+        manual_input.remove_class("hidden")
         self.query_one("#review-buttons").remove_class("hidden")
         self.query_one("#btn-apply", Button).label = "Apply"
         self.query_one("#btn-apply", Button).focus()

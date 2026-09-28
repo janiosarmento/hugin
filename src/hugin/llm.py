@@ -1,5 +1,6 @@
 """Comunicação com endpoint LLM e parse de respostas."""
 
+import ast
 import json
 import re
 
@@ -146,6 +147,26 @@ async def suggest_keywords(
     return parse_response(response_text)
 
 
+def _unwrap_nested_list_item(item: str) -> list[str] | None:
+    """Recover a list the model accidentally serialized as a single string item.
+
+    Some responses come back as `["['tag-one', 'tag-two']"]` instead of
+    `["tag-one", "tag-two"]` — a Python-style list literal (single quotes)
+    wrapped inside one JSON string. The outer json.loads succeeds, but yields
+    a single "tag" that is actually the whole list as text.
+    """
+    stripped = item.strip()
+    if not (stripped.startswith("[") and stripped.endswith("]")):
+        return None
+    try:
+        parsed = ast.literal_eval(stripped)
+    except (ValueError, SyntaxError):
+        return None
+    if isinstance(parsed, list) and all(isinstance(x, str) for x in parsed):
+        return parsed
+    return None
+
+
 def parse_response(text: str) -> list[str]:
     text = text.strip()
 
@@ -162,12 +183,20 @@ def parse_response(text: str) -> list[str]:
         try:
             result = json.loads(candidate)
             if isinstance(result, list):
-                return [str(item) for item in result]
+                items = [str(item) for item in result]
+                flattened = []
+                for item in items:
+                    nested = _unwrap_nested_list_item(item)
+                    flattened.extend(nested if nested is not None else [item])
+                # Defensive: drop anything that still looks like a serialized
+                # list rather than a single tag/keyword — writing it verbatim
+                # would corrupt the post's YAML frontmatter.
+                return [i for i in flattened if "[" not in i and "]" not in i]
         except json.JSONDecodeError:
             pass
 
-    # Fallback: regex para strings entre aspas
-    matches = re.findall(r'"([^"]+)"', text)
+    # Fallback: regex para strings entre aspas (duplas ou simples)
+    matches = re.findall(r'"([^"]+)"', text) or re.findall(r"'([^']+)'", text)
     if matches:
         return matches
 

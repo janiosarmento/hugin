@@ -39,6 +39,25 @@ class TestParseResponse:
         text = '```JSON\n["a", "b"]\n```'
         assert parse_response(text) == ["a", "b"]
 
+    def test_recovers_list_serialized_as_single_string_item(self):
+        # The model sometimes wraps its whole answer as one JSON string
+        # holding a Python-style (single-quoted) list literal, instead of
+        # a proper JSON array of strings.
+        text = '["[\'personal-blogging\', \'productivity\', \'content-management\']"]'
+        assert parse_response(text) == [
+            "personal-blogging", "productivity", "content-management",
+        ]
+
+    def test_fallback_regex_single_quotes(self):
+        text = "tags: 'docker', 'linux', 'hugo'"
+        assert parse_response(text) == ["docker", "linux", "hugo"]
+
+    def test_drops_items_that_still_look_like_a_list(self):
+        # If recovery still fails, never hand back something containing
+        # brackets — it would corrupt the post's YAML frontmatter.
+        text = '["ok-tag", "[unparseable, no quotes]"]'
+        assert parse_response(text) == ["ok-tag"]
+
 
 from hugin.llm import parse_anchor_response, parse_suggestions
 
