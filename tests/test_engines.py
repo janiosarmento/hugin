@@ -86,3 +86,31 @@ class TestFulcrumEchoSecret:
     def test_section_is_not_an_engine(self, monkeypatch, tmp_path):
         self._use(monkeypatch, tmp_path, '[a]\nurl = "http://x/v1"\nmodel = "m"\n')
         assert [e.id for e in load_engines()] == ["a"]
+
+
+class TestMaskedKey:
+    def test_repr_hides_tail(self):
+        from hugin.engines import MaskedKey
+        key = MaskedKey("sk-proj-abcdefghijklmnopqrstuvwxyz")
+        assert "klmnop" not in repr(key)
+        assert repr(key).startswith("'sk-proj-")
+
+    def test_still_usable_as_str(self):
+        from hugin.engines import MaskedKey
+        key = MaskedKey("sk-123456789")
+        assert f"Bearer {key}" == "Bearer sk-123456789"
+
+    def test_engine_repr_is_masked(self):
+        from hugin.engines import MaskedKey
+        e = Engine("t", "http://x", "m", 30, MaskedKey("sk-secretsecretsecret"))
+        assert "secretsecretsecret" not in repr(e)
+
+    def test_short_key_not_fully_shown(self):
+        from hugin.engines import MaskedKey
+        assert "abcd" not in repr(MaskedKey("abcd"))
+
+    def test_rich_pretty_masked(self):
+        from rich.pretty import pretty_repr
+        from hugin.engines import MaskedKey
+        e = Engine("t", "http://x", "m", 30, MaskedKey("sk-secretsecretsecret"))
+        assert "secretsecretsecret" not in pretty_repr(e)

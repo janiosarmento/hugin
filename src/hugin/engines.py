@@ -42,6 +42,17 @@ secret = "{DEFAULT_FULCRUM_ECHO_SECRET}"
 """
 
 
+class MaskedKey(str):
+    """API key that behaves as a plain str but never prints in full.
+
+    repr()/pretty-printers (tracebacks, logs) show only a short prefix.
+    """
+
+    def __repr__(self) -> str:
+        shown = min(8, len(self) // 2)
+        return f"'{self[:shown]}…({len(self)} chars)'"
+
+
 @dataclass
 class Engine:
     id: str
@@ -98,7 +109,8 @@ def _get_api_key(engine_id: str, secret: str | None = None) -> str | None:
 
     path = secret or f"{engine_id}.api_key"
     try:
-        return get_secret(path)
+        value = get_secret(path)
+        return MaskedKey(value) if value else value
     except SecretsResolverError:
         return None
 
