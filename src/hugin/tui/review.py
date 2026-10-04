@@ -443,13 +443,14 @@ class HelpScreen(ModalScreen):
 
     def __init__(self, bindings: list[Binding]) -> None:
         super().__init__()
-        self._bindings = bindings
+        # Not `_bindings`: that is Textual's internal BindingsMap.
+        self._help_bindings = bindings
 
     def compose(self) -> ComposeResult:
         with Vertical(id="help-modal"):
             yield Label("Keybindings", id="help-title")
             with VerticalScroll(id="help-list"):
-                for binding in self._bindings:
+                for binding in self._help_bindings:
                     text = binding.tooltip or binding.description
                     if not text:
                         continue
