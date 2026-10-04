@@ -410,7 +410,7 @@ class HelpScreen(ModalScreen):
     #help-modal {
         width: 64;
         height: auto;
-        max-height: 80%;
+        max-height: 90%;
         border: solid $accent;
         background: $surface;
         padding: 1 2;
@@ -423,7 +423,6 @@ class HelpScreen(ModalScreen):
 
     #help-list {
         height: auto;
-        max-height: 24;
     }
 
     .help-row {
@@ -458,6 +457,19 @@ class HelpScreen(ModalScreen):
                         yield Label(_display_key(binding.key), classes="help-key")
                         yield Static(text, classes="help-desc")
             yield Button("Close", id="btn-close", variant="primary")
+
+    def on_mount(self) -> None:
+        self._fit_list()
+
+    def on_resize(self) -> None:
+        self._fit_list()
+
+    def _fit_list(self) -> None:
+        # Modal is capped at 90% of the screen; subtract its chrome (border 2,
+        # padding 2, title 2, button 3) so the list takes all the remaining
+        # room and only scrolls when the content really doesn't fit.
+        room = int(self.size.height * 0.9) - 9
+        self.query_one("#help-list").styles.max_height = max(room, 3)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss()
