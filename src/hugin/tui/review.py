@@ -500,6 +500,7 @@ class HuginScreen(Screen):
         Binding("b", "broken_links", "Broken", show=False, tooltip="Check for broken links"),
         Binding("u", "suggest", "Sugg", show=False, tooltip="Suggest new post topics with LLM"),
         Binding("w", "news_ideas", "News", show=False, tooltip="News → post ideas (search Google News, generate drafts)"),
+        Binding("h", "echo_draft", "Echo", show=False, tooltip="Ask Echo to write a new draft post in your voice"),
         Binding("n", "pick_engine", "Engine", show=False, tooltip="Select LLM engine and model"),
         Binding("c", "clear_caches", "Clr", show=False, tooltip="Clear embedding cache and restart"),
         Binding("r", "redirects", "Redirs", show=False, tooltip="Manage URL redirects (_redirects file)"),
@@ -1916,6 +1917,50 @@ class HuginScreen(Screen):
             self._open_editor_for_post(post, index=0)
 
         self.app.push_screen(NewPostScreen(), on_filename)
+
+    # === ECHO DRAFT ===
+
+    def action_echo_draft(self) -> None:
+        if self._state != STATE_BROWSING:
+            return
+
+        from hugin.tui.echo_draft import EchoPromptScreen, EchoWaitScreen
+
+        def on_created(path) -> None:
+            if path is None:
+                return
+            import frontmatter as fm
+            from rich.text import Text
+
+            loaded = fm.load(str(path))
+            post = Post(
+                path=path,
+                metadata=loaded.metadata,
+                content=loaded.content,
+                has_tags=False,
+                tags=[],
+                date=loaded.metadata.get("date"),
+            )
+            self.posts.append(post)
+            self.all_posts.append(post)
+            table = self.query_one("#post-table", DataTable)
+            title = loaded.metadata.get("title", path.stem)
+            row_key = f"echo-{path.name}"
+            table.add_row("—", Text(f"[DRAFT] {title}", style="dim"), key=row_key)
+            self._row_keys.append(row_key)
+            self.current_index = len(self.posts) - 1
+            table.move_cursor(row=self.current_index)
+            self._update_detail_panel()
+            self.notify(f"Draft created: {path.name}")
+
+        def on_prompt(request: str | None) -> None:
+            if request:
+                self.app.push_screen(
+                    EchoWaitScreen(request, list(self.all_posts), self.directory),
+                    on_created,
+                )
+
+        self.app.push_screen(EchoPromptScreen(), on_prompt)
 
     def action_news_ideas(self) -> None:
         """Open the news → post ideas screen."""

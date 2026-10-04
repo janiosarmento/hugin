@@ -210,7 +210,10 @@ The same file holds one non-engine section, `[fulcrum_echo]`, naming the Jano ke
 ```toml
 [fulcrum_echo]
 secret = "fulcrum_echo.key"
+persona = "Janio Sarmento"  # optional; whose voice Echo writes in
 ```
+
+Press `h` (hidden; listed under `?`) to ask Echo for a new post: describe it in the prompt box, Ctrl+S sends it together with your 3 latest and 2 largest published posts as writing samples, and the answer is saved as a new `draft: true` post.
 
 ### Link settings (`~/.hugin/links.toml`)
 

@@ -35,10 +35,12 @@ DEFAULT_TIMEOUT = 30
 # Lives in engines.toml because the key is machine-wide, not per project.
 FULCRUM_ECHO_SECTION = "fulcrum_echo"
 DEFAULT_FULCRUM_ECHO_SECRET = "fulcrum_echo.key"
+DEFAULT_FULCRUM_ECHO_PERSONA = "Janio Sarmento"
 FULCRUM_ECHO_BLOCK = f"""\
 [{FULCRUM_ECHO_SECTION}]
 # Jano key holding the echo.fulcrum.inc API key (https://echo.fulcrum.inc/dev/)
 secret = "{DEFAULT_FULCRUM_ECHO_SECRET}"
+persona = "{DEFAULT_FULCRUM_ECHO_PERSONA}"  # whose voice Echo writes in
 """
 
 
@@ -91,11 +93,19 @@ def _ensure_engines_file() -> Path:
     return ENGINES_FILE
 
 
+def _fulcrum_echo_section() -> dict:
+    with open(_ensure_engines_file(), "rb") as f:
+        return tomllib.load(f).get(FULCRUM_ECHO_SECTION, {})
+
+
 def load_fulcrum_echo_secret() -> str:
     """Name of the Jano key that holds the echo.fulcrum.inc API key."""
-    with open(_ensure_engines_file(), "rb") as f:
-        data = tomllib.load(f)
-    return data.get(FULCRUM_ECHO_SECTION, {}).get("secret") or DEFAULT_FULCRUM_ECHO_SECRET
+    return _fulcrum_echo_section().get("secret") or DEFAULT_FULCRUM_ECHO_SECRET
+
+
+def load_fulcrum_echo_persona() -> str:
+    """Name Echo is told to write as (required by the Echo API)."""
+    return _fulcrum_echo_section().get("persona") or DEFAULT_FULCRUM_ECHO_PERSONA
 
 
 def _get_api_key(engine_id: str, secret: str | None = None) -> str | None:
