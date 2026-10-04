@@ -2,6 +2,8 @@ import asyncio
 
 from textual.app import App
 from textual.binding import Binding
+from textual.screen import Screen
+from textual.widgets import Label
 
 from hugin.tui.review import HelpScreen
 
@@ -23,5 +25,34 @@ def test_help_screen_survives_scroll_keys():
             await pilot.press("escape")
             await pilot.pause()
             assert not isinstance(app.screen, HelpScreen)
+
+    asyncio.run(run())
+
+
+def test_underlying_screen_bindings_do_not_fire_while_help_is_open():
+    fired = []
+
+    class Main(Screen):
+        BINDINGS = [Binding("n", "pick", "Engine")]
+
+        def compose(self):
+            yield Label("main")
+
+        def action_pick(self):
+            fired.append(True)
+
+    class Host(App):
+        def on_mount(self):
+            self.push_screen(Main())
+
+    async def run():
+        app = Host()
+        async with app.run_test() as pilot:
+            await app.push_screen(HelpScreen(Main.BINDINGS))
+            await pilot.pause()
+            await pilot.press("n", "t", "k")
+            await pilot.pause()
+            assert fired == []
+            assert isinstance(app.screen, HelpScreen)
 
     asyncio.run(run())

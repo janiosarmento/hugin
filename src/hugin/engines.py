@@ -110,7 +110,8 @@ def load_engines() -> list[Engine]:
 
     engines = []
     for engine_id, config in data.items():
-        if engine_id == FULCRUM_ECHO_SECTION:
+        # Sections without a url (e.g. [fulcrum_echo]) are settings, not engines.
+        if engine_id == FULCRUM_ECHO_SECTION or "url" not in config:
             continue
         engines.append(Engine(
             id=engine_id,
