@@ -31,6 +31,16 @@ timeout = 120
 
 DEFAULT_TIMEOUT = 30
 
+# Not an engine: names the Jano key that holds the echo.fulcrum.inc API key.
+# Lives in engines.toml because the key is machine-wide, not per project.
+FULCRUM_ECHO_SECTION = "fulcrum_echo"
+DEFAULT_FULCRUM_ECHO_SECRET = "fulcrum_echo.key"
+FULCRUM_ECHO_BLOCK = f"""\
+[{FULCRUM_ECHO_SECTION}]
+# Jano key holding the echo.fulcrum.inc API key (https://echo.fulcrum.inc/dev/)
+secret = "{DEFAULT_FULCRUM_ECHO_SECRET}"
+"""
+
 
 @dataclass
 class Engine:
@@ -61,8 +71,20 @@ class Engine:
 def _ensure_engines_file() -> Path:
     if not ENGINES_FILE.exists():
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        ENGINES_FILE.write_text(DEFAULT_ENGINES)
+        ENGINES_FILE.write_text(DEFAULT_ENGINES + "\n" + FULCRUM_ECHO_BLOCK)
+    else:
+        text = ENGINES_FILE.read_text()
+        if f"[{FULCRUM_ECHO_SECTION}]" not in text:
+            sep = "" if text.endswith("\n\n") else "\n" if text.endswith("\n") else "\n\n"
+            ENGINES_FILE.write_text(text + sep + FULCRUM_ECHO_BLOCK)
     return ENGINES_FILE
+
+
+def load_fulcrum_echo_secret() -> str:
+    """Name of the Jano key that holds the echo.fulcrum.inc API key."""
+    with open(_ensure_engines_file(), "rb") as f:
+        data = tomllib.load(f)
+    return data.get(FULCRUM_ECHO_SECTION, {}).get("secret") or DEFAULT_FULCRUM_ECHO_SECRET
 
 
 def _get_api_key(engine_id: str, secret: str | None = None) -> str | None:
@@ -88,6 +110,8 @@ def load_engines() -> list[Engine]:
 
     engines = []
     for engine_id, config in data.items():
+        if engine_id == FULCRUM_ECHO_SECTION:
+            continue
         engines.append(Engine(
             id=engine_id,
             url=config["url"],

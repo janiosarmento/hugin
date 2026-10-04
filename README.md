@@ -205,6 +205,13 @@ timeout = 300
 
 Created automatically on first run. API keys use environment variables: `{ENGINE_ID}_API_KEY` (e.g., `CEREBRAS_API_KEY`). Local engines don't require a key.
 
+The same file holds one non-engine section, `[fulcrum_echo]`, naming the Jano key that stores the [echo.fulcrum.inc](https://echo.fulcrum.inc/dev/) API key (machine-wide). It is added automatically to existing files:
+
+```toml
+[fulcrum_echo]
+secret = "fulcrum_echo.key"
+```
+
 ### Link settings (`~/.hugin/links.toml`)
 
 Global defaults for link management:

@@ -3,7 +3,8 @@
 import secrets_resolver
 from secrets_resolver.exceptions import SecretFileNotFound
 
-from hugin.engines import Engine, _get_api_key
+import hugin.engines as engines_mod
+from hugin.engines import Engine, _get_api_key, load_engines, load_fulcrum_echo_secret
 
 
 class TestEngine:
@@ -54,3 +55,34 @@ class TestGetApiKey:
         monkeypatch.setattr(secrets_resolver, "get_secret", _fake_get_secret)
         assert _get_api_key("test", secret="custom.path") == "sk-custom"
         assert seen["path"] == "custom.path"
+
+
+class TestFulcrumEchoSecret:
+    def _use(self, monkeypatch, tmp_path, content=None):
+        path = tmp_path / "engines.toml"
+        if content is not None:
+            path.write_text(content)
+        monkeypatch.setattr(engines_mod, "CONFIG_DIR", tmp_path)
+        monkeypatch.setattr(engines_mod, "ENGINES_FILE", path)
+        monkeypatch.setattr(secrets_resolver, "get_secret", lambda p: None)
+        return path
+
+    def test_new_file_gets_default(self, monkeypatch, tmp_path):
+        self._use(monkeypatch, tmp_path)
+        assert load_fulcrum_echo_secret() == "fulcrum_echo.key"
+
+    def test_existing_file_is_migrated(self, monkeypatch, tmp_path):
+        path = self._use(monkeypatch, tmp_path, '[a]\nurl = "http://x/v1"\nmodel = "m"\n')
+        assert load_fulcrum_echo_secret() == "fulcrum_echo.key"
+        assert "[fulcrum_echo]" in path.read_text()
+        assert path.read_text().count("[fulcrum_echo]") == 1
+        load_fulcrum_echo_secret()
+        assert path.read_text().count("[fulcrum_echo]") == 1
+
+    def test_custom_value(self, monkeypatch, tmp_path):
+        self._use(monkeypatch, tmp_path, '[fulcrum_echo]\nsecret = "other.key"\n')
+        assert load_fulcrum_echo_secret() == "other.key"
+
+    def test_section_is_not_an_engine(self, monkeypatch, tmp_path):
+        self._use(monkeypatch, tmp_path, '[a]\nurl = "http://x/v1"\nmodel = "m"\n')
+        assert [e.id for e in load_engines()] == ["a"]
