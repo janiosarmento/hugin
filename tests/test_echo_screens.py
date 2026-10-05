@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 from textual.app import App
 
+import hugin.echo as echo_mod
 import hugin.tui.echo_draft as ed
 from hugin.echo import EchoError
 from hugin.scanner import Post
@@ -56,8 +57,8 @@ def test_wait_screen_creates_draft(tmp_path, monkeypatch):
         seen.update(message=message, persona=persona, key=key)
         return "Echo Title\n\nEcho body."
 
-    monkeypatch.setattr(ed, "ask_echo", fake_ask)
-    monkeypatch.setattr(ed, "get_api_key", lambda: "k")
+    monkeypatch.setattr(echo_mod, "ask_echo", fake_ask)
+    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
     monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "Jane Doe")
 
     async def keys(app, pilot):
@@ -74,7 +75,7 @@ def test_wait_screen_error_returns_none(tmp_path, monkeypatch):
     def boom():
         raise EchoError("no key")
 
-    monkeypatch.setattr(ed, "get_api_key", boom)
+    monkeypatch.setattr(echo_mod, "get_api_key", boom)
     monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
 
     async def keys(app, pilot):
@@ -96,8 +97,8 @@ def test_h_key_creates_draft_in_main_screen(tmp_path, monkeypatch):
     async def fake_ask(message, persona, key):
         return "From Echo\n\nText."
 
-    monkeypatch.setattr(ed, "ask_echo", fake_ask)
-    monkeypatch.setattr(ed, "get_api_key", lambda: "k")
+    monkeypatch.setattr(echo_mod, "ask_echo", fake_ask)
+    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
     monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "Jane Doe")
 
     posts = _posts(tmp_path)
@@ -191,9 +192,9 @@ def test_wait_screen_assigns_category_from_system_llm(tmp_path, monkeypatch):
     async def fake_llm(engine, prompt, system=None):
         return "life"
 
-    monkeypatch.setattr(ed, "ask_echo", fake_ask)
+    monkeypatch.setattr(echo_mod, "ask_echo", fake_ask)
     monkeypatch.setattr(llm, "call_llm", fake_llm)
-    monkeypatch.setattr(ed, "get_api_key", lambda: "k")
+    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
     monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
 
     async def keys(app, pilot):
@@ -216,8 +217,8 @@ def test_wait_screen_uses_semantic_ranking(tmp_path, monkeypatch):
         seen["message"] = message
         return "T\n\nB"
 
-    monkeypatch.setattr(ed, "ask_echo", fake_ask)
-    monkeypatch.setattr(ed, "get_api_key", lambda: "k")
+    monkeypatch.setattr(echo_mod, "ask_echo", fake_ask)
+    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
     monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
     posts = _posts(tmp_path)  # p0..p5, p0 newest; p5 oldest and smallest tie
 
@@ -237,8 +238,8 @@ def test_wait_screen_survives_index_failure(tmp_path, monkeypatch):
     async def fake_ask(message, persona, key):
         return "T\n\nB"
 
-    monkeypatch.setattr(ed, "ask_echo", fake_ask)
-    monkeypatch.setattr(ed, "get_api_key", lambda: "k")
+    monkeypatch.setattr(echo_mod, "ask_echo", fake_ask)
+    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
     monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
 
     async def keys(app, pilot):
@@ -246,3 +247,41 @@ def test_wait_screen_survives_index_failure(tmp_path, monkeypatch):
 
     path = _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None, BrokenIndex()), keys)
     assert path is not None and path.name == "t.md"
+
+
+def test_wait_screen_falls_back_and_warns(tmp_path, monkeypatch):
+    import hugin.llm as llm
+    from hugin.engines import Engine
+
+    async def echo_down(message, persona, key):
+        raise EchoError("Echo returned HTTP 402: out of credits")
+
+    async def fake_llm(engine, prompt, system=None):
+        return "System Title\n\nSystem body" if "Pick the single best" not in prompt else "x"
+
+    monkeypatch.setattr(echo_mod, "ask_echo", echo_down)
+    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
+    monkeypatch.setattr(llm, "call_llm", fake_llm)
+    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
+    notes = []
+    engine = Engine("sys", "https://x/v1", "m", 30, "key")
+
+    result = {}
+
+    async def go():
+        class Host(App):
+            def notify(self, message, **kw):
+                notes.append(message)
+
+        app = Host()
+        async with app.run_test() as pilot:
+            app.push_screen(
+                ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, engine),
+                lambda r: result.setdefault("v", r),
+            )
+            await pilot.pause(0.5)
+
+    asyncio.run(go())
+    assert result["v"].name == "system-title.md"
+    assert "System body" in result["v"].read_text()
+    assert any("402" in n and "sys" in n for n in notes)

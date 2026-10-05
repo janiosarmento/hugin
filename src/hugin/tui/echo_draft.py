@@ -11,13 +11,12 @@ from textual.widgets import Button, Label, LoadingIndicator, Static, TextArea
 
 from hugin.echo import (
     EchoError,
-    ask_echo,
     build_message,
     create_draft,
-    get_api_key,
     parse_answer,
     pick_category,
     select_samples,
+    write_with_fallback,
 )
 from hugin.engines import load_fulcrum_echo_persona
 from hugin.hugo import load_categories
@@ -162,8 +161,13 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                 raise EchoError("No published posts to use as writing samples")
             message = build_message(samples, self._request)
             persona = await asyncio.to_thread(load_fulcrum_echo_persona)
-            api_key = await asyncio.to_thread(get_api_key)
-            text = await ask_echo(message, persona, api_key)
+            text, echo_error = await write_with_fallback(message, persona, self._engine)
+            if echo_error:
+                self.notify(
+                    f"Echo failed ({echo_error}); draft written by {self._engine.id} instead.",
+                    severity="warning",
+                    timeout=12,
+                )
             title, body = parse_answer(text, self._request)
             self.query_one("#echo-wait-status", Label).update("Picking a category…")
             categories = await asyncio.to_thread(load_categories, self._directory)

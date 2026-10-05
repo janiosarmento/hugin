@@ -6,6 +6,7 @@ is resolved from Jano at call time, using the key name configured in
 engines.toml (see engines.load_fulcrum_echo_secret).
 """
 
+import asyncio
 import random
 import re
 from datetime import datetime
@@ -111,6 +112,17 @@ def get_api_key() -> str:
     return key
 
 
+def _error_detail(response: httpx.Response) -> str:
+    """Short server-side reason (e.g. 'insufficient credits'), if the body has one."""
+    try:
+        err = response.json().get("error")
+    except Exception:
+        return ""
+    if isinstance(err, dict):
+        err = err.get("message")
+    return f": {str(err)[:200]}" if err else ""
+
+
 async def ask_echo(message: str, persona: str, api_key: str) -> str:
     payload = {
         "model": "echo",
@@ -128,7 +140,7 @@ async def ask_echo(message: str, persona: str, api_key: str) -> str:
     if response.status_code == 401:
         raise EchoError("Echo rejected the API key (401) — rotate it in Jano?")
     if response.status_code >= 400:
-        raise EchoError(f"Echo returned HTTP {response.status_code}")
+        raise EchoError(f"Echo returned HTTP {response.status_code}{_error_detail(response)}")
     try:
         text = response.json()["choices"][0]["message"]["content"]
     except (ValueError, KeyError, IndexError, TypeError) as e:
@@ -136,6 +148,40 @@ async def ask_echo(message: str, persona: str, api_key: str) -> str:
     if not text or not text.strip():
         raise EchoError("Echo returned an empty answer")
     return text.strip()
+
+
+FALLBACK_MIN_TIMEOUT = 300  # long-form writing outlasts typical chat timeouts
+
+
+async def write_with_fallback(
+    message: str, persona: str, engine
+) -> tuple[str, str | None]:
+    """Ask Echo; if it fails for any reason, delegate to the system LLM.
+
+    Returns (text, echo_error): echo_error is None when Echo answered, else
+    the reason Echo failed (the text then comes from `engine`). Raises
+    EchoError only if the fallback is also impossible or fails too.
+    """
+    try:
+        api_key = await asyncio.to_thread(get_api_key)
+        return await ask_echo(message, persona, api_key), None
+    except EchoError as echo_error:
+        reason = str(echo_error)
+    if engine is None or not engine.available:
+        raise EchoError(f"{reason} (and no system LLM available as fallback)")
+
+    from dataclasses import replace
+
+    from hugin.llm import call_llm
+
+    patient = replace(engine, timeout=max(engine.timeout, FALLBACK_MIN_TIMEOUT))
+    try:
+        text = await call_llm(patient, message)
+    except Exception as e:
+        raise EchoError(f"{reason}; fallback to {engine.id} failed too: {e}") from e
+    if not text or not text.strip():
+        raise EchoError(f"{reason}; fallback to {engine.id} returned nothing")
+    return text.strip(), reason
 
 
 MAX_TITLE_CHARS = 120

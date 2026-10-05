@@ -13,6 +13,7 @@ from hugin.echo import (
     create_draft,
     parse_category,
     pick_category,
+    write_with_fallback,
     has_enough_samples,
     select_samples,
     split_title,
@@ -227,3 +228,77 @@ class TestCategory:
         path = create_draft(tmp_path, "Title\n\nBody", "req", "Life")
         assert "- Life" in path.read_text()
         assert "TBD" not in path.read_text().split("categories:")[1].split("\n")[1]
+
+
+class TestFallback:
+    def _engine(self, available=True):
+        from hugin.engines import Engine
+
+        return Engine("sys", "https://x/v1", "m", 30, "key" if available else None)
+
+    def _setup(self, monkeypatch, echo_result):
+        import hugin.llm as llm
+
+        calls = {}
+
+        async def fake_echo(message, persona, key):
+            if isinstance(echo_result, Exception):
+                raise echo_result
+            return echo_result
+
+        async def fake_llm(engine, prompt, system=None):
+            calls["engine"] = engine
+            calls["prompt"] = prompt
+            return calls.get("answer", " fallback text ")
+
+        monkeypatch.setattr(echo, "get_api_key", lambda: "k")
+        monkeypatch.setattr(echo, "ask_echo", fake_echo)
+        monkeypatch.setattr(llm, "call_llm", fake_llm)
+        return calls
+
+    def test_echo_success_skips_fallback(self, monkeypatch):
+        calls = self._setup(monkeypatch, "echo text")
+        assert asyncio.run(write_with_fallback("m", "p", self._engine())) == ("echo text", None)
+        assert calls == {}
+
+    def test_echo_failure_delegates_to_system_llm(self, monkeypatch):
+        calls = self._setup(monkeypatch, EchoError("Echo returned HTTP 402: out of credits"))
+        text, reason = asyncio.run(write_with_fallback("the message", "p", self._engine()))
+        assert text == "fallback text"
+        assert "402" in reason and "out of credits" in reason
+        assert calls["prompt"] == "the message"
+        assert calls["engine"].timeout >= 300  # long-form writing gets a patient timeout
+
+    def test_missing_key_also_falls_back(self, monkeypatch):
+        calls = self._setup(monkeypatch, "unused")
+
+        def no_key():
+            raise EchoError("Echo API key not found")
+
+        monkeypatch.setattr(echo, "get_api_key", no_key)
+        text, reason = asyncio.run(write_with_fallback("m", "p", self._engine()))
+        assert text == "fallback text" and "not found" in reason
+
+    def test_no_usable_system_llm(self, monkeypatch):
+        self._setup(monkeypatch, EchoError("boom"))
+        for engine in (None, self._engine(available=False)):
+            with pytest.raises(EchoError, match="boom.*no system LLM"):
+                asyncio.run(write_with_fallback("m", "p", engine))
+
+    def test_both_fail(self, monkeypatch):
+        import hugin.llm as llm
+
+        self._setup(monkeypatch, EchoError("echo down"))
+
+        async def bad(engine, prompt, system=None):
+            raise RuntimeError("llm down")
+
+        monkeypatch.setattr(llm, "call_llm", bad)
+        with pytest.raises(EchoError, match="echo down.*llm down"):
+            asyncio.run(write_with_fallback("m", "p", self._engine()))
+
+
+def test_http_error_detail_is_surfaced(monkeypatch):
+    _patch_client(monkeypatch, lambda r: httpx.Response(402, json={"error": {"message": "out of credits"}}))
+    with pytest.raises(EchoError, match="402: out of credits"):
+        asyncio.run(ask_echo("m", "p", "k"))

@@ -213,7 +213,7 @@ secret = "fulcrum_echo.key"
 persona = "Janio Sarmento"  # optional; whose voice Echo writes in
 ```
 
-Press `h` (hidden; listed under `?`) to ask Echo for a new post: describe it in the prompt box, Ctrl+S sends it together with 6 published posts as writing samples (the 3 latest, the 2 largest of the rest, and 1 semantically closest to your prompt; with fewer than 6 published posts it just warns), and the answer is saved as a new `draft: true` post.
+Press `h` (hidden; listed under `?`) to ask Echo for a new post: describe it in the prompt box, Ctrl+S sends it together with 6 published posts as writing samples (the 3 latest, the 2 largest of the rest, and 1 semantically closest to your prompt; with fewer than 6 published posts it just warns), and the answer is saved as a new `draft: true` post. If Echo fails for any reason (no credits, bad or missing key, timeout, network), the same request goes to the engine selected with `n` and a warning says why. The category is always picked by that engine, never by Echo.
 
 ### Link settings (`~/.hugin/links.toml`)
 
