@@ -286,18 +286,36 @@ def load_categories(posts_dir: Path) -> list[str]:
     return []
 
 
+def _select_option_values(options: Any) -> list[str]:
+    """Stored values of a Pages CMS select field.
+
+    `options` is either a plain list or a dict with a `values` list; each
+    entry is a string or a {label, value} mapping (the value is what ends
+    up in the frontmatter).
+    """
+    if isinstance(options, dict):
+        options = options.get("values")
+    if not isinstance(options, list):
+        return []
+    out = []
+    for item in options:
+        if isinstance(item, dict):
+            item = item.get("value", item.get("label"))
+        if item:
+            out.append(str(item))
+    return out
+
+
 def _extract_pages_cms_categories(data: Any) -> list[str]:
     """Walk a Pages CMS config dict to find a select field named categories/category."""
     if not isinstance(data, dict):
         return []
 
     # Check if this node is a select field with the right name
-    if (
-        data.get("type") == "select"
-        and data.get("name", "").rstrip("s") == "categor"  # category or categories
-        and isinstance(data.get("options"), list)
-    ):
-        return [str(o) for o in data["options"] if o]
+    if data.get("type") == "select" and data.get("name") in ("category", "categories"):
+        values = _select_option_values(data.get("options"))
+        if values:
+            return values
 
     # Recurse into all dict values and lists
     for value in data.values():

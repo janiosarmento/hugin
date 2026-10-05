@@ -182,14 +182,14 @@ def test_wait_screen_assigns_category_from_system_llm(tmp_path, monkeypatch):
 
     (tmp_path / ".pages.yml").write_text(
         "content:\n  - name: post\n    fields:\n      - name: categories\n"
-        "        type: select\n        options: [Technology, Life]\n"
+        "        type: select\n        options:\n          values:\n            - label: Life Stuff\n              value: life\n"
     )
 
     async def fake_ask(message, persona, key):
         return "Title\n\nBody"
 
     async def fake_llm(engine, prompt, system=None):
-        return "Life"
+        return "life"
 
     monkeypatch.setattr(ed, "ask_echo", fake_ask)
     monkeypatch.setattr(llm, "call_llm", fake_llm)
@@ -201,4 +201,4 @@ def test_wait_screen_assigns_category_from_system_llm(tmp_path, monkeypatch):
 
     path = _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, object()), keys)
     text = path.read_text()
-    assert "- Life" in text and "TBD" not in text.split("description")[0].split("categories:")[1]
+    assert "- life" in text and "TBD" not in text.split("description")[0].split("categories:")[1]

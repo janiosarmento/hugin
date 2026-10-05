@@ -148,3 +148,24 @@ class TestHugoSite:
         site = HugoSite(posts_dir)
         url = site.post_url({}, "2026-03-20-hello-world.md")
         assert url == "/posts/hello-world/"
+
+
+def test_load_categories_pages_cms_label_value_format(tmp_path):
+    from hugin.hugo import load_categories
+
+    (tmp_path / ".pages.yml").write_text(
+        "content:\n  - name: post\n    fields:\n      - name: categories\n"
+        "        type: select\n        options:\n          multiple: true\n"
+        "          values:\n            - label: Tech Stuff\n              value: tech-stuff\n"
+        "            - label: Life\n              value: life\n"
+    )
+    assert load_categories(tmp_path) == ["tech-stuff", "life"]
+
+
+def test_load_categories_pages_cms_plain_list(tmp_path):
+    from hugin.hugo import load_categories
+
+    (tmp_path / ".pages.yml").write_text(
+        "fields:\n  - name: category\n    type: select\n    options: [a, b]\n"
+    )
+    assert load_categories(tmp_path) == ["a", "b"]
