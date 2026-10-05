@@ -1924,7 +1924,16 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
+        from hugin.echo import MIN_SAMPLES, has_enough_samples
         from hugin.tui.echo_draft import EchoPromptScreen, EchoWaitScreen
+
+        if not has_enough_samples(self.all_posts):
+            self.notify(
+                f"Not enough published posts to give Echo references "
+                f"(need at least {MIN_SAMPLES}).",
+                severity="warning",
+            )
+            return
 
         def on_created(path) -> None:
             if path is None:

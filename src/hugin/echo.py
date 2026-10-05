@@ -6,6 +6,7 @@ is resolved from Jano at call time, using the key name configured in
 engines.toml (see engines.load_fulcrum_echo_secret).
 """
 
+import random
 import re
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +21,8 @@ ECHO_TIMEOUT = 900  # seconds; Echo's own server-side limit
 
 N_RECENT = 3
 N_LARGEST = 2
+N_RANDOM = 1
+MIN_SAMPLES = N_RECENT + N_LARGEST + N_RANDOM
 
 
 class EchoError(Exception):
@@ -32,9 +35,22 @@ def _is_published(post: Post) -> bool:
     return post.date is None or post.date <= datetime.now(post.date.tzinfo)
 
 
-def select_samples(posts: list[Post]) -> list[Post]:
-    """The 3 most recent published posts plus the 2 largest remaining ones."""
-    published = [p for p in posts if _is_published(p)]
+def published_posts(posts: list[Post]) -> list[Post]:
+    return [p for p in posts if _is_published(p)]
+
+
+def has_enough_samples(posts: list[Post]) -> bool:
+    return len(published_posts(posts)) >= MIN_SAMPLES
+
+
+def select_samples(posts: list[Post], rng: random.Random | None = None) -> list[Post]:
+    """3 most recent published posts, the 2 largest of the rest, and 1 random other.
+
+    All picks are distinct. With fewer than MIN_SAMPLES published posts the
+    result is shorter; callers should check has_enough_samples() first.
+    """
+    rng = rng or random
+    published = published_posts(posts)
     recent = sorted(
         (p for p in published if p.date is not None),
         key=lambda p: p.date.replace(tzinfo=None),
@@ -43,7 +59,10 @@ def select_samples(posts: list[Post]) -> list[Post]:
     taken = {p.path for p in recent}
     rest = [p for p in published if p.path not in taken]
     largest = sorted(rest, key=lambda p: p.path.stat().st_size, reverse=True)[:N_LARGEST]
-    return recent + largest
+    taken |= {p.path for p in largest}
+    others = [p for p in rest if p.path not in taken]
+    extra = rng.sample(others, min(N_RANDOM, len(others)))
+    return recent + largest + extra
 
 
 def build_message(samples: list[Post], request: str) -> str:

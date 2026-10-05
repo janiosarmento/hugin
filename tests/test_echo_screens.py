@@ -10,7 +10,7 @@ from hugin.scanner import Post
 
 def _posts(tmp_path):
     out = []
-    for i in range(5):
+    for i in range(6):
         path = tmp_path / f"p{i}.md"
         path.write_text("body")
         out.append(Post(path, {"title": f"P{i}"}, "body", False,
@@ -66,7 +66,7 @@ def test_wait_screen_creates_draft(tmp_path, monkeypatch):
     path = _run(lambda: ed.EchoWaitScreen("write cats", _posts(tmp_path), tmp_path), keys)
     assert path.name == "echo-title.md"
     assert "Echo body." in path.read_text()
-    assert seen["persona"] == "Jane Doe" and seen["message"].count("<post>") == 5
+    assert seen["persona"] == "Jane Doe" and seen["message"].count("<post>") == 6
     assert seen["message"].endswith("write cats")
 
 
@@ -81,7 +81,7 @@ def test_wait_screen_error_returns_none(tmp_path, monkeypatch):
         await pilot.pause(0.3)
 
     assert _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path), keys) is None
-    assert len(list(tmp_path.glob("*.md"))) == 5
+    assert len(list(tmp_path.glob("*.md"))) == 6
 
 
 def test_h_key_creates_draft_in_main_screen(tmp_path, monkeypatch):
@@ -130,6 +130,48 @@ def test_h_key_creates_draft_in_main_screen(tmp_path, monkeypatch):
             await pilot.pause(0.5)
             assert isinstance(app.screen, HuginScreen)
             assert (tmp_path / "from-echo.md").exists()
-            assert app.screen.query_one("#post-table", DataTable).row_count == 6
+            assert app.screen.query_one("#post-table", DataTable).row_count == 7
 
     asyncio.run(go())
+
+
+def test_h_key_warns_without_enough_posts(tmp_path):
+    from unittest.mock import MagicMock
+
+    from hugin.config import EmbeddingsConfig, FrontmatterConfig, HuginConfig, LinksConfig
+    from hugin.engines import Engine
+    from hugin.tui.review import HuginScreen
+
+    posts = _posts(tmp_path)[:5]
+    site = MagicMock()
+    site.post_url.return_value = "/x"
+    site.warnings = []
+    index = MagicMock()
+    index.has_no_outgoing.return_value = False
+    index.get_post_url.return_value = "/x"
+    index.get_link_keywords.return_value = ""
+    notes = []
+
+    class Host(App):
+        def on_mount(self):
+            self.push_screen(HuginScreen(
+                posts=posts, all_posts=list(posts),
+                engine=Engine("t", "http://localhost/v1", "m", 30, None),
+                pool={}, state={}, directory=tmp_path,
+                config=HuginConfig(LinksConfig(), EmbeddingsConfig(), FrontmatterConfig()),
+                site=site, index=index,
+            ))
+
+        def notify(self, message, **kw):
+            notes.append(message)
+
+    async def go():
+        app = Host()
+        async with app.run_test(size=(140, 50)) as pilot:
+            await pilot.pause()
+            await pilot.press("h")
+            await pilot.pause()
+            assert isinstance(app.screen, HuginScreen)
+
+    asyncio.run(go())
+    assert any("Not enough published posts" in n for n in notes)

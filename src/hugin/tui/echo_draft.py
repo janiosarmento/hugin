@@ -71,8 +71,8 @@ class EchoPromptScreen(ModalScreen[str | None]):
         with Vertical(id="echo-modal"):
             yield Label("Echo — describe the post", id="echo-title")
             yield Static(
-                "Echo will get your 3 latest and 2 largest published posts as "
-                "writing samples. Ctrl+S sends, Esc cancels.",
+                "Echo will get 6 published posts as writing samples (3 latest, "
+                "2 largest, 1 random). Ctrl+S sends, Esc cancels.",
                 id="echo-hint",
             )
             yield TextArea(id="echo-prompt")
