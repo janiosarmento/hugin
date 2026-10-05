@@ -24,6 +24,9 @@ from hugin.hugo import load_categories
 from hugin.scanner import Post
 
 
+WAIT_TEXT = "Waiting for Echo (can take several minutes)…  Esc cancels"
+
+
 class EchoPromptScreen(ModalScreen[str | None]):
     """Text area where the user describes the post Echo should write."""
 
@@ -75,7 +78,7 @@ class EchoPromptScreen(ModalScreen[str | None]):
             yield Label("Echo — describe the post", id="echo-title")
             yield Static(
                 "Echo will get 6 published posts as writing samples (3 latest, "
-                "2 largest, 1 random). Ctrl+S sends, Esc cancels.",
+                "2 largest, 1 similar to your prompt). Ctrl+S sends, Esc cancels.",
                 id="echo-hint",
             )
             yield TextArea(id="echo-prompt")
@@ -127,9 +130,10 @@ class EchoWaitScreen(ModalScreen[Path | None]):
     }
     """
 
-    def __init__(self, request: str, posts: list[Post], directory: Path, engine) -> None:
+    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None) -> None:
         super().__init__()
         self._engine = engine
+        self._index = index
         self._request = request
         self._posts = posts
         self._directory = directory
@@ -137,7 +141,7 @@ class EchoWaitScreen(ModalScreen[Path | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="echo-wait-modal"):
             yield LoadingIndicator()
-            yield Label("Waiting for Echo (can take several minutes)…  Esc cancels", id="echo-wait-status")
+            yield Label(WAIT_TEXT, id="echo-wait-status")
 
     def on_mount(self) -> None:
         self._run()
@@ -145,7 +149,15 @@ class EchoWaitScreen(ModalScreen[Path | None]):
     @work(exclusive=True)
     async def _run(self) -> None:
         try:
-            samples = select_samples(self._posts)
+            ranked = None
+            if self._index is not None:
+                self.query_one("#echo-wait-status", Label).update("Finding a similar post…")
+                try:
+                    ranked = await asyncio.to_thread(self._index.rank_by_text, self._request)
+                except Exception:
+                    ranked = None  # embeddings unavailable: random sample instead
+            self.query_one("#echo-wait-status", Label).update(WAIT_TEXT)
+            samples = select_samples(self._posts, ranked)
             if not samples:
                 raise EchoError("No published posts to use as writing samples")
             message = build_message(samples, self._request)

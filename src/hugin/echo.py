@@ -21,8 +21,8 @@ ECHO_TIMEOUT = 900  # seconds; Echo's own server-side limit
 
 N_RECENT = 3
 N_LARGEST = 2
-N_RANDOM = 1
-MIN_SAMPLES = N_RECENT + N_LARGEST + N_RANDOM
+N_SIMILAR = 1
+MIN_SAMPLES = N_RECENT + N_LARGEST + N_SIMILAR
 
 
 class EchoError(Exception):
@@ -43,11 +43,19 @@ def has_enough_samples(posts: list[Post]) -> bool:
     return len(published_posts(posts)) >= MIN_SAMPLES
 
 
-def select_samples(posts: list[Post], rng: random.Random | None = None) -> list[Post]:
-    """3 most recent published posts, the 2 largest of the rest, and 1 random other.
+def select_samples(
+    posts: list[Post],
+    ranked_paths: list[str] | None = None,
+    rng: random.Random | None = None,
+) -> list[Post]:
+    """3 most recent published posts, the 2 largest of the rest, and 1 similar.
 
-    All picks are distinct. With fewer than MIN_SAMPLES published posts the
-    result is shorter; callers should check has_enough_samples() first.
+    `ranked_paths` is the semantic ranking (absolute paths, best first) of
+    the user's prompt against the blog; the first not-yet-chosen published
+    post in it is the "similar" sample. Without a ranking (embeddings
+    unavailable) a random other post stands in. All picks are distinct. With
+    fewer than MIN_SAMPLES published posts the result is shorter; callers
+    should check has_enough_samples() first.
     """
     rng = rng or random
     published = published_posts(posts)
@@ -61,7 +69,15 @@ def select_samples(posts: list[Post], rng: random.Random | None = None) -> list[
     largest = sorted(rest, key=lambda p: p.path.stat().st_size, reverse=True)[:N_LARGEST]
     taken |= {p.path for p in largest}
     others = [p for p in rest if p.path not in taken]
-    extra = rng.sample(others, min(N_RANDOM, len(others)))
+
+    extra: list[Post] = []
+    by_abs = {str(p.path.resolve()): p for p in others}
+    for path in ranked_paths or []:
+        if path in by_abs:
+            extra = [by_abs[path]]
+            break
+    if not extra:
+        extra = rng.sample(others, min(N_SIMILAR, len(others)))
     return recent + largest + extra
 
 

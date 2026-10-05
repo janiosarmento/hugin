@@ -51,13 +51,25 @@ class TestSelectSamples:
         names = [p.filename for p in picked]
         assert names[:5] == ["a.md", "b.md", "c.md", "big2.md", "big1.md"]
         assert len(names) == 6 and len(set(names)) == 6
-        assert names[5] in {"s1.md", "s2.md", "s3.md"}
+        assert names[5] in {"s1.md", "s2.md", "s3.md"}  # no ranking: random stand-in
 
-    def test_random_pick_varies_with_rng(self, tmp_path):
+    def test_similar_pick_follows_ranking(self, tmp_path):
+        posts = self._eight(tmp_path)
+        ranked = [str((tmp_path / n).resolve()) for n in ("a.md", "big1.md", "s3.md", "s1.md")]
+        # a.md and big1.md are already chosen, so s3.md is the best remaining
+        assert select_samples(posts, ranked)[5].filename == "s3.md"
+
+    def test_ranking_ignoring_drafts_and_unknown_paths(self, tmp_path):
+        posts = self._eight(tmp_path)
+        posts[-1].metadata["draft"] = True  # s3 becomes a draft
+        ranked = ["/nowhere.md", str((tmp_path / "s3.md").resolve()), str((tmp_path / "s2.md").resolve())]
+        assert select_samples(posts, ranked)[5].filename == "s2.md"
+
+    def test_random_fallback_varies_with_rng(self, tmp_path):
         import random
 
         posts = self._eight(tmp_path)
-        seen = {select_samples(posts, random.Random(i))[5].filename for i in range(30)}
+        seen = {select_samples(posts, None, random.Random(i))[5].filename for i in range(30)}
         assert seen == {"s1.md", "s2.md", "s3.md"}
 
     def test_largest_skips_already_recent(self, tmp_path):

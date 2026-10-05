@@ -483,6 +483,27 @@ class EmbeddingIndex:
         entry = self._cache["posts"].get(abs_path)
         return bool(entry and entry.get("no_outgoing"))
 
+    def rank_by_text(self, text: str) -> list[str]:
+        """Absolute paths of cached posts, most similar to free `text` first."""
+        if not text.strip():
+            return []
+        if self._model is None:
+            self._load_model(print_fn=lambda *a, **k: None)
+        query_vec = self._encode_single("query: " + text)
+        qnorm = np.linalg.norm(query_vec)
+        if qnorm == 0:
+            return []
+        scored = []
+        for path, entry in self._cache["posts"].items():
+            if "embedding" not in entry:
+                continue
+            vec = np.array(entry["embedding"])
+            norm = qnorm * np.linalg.norm(vec)
+            if norm > 0:
+                scored.append((float(np.dot(query_vec, vec) / norm), path))
+        scored.sort(reverse=True)
+        return [path for _, path in scored]
+
     def find_similar(
         self,
         post,

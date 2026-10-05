@@ -202,3 +202,47 @@ def test_wait_screen_assigns_category_from_system_llm(tmp_path, monkeypatch):
     path = _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, object()), keys)
     text = path.read_text()
     assert "- life" in text and "TBD" not in text.split("description")[0].split("categories:")[1]
+
+
+def test_wait_screen_uses_semantic_ranking(tmp_path, monkeypatch):
+    seen = {}
+
+    class FakeIndex:
+        def rank_by_text(self, text):
+            seen["query"] = text
+            return [str((tmp_path / "p5.md").resolve())]
+
+    async def fake_ask(message, persona, key):
+        seen["message"] = message
+        return "T\n\nB"
+
+    monkeypatch.setattr(ed, "ask_echo", fake_ask)
+    monkeypatch.setattr(ed, "get_api_key", lambda: "k")
+    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
+    posts = _posts(tmp_path)  # p0..p5, p0 newest; p5 oldest and smallest tie
+
+    async def keys(app, pilot):
+        await pilot.pause(0.3)
+
+    _run(lambda: ed.EchoWaitScreen("about cats", posts, tmp_path, None, FakeIndex()), keys)
+    assert seen["query"] == "about cats"
+    assert seen["message"].count("<post>") == 6
+
+
+def test_wait_screen_survives_index_failure(tmp_path, monkeypatch):
+    class BrokenIndex:
+        def rank_by_text(self, text):
+            raise RuntimeError("model missing")
+
+    async def fake_ask(message, persona, key):
+        return "T\n\nB"
+
+    monkeypatch.setattr(ed, "ask_echo", fake_ask)
+    monkeypatch.setattr(ed, "get_api_key", lambda: "k")
+    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
+
+    async def keys(app, pilot):
+        await pilot.pause(0.3)
+
+    path = _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None, BrokenIndex()), keys)
+    assert path is not None and path.name == "t.md"
