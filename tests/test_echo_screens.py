@@ -11,7 +11,7 @@ from hugin.scanner import Post
 
 def _posts(tmp_path):
     out = []
-    for i in range(6):
+    for i in range(7):
         path = tmp_path / f"p{i}.md"
         path.write_text("body")
         out.append(Post(path, {"title": f"P{i}"}, "body", False,
@@ -68,7 +68,7 @@ def test_wait_screen_creates_draft(tmp_path, monkeypatch):
     path = _run(lambda: ed.EchoWaitScreen("write cats", _posts(tmp_path), tmp_path, None), keys)
     assert path.name == "echo-title.md"
     assert "Echo body." in path.read_text()
-    assert seen["persona"] == "Jane Doe" and seen["message"].count("<post>") == 6
+    assert seen["persona"] == "Jane Doe" and seen["message"].count("<post>") == 7
     assert seen["message"].endswith("write cats")
 
 
@@ -83,7 +83,7 @@ def test_wait_screen_error_returns_none(tmp_path, monkeypatch):
         await pilot.pause(0.3)
 
     assert _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None), keys) is None
-    assert len(list(tmp_path.glob("*.md"))) == 6
+    assert len(list(tmp_path.glob("*.md"))) == 7
 
 
 def test_h_key_creates_draft_in_main_screen(tmp_path, monkeypatch):
@@ -132,7 +132,7 @@ def test_h_key_creates_draft_in_main_screen(tmp_path, monkeypatch):
             await pilot.pause(0.5)
             assert isinstance(app.screen, HuginScreen)
             assert (tmp_path / "from-echo.md").exists()
-            assert app.screen.query_one("#post-table", DataTable).row_count == 7
+            assert app.screen.query_one("#post-table", DataTable).row_count == 8
 
     asyncio.run(go())
 
@@ -144,7 +144,7 @@ def test_h_key_warns_without_enough_posts(tmp_path):
     from hugin.engines import Engine
     from hugin.tui.review import HuginScreen
 
-    posts = _posts(tmp_path)[:5]
+    posts = _posts(tmp_path)[:6]
     site = MagicMock()
     site.post_url.return_value = "/x"
     site.warnings = []
@@ -228,7 +228,7 @@ def test_wait_screen_uses_semantic_ranking(tmp_path, monkeypatch):
 
     _run(lambda: ed.EchoWaitScreen("about cats", posts, tmp_path, None, FakeIndex()), keys)
     assert seen["query"] == "about cats"
-    assert seen["message"].count("<post>") == 6
+    assert seen["message"].count("<post>") == 7
 
 
 def test_wait_screen_survives_index_failure(tmp_path, monkeypatch):
@@ -317,9 +317,9 @@ def test_prompt_screen_lists_sample_titles_and_updates_similar(tmp_path, monkeyp
             await pilot.press(*"cats")
             await pilot.pause(0.4)
             shown = str(screen.query_one("#echo-samples").render())
-            # odd + P4 (P5 is the pinned random, so it is skipped in the ranking)
-            assert shown.count("similar") == 2
-            assert "Odd [markup] title" in shown and "P4" in shown
+            # odd + P4 + P3 (P5 is the pinned random, so it is skipped in the ranking)
+            assert shown.count("similar") == 3
+            assert "Odd [markup] title" in shown and "P4" in shown and "P3" in shown
             assert "picked when you send" not in shown
 
     asyncio.run(go())

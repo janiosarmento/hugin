@@ -23,7 +23,7 @@ ECHO_TIMEOUT = 900  # seconds; Echo's own server-side limit
 FALLBACK_MIN_TIMEOUT = 300  # long-form writing outlasts typical chat timeouts
 
 N_RECENT = 3
-N_SIMILAR = 2
+N_SIMILAR = 3
 N_RANDOM = 1
 MIN_SAMPLES = N_RECENT + N_SIMILAR + N_RANDOM
 
@@ -84,7 +84,7 @@ def select_samples(
     rng: random.Random | None = None,
     random_pick: Post | None = None,
 ) -> list[Post]:
-    """3 most recent + 2 closest to the prompt + 1 random, all distinct.
+    """3 most recent + 3 closest to the prompt + 1 random, all distinct.
 
     `ranked_paths` is the semantic ranking (absolute paths, best first) of
     the user's prompt against the blog. `random_pick` pins the random sample

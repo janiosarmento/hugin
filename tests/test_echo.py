@@ -47,15 +47,15 @@ class TestSelectSamples:
         picked = select_samples(posts, self._abs(tmp_path, "g", "f", "e"))
         names = [p.path.stem for p in picked]
         assert names[:3] == ["a", "b", "c"]
-        assert len(names) == 6 and len(set(names)) == 6
+        assert len(names) == 7 and len(set(names)) == 7
 
     def test_similar_follow_ranking_and_skip_recent_and_random(self, tmp_path):
         posts = self._eight(tmp_path)
         rnd = posts[5]  # f
         ranked = self._abs(tmp_path, "a", "f", "g", "d", "e")
         names = [p.path.stem for p in select_samples(posts, ranked, random_pick=rnd)]
-        # a is recent and f is the pinned random, so the 2 similar are g and d
-        assert names == ["a", "b", "c", "g", "d", "f"]
+        # a is recent and f is the pinned random, so the 3 similar are g, d and e
+        assert names == ["a", "b", "c", "g", "d", "e", "f"]
 
     def test_pinned_random_is_kept(self, tmp_path):
         posts = self._eight(tmp_path)
@@ -65,11 +65,11 @@ class TestSelectSamples:
         posts = self._eight(tmp_path)
         recent = posts[0]  # already a recent sample, not a valid random pick
         picked = select_samples(posts, None, random_pick=recent)
-        assert len({p.path for p in picked}) == 6
+        assert len({p.path for p in picked}) == 7
 
     def test_no_ranking_falls_back_to_random(self, tmp_path):
         picked = select_samples(self._eight(tmp_path))
-        assert len({p.path for p in picked}) == 6
+        assert len({p.path for p in picked}) == 7
 
     def test_random_varies_with_rng(self, tmp_path):
         import random
@@ -89,10 +89,10 @@ class TestSelectSamples:
     def test_has_enough_samples(self, tmp_path):
         posts = self._eight(tmp_path)
         assert has_enough_samples(posts)
-        assert has_enough_samples(posts[:6])
-        assert not has_enough_samples(posts[:5])
-        posts[0].metadata["draft"] = True
+        assert has_enough_samples(posts[:7])
         assert not has_enough_samples(posts[:6])
+        posts[0].metadata["draft"] = True
+        assert not has_enough_samples(posts[:7])
 
 
 def test_build_message_wraps_posts_and_ends_with_request(tmp_path):

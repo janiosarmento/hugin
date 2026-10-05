@@ -10,6 +10,10 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Label, LoadingIndicator, RadioButton, RadioSet, Static, TextArea
 
 from hugin.echo import (
+    MIN_SAMPLES,
+    N_RANDOM,
+    N_RECENT,
+    N_SIMILAR,
     EchoError,
     build_message,
     create_draft,
@@ -29,6 +33,8 @@ from hugin.scanner import Post
 
 WAIT_TEXT = "Waiting for {who} (can take several minutes)…  Esc cancels"
 
+
+SIMILAR_PENDING = f"{N_SIMILAR} closest to your prompt (picked when you send)"
 
 WRITER_ECHO = "echo"
 WRITER_SYSTEM = "system"
@@ -116,7 +122,7 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         # Drawn once, so the title shown is the one that gets sent.
         self.random_pick = draw_random(rest)
         self._pool = [p for p in rest if p is not self.random_pick]
-        self._similar_note = "2 closest to your prompt (picked when you send)"
+        self._similar_note = SIMILAR_PENDING
         self._similar: list[Post] = []
         self._debounce = None
 
@@ -124,8 +130,9 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         with Vertical(id="echo-modal"):
             yield Label("Echo — describe the post", id="echo-title")
             yield Static(
-                "Echo will get 6 published posts as writing samples (3 latest, "
-                "2 similar to your prompt, 1 random). Ctrl+S sends, F2 switches writer, Esc cancels.",
+                f"{MIN_SAMPLES} published posts go along as writing samples "
+                f"({N_RECENT} latest, {N_SIMILAR} similar to your prompt, {N_RANDOM} random). "
+                "Ctrl+S sends, F2 switches writer, Esc cancels.",
                 id="echo-hint",
             )
             yield TextArea(id="echo-prompt")
@@ -197,7 +204,7 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
             return
         if not text.strip():
             self._similar = []
-            self._similar_note = "2 closest to your prompt (picked when you send)"
+            self._similar_note = SIMILAR_PENDING
             self._refresh_samples()
             return
         try:
