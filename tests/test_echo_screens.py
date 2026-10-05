@@ -34,11 +34,12 @@ def _run(screen_factory, keys_fn):
     return result.get("v", "unset")
 
 
-def test_prompt_screen_submits_text():
+def test_prompt_screen_submits_text(monkeypatch):
+    monkeypatch.setattr(ed, "_last_writer", "echo")
     async def keys(app, pilot):
         await pilot.press(*"hello", "ctrl+s")
 
-    assert _run(ed.EchoPromptScreen, keys) == "hello"
+    assert _run(ed.EchoPromptScreen, keys) == ("hello", "echo")
 
 
 def test_prompt_screen_rejects_empty_and_cancels():
@@ -322,3 +323,65 @@ def test_prompt_screen_lists_sample_titles_and_updates_similar(tmp_path, monkeyp
             assert "picked when you send" not in shown
 
     asyncio.run(go())
+
+
+def test_prompt_screen_f2_picks_system_writer_and_remembers(monkeypatch):
+    from hugin.engines import Engine
+
+    monkeypatch.setattr(ed, "_last_writer", "echo")
+    engine = Engine("sys", "https://x/v1", "big-model", 30, "k")
+
+    async def keys(app, pilot):
+        await pilot.press(*"hi", "f2", "ctrl+s")
+
+    assert _run(lambda: ed.EchoPromptScreen([], None, engine), keys) == ("hi", "system")
+    assert ed._last_writer == "system"
+
+    # next time the selector starts on the remembered writer
+    async def keys2(app, pilot):
+        await pilot.press(*"again", "ctrl+s")
+
+    assert _run(lambda: ed.EchoPromptScreen([], None, engine), keys2) == ("again", "system")
+    assert "sys / big-model" in ed.EchoPromptScreen([], None, engine)._system_label()
+
+
+def test_wait_screen_system_writer_skips_echo(tmp_path, monkeypatch):
+    import hugin.llm as llm
+    from hugin.engines import Engine
+
+    def echo_must_not_run(*a, **k):
+        raise AssertionError("Echo must not be called")
+
+    async def fake_llm(engine, prompt, system=None):
+        return "Direct Title\n\nDirect body" if "Pick the single best" not in prompt else "x"
+
+    monkeypatch.setattr(echo_mod, "ask_echo", echo_must_not_run)
+    monkeypatch.setattr(echo_mod, "get_api_key", echo_must_not_run)
+    monkeypatch.setattr(llm, "call_llm", fake_llm)
+    notes = []
+    engine = Engine("sys", "https://x/v1", "big-model", 30, "key")
+    result = {}
+
+    async def go():
+        class Host(App):
+            def notify(self, message, **kw):
+                notes.append(message)
+
+        app = Host()
+        async with app.run_test() as pilot:
+            app.push_screen(
+                ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, engine, writer="system"),
+                lambda r: result.setdefault("v", r),
+            )
+            await pilot.pause(0.5)
+
+    asyncio.run(go())
+    assert result["v"].name == "direct-title.md"
+    assert "Written by sys / big-model" in notes
+
+
+def test_wait_screen_system_writer_without_engine_fails_cleanly(tmp_path):
+    async def keys(app, pilot):
+        await pilot.pause(0.3)
+
+    assert _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None, writer="system"), keys) is None

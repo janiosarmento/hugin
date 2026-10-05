@@ -1962,14 +1962,15 @@ class HuginScreen(Screen):
             self._update_detail_panel()
             self.notify(f"Draft created: {path.name}")
 
-        prompt_screen = EchoPromptScreen(self.all_posts, self.index)
+        prompt_screen = EchoPromptScreen(self.all_posts, self.index, self.engine)
 
-        def on_prompt(request: str | None) -> None:
-            if request:
+        def on_prompt(result: tuple[str, str] | None) -> None:
+            if result:
+                request, writer = result
                 self.app.push_screen(
                     EchoWaitScreen(
                         request, list(self.all_posts), self.directory, self.engine,
-                        self.index, prompt_screen.random_pick,
+                        self.index, prompt_screen.random_pick, writer,
                     ),
                     on_created,
                 )

@@ -20,6 +20,8 @@ from hugin.scanner import Post
 ECHO_URL = "https://echo.fulcrum.inc/api/v1/chat/completions"
 ECHO_TIMEOUT = 900  # seconds; Echo's own server-side limit
 
+FALLBACK_MIN_TIMEOUT = 300  # long-form writing outlasts typical chat timeouts
+
 N_RECENT = 3
 N_SIMILAR = 2
 N_RANDOM = 1
@@ -171,7 +173,23 @@ async def ask_echo(message: str, persona: str, api_key: str) -> str:
     return text.strip()
 
 
-FALLBACK_MIN_TIMEOUT = 300  # long-form writing outlasts typical chat timeouts
+async def write_with_system_llm(message: str, engine) -> str:
+    """Have the system LLM (the engine picked with `n`) write the post."""
+    if engine is None or not engine.available:
+        raise EchoError("No usable system LLM (check the selected engine and its key)")
+
+    from dataclasses import replace
+
+    from hugin.llm import call_llm
+
+    patient = replace(engine, timeout=max(engine.timeout, FALLBACK_MIN_TIMEOUT))
+    try:
+        text = await call_llm(patient, message)
+    except Exception as e:
+        raise EchoError(f"{engine.id} failed: {e}") from e
+    if not text or not text.strip():
+        raise EchoError(f"{engine.id} returned nothing")
+    return text.strip()
 
 
 async def write_with_fallback(
@@ -190,19 +208,10 @@ async def write_with_fallback(
         reason = str(echo_error)
     if engine is None or not engine.available:
         raise EchoError(f"{reason} (and no system LLM available as fallback)")
-
-    from dataclasses import replace
-
-    from hugin.llm import call_llm
-
-    patient = replace(engine, timeout=max(engine.timeout, FALLBACK_MIN_TIMEOUT))
     try:
-        text = await call_llm(patient, message)
-    except Exception as e:
-        raise EchoError(f"{reason}; fallback to {engine.id} failed too: {e}") from e
-    if not text or not text.strip():
-        raise EchoError(f"{reason}; fallback to {engine.id} returned nothing")
-    return text.strip(), reason
+        return await write_with_system_llm(message, engine), reason
+    except EchoError as e:
+        raise EchoError(f"{reason}; fallback failed too: {e}") from e
 
 
 MAX_TITLE_CHARS = 120
