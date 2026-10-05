@@ -285,3 +285,32 @@ def test_wait_screen_falls_back_and_warns(tmp_path, monkeypatch):
     assert result["v"].name == "system-title.md"
     assert "System body" in result["v"].read_text()
     assert any("402" in n and "sys" in n for n in notes)
+
+
+def test_prompt_screen_lists_sample_titles_and_updates_similar(tmp_path):
+    posts = _posts(tmp_path)  # P0 newest ... P5 oldest; all same size
+    posts.append(Post(tmp_path / "[odd].md", {"title": "Odd [markup] title"}, "x", False,
+                      date=datetime.now() - timedelta(days=99)))
+    (tmp_path / "[odd].md").write_text("x")
+
+    class FakeIndex:
+        def rank_by_text(self, text):
+            return [str((tmp_path / "[odd].md").resolve())]
+
+    class Fast(ed.EchoPromptScreen):
+        DEBOUNCE_SECONDS = 0.05
+
+    async def go():
+        app = App()
+        async with app.run_test() as pilot:
+            app.push_screen(Fast(posts, FakeIndex()))
+            await pilot.pause()
+            shown = str(app.screen.query_one("#echo-samples").render())
+            assert shown.count("latest") == 3 and shown.count("largest") == 2
+            assert "P0" in shown and "picked when you send" in shown
+            await pilot.press(*"cats")
+            await pilot.pause(0.4)
+            shown = str(app.screen.query_one("#echo-samples").render())
+            assert "Odd [markup] title" in shown and "picked when you send" not in shown
+
+    asyncio.run(go())

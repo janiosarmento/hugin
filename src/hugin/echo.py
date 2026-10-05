@@ -44,6 +44,31 @@ def has_enough_samples(posts: list[Post]) -> bool:
     return len(published_posts(posts)) >= MIN_SAMPLES
 
 
+def _select_parts(posts: list[Post]) -> tuple[list[Post], list[Post], list[Post]]:
+    """(3 most recent, 2 largest of the rest, remaining candidates), published only."""
+    published = published_posts(posts)
+    recent = sorted(
+        (p for p in published if p.date is not None),
+        key=lambda p: p.date.replace(tzinfo=None),
+        reverse=True,
+    )[:N_RECENT]
+    taken = {p.path for p in recent}
+    rest = [p for p in published if p.path not in taken]
+    largest = sorted(rest, key=lambda p: p.path.stat().st_size, reverse=True)[:N_LARGEST]
+    taken |= {p.path for p in largest}
+    others = [p for p in rest if p.path not in taken]
+    return recent, largest, others
+
+
+def pick_similar(others: list[Post], ranked_paths: list[str] | None) -> Post | None:
+    """First candidate that appears in the semantic ranking, else None."""
+    by_abs = {str(p.path.resolve()): p for p in others}
+    for path in ranked_paths or []:
+        if path in by_abs:
+            return by_abs[path]
+    return None
+
+
 def select_samples(
     posts: list[Post],
     ranked_paths: list[str] | None = None,
@@ -59,26 +84,9 @@ def select_samples(
     should check has_enough_samples() first.
     """
     rng = rng or random
-    published = published_posts(posts)
-    recent = sorted(
-        (p for p in published if p.date is not None),
-        key=lambda p: p.date.replace(tzinfo=None),
-        reverse=True,
-    )[:N_RECENT]
-    taken = {p.path for p in recent}
-    rest = [p for p in published if p.path not in taken]
-    largest = sorted(rest, key=lambda p: p.path.stat().st_size, reverse=True)[:N_LARGEST]
-    taken |= {p.path for p in largest}
-    others = [p for p in rest if p.path not in taken]
-
-    extra: list[Post] = []
-    by_abs = {str(p.path.resolve()): p for p in others}
-    for path in ranked_paths or []:
-        if path in by_abs:
-            extra = [by_abs[path]]
-            break
-    if not extra:
-        extra = rng.sample(others, min(N_SIMILAR, len(others)))
+    recent, largest, others = _select_parts(posts)
+    similar = pick_similar(others, ranked_paths)
+    extra = [similar] if similar else rng.sample(others, min(N_SIMILAR, len(others)))
     return recent + largest + extra
 
 

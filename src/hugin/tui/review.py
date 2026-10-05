@@ -1969,7 +1969,7 @@ class HuginScreen(Screen):
                     on_created,
                 )
 
-        self.app.push_screen(EchoPromptScreen(), on_prompt)
+        self.app.push_screen(EchoPromptScreen(self.all_posts, self.index), on_prompt)
 
     def action_news_ideas(self) -> None:
         """Open the news → post ideas screen."""

@@ -14,7 +14,9 @@ from hugin.echo import (
     build_message,
     create_draft,
     parse_answer,
+    _select_parts,
     pick_category,
+    pick_similar,
     select_samples,
     write_with_fallback,
 )
@@ -59,7 +61,13 @@ class EchoPromptScreen(ModalScreen[str | None]):
     }
 
     #echo-prompt {
-        height: 12;
+        height: 10;
+        margin-bottom: 1;
+    }
+
+    #echo-samples {
+        height: auto;
+        color: $text-muted;
         margin-bottom: 1;
     }
 
@@ -72,6 +80,16 @@ class EchoPromptScreen(ModalScreen[str | None]):
     }
     """
 
+    DEBOUNCE_SECONDS = 1.0
+
+    def __init__(self, posts: list[Post] | None = None, index=None) -> None:
+        super().__init__()
+        self._index = index
+        self._recent, self._largest, self._others = _select_parts(posts or [])
+        self._similar_note = "closest to your prompt (picked when you send)"
+        self._similar: Post | None = None
+        self._debounce = None
+
     def compose(self) -> ComposeResult:
         with Vertical(id="echo-modal"):
             yield Label("Echo — describe the post", id="echo-title")
@@ -81,12 +99,67 @@ class EchoPromptScreen(ModalScreen[str | None]):
                 id="echo-hint",
             )
             yield TextArea(id="echo-prompt")
+            yield Static(self._samples_text(), id="echo-samples")
             with Horizontal(id="echo-buttons"):
                 yield Button("Send (Ctrl+S)", id="btn-echo-send", variant="primary")
                 yield Button("Cancel", id="btn-echo-cancel")
 
     def on_mount(self) -> None:
         self.query_one("#echo-prompt", TextArea).focus()
+        self._fit_prompt()
+
+    def on_resize(self) -> None:
+        self._fit_prompt()
+
+    def _fit_prompt(self) -> None:
+        # Everything but the text area takes ~20 rows (border, title, hint,
+        # samples, buttons); give the text area what is left, between 4 and 10.
+        room = int(self.size.height * 0.9) - 20
+        self.query_one("#echo-prompt", TextArea).styles.height = max(4, min(10, room))
+
+    @staticmethod
+    def _title(post: Post) -> str:
+        return str(post.metadata.get("title") or post.path.stem)
+
+    def _samples_text(self) -> str:
+        from rich.markup import escape
+
+        rows = [("latest", p) for p in self._recent] + [("largest", p) for p in self._largest]
+        lines = [f"  [b]{tag:<8}[/b] {escape(self._title(p))}" for tag, p in rows]
+        if self._similar is not None:
+            lines.append(f"  [b]{'similar':<8}[/b] {escape(self._title(self._similar))}")
+        elif self._others:
+            lines.append(f"  [b]{'similar':<8}[/b] [i]{self._similar_note}[/i]")
+        return "Writing samples sent to Echo:\n" + "\n".join(lines)
+
+    def _refresh_samples(self) -> None:
+        self.query_one("#echo-samples", Static).update(self._samples_text())
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        # Re-rank the similar sample once typing pauses.
+        if self._debounce is not None:
+            self._debounce.stop()
+        text = event.text_area.text
+        self._debounce = self.set_timer(self.DEBOUNCE_SECONDS, lambda: self._rank(text))
+
+    @work(exclusive=True)
+    async def _rank(self, text: str) -> None:
+        if self._index is None:
+            return
+        if not text.strip():
+            self._similar = None
+            self._similar_note = "closest to your prompt (picked when you send)"
+            self._refresh_samples()
+            return
+        try:
+            ranked = await asyncio.to_thread(self._index.rank_by_text, text)
+        except Exception:
+            self._similar = None
+            self._similar_note = "random (embeddings unavailable)"
+            self._refresh_samples()
+            return
+        self._similar = pick_similar(self._others, ranked)
+        self._refresh_samples()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-echo-send":
