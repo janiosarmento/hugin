@@ -34,6 +34,14 @@ def make_post(tmp_path: Path, name: str, days_ago: int, size: int = 10, draft: b
     )
 
 
+@pytest.fixture
+def random_on(monkeypatch):
+    """The 3 recent + 3 similar + 1 random mix (N_RANDOM defaults to 0)."""
+    monkeypatch.setattr(echo, "N_SIMILAR", 3)
+    monkeypatch.setattr(echo, "N_RANDOM", 1)
+    monkeypatch.setattr(echo, "MIN_SAMPLES", 7)
+
+
 class TestSelectSamples:
     def _eight(self, tmp_path):
         return [make_post(tmp_path, f"{n}.md", d) for n, d in
@@ -42,14 +50,26 @@ class TestSelectSamples:
     def _abs(self, tmp_path, *names):
         return [str((tmp_path / f"{n}.md").resolve()) for n in names]
 
-    def test_recent_similar_and_random(self, tmp_path):
+    def test_recent_similar_and_random(self, tmp_path, random_on):
         posts = self._eight(tmp_path)
         picked = select_samples(posts, self._abs(tmp_path, "g", "f", "e"))
         names = [p.path.stem for p in picked]
         assert names[:3] == ["a", "b", "c"]
         assert len(names) == 7 and len(set(names)) == 7
 
-    def test_similar_follow_ranking_and_skip_recent_and_random(self, tmp_path):
+    def test_default_mix_is_recent_plus_four_similar_no_random(self, tmp_path):
+        posts = self._eight(tmp_path)
+        ranked = self._abs(tmp_path, "a", "h", "g", "f", "e", "d")
+        names = [p.path.stem for p in select_samples(posts, ranked, random_pick=posts[3])]
+        # a is recent; the pinned random pick is ignored when N_RANDOM is 0
+        assert names == ["a", "b", "c", "h", "g", "f", "e"]
+        assert echo.N_RANDOM == 0 and echo.N_SIMILAR == 4 and echo.MIN_SAMPLES == 7
+
+    def test_no_ranking_fills_similar_slots_randomly(self, tmp_path):
+        names = [p.path.stem for p in select_samples(self._eight(tmp_path))]
+        assert len(names) == 7 and len(set(names)) == 7
+
+    def test_similar_follow_ranking_and_skip_recent_and_random(self, tmp_path, random_on):
         posts = self._eight(tmp_path)
         rnd = posts[5]  # f
         ranked = self._abs(tmp_path, "a", "f", "g", "d", "e")
@@ -57,11 +77,11 @@ class TestSelectSamples:
         # a is recent and f is the pinned random, so the 3 similar are g, d and e
         assert names == ["a", "b", "c", "g", "d", "e", "f"]
 
-    def test_pinned_random_is_kept(self, tmp_path):
+    def test_pinned_random_is_kept(self, tmp_path, random_on):
         posts = self._eight(tmp_path)
         assert select_samples(posts, None, random_pick=posts[4])[-1].path.stem == "e"
 
-    def test_invalid_pinned_random_is_redrawn(self, tmp_path):
+    def test_invalid_pinned_random_is_redrawn(self, tmp_path, random_on):
         posts = self._eight(tmp_path)
         recent = posts[0]  # already a recent sample, not a valid random pick
         picked = select_samples(posts, None, random_pick=recent)
@@ -71,7 +91,7 @@ class TestSelectSamples:
         picked = select_samples(self._eight(tmp_path))
         assert len({p.path for p in picked}) == 7
 
-    def test_random_varies_with_rng(self, tmp_path):
+    def test_random_varies_with_rng(self, tmp_path, random_on):
         import random
 
         posts = self._eight(tmp_path)

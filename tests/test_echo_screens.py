@@ -289,12 +289,15 @@ def test_wait_screen_falls_back_and_warns(tmp_path, monkeypatch):
 
 
 def test_prompt_screen_lists_sample_titles_and_updates_similar(tmp_path, monkeypatch):
+    monkeypatch.setattr(echo_mod, "N_SIMILAR", 3)
+    monkeypatch.setattr(echo_mod, "N_RANDOM", 1)
     posts = _posts(tmp_path)  # P0 newest ... P5 oldest
     odd = Post(tmp_path / "odd.md", {"title": "Odd [markup] title"}, "x", False,
                date=datetime.now() - timedelta(days=99))
     odd.path.write_text("x")
     posts.append(odd)
     monkeypatch.setattr(ed, "draw_random", lambda rest: posts[5])  # P5 is the random pick
+    monkeypatch.setattr(ed, "N_RANDOM", 1)
 
     class FakeIndex:
         def rank_by_text(self, text):
@@ -385,3 +388,21 @@ def test_wait_screen_system_writer_without_engine_fails_cleanly(tmp_path):
         await pilot.pause(0.3)
 
     assert _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None, writer="system"), keys) is None
+
+
+def test_prompt_screen_without_random_sample(tmp_path):
+    posts = _posts(tmp_path)
+
+    async def go():
+        app = App()
+        async with app.run_test() as pilot:
+            screen = ed.EchoPromptScreen(posts, None)
+            app.push_screen(screen)
+            await pilot.pause()
+            shown = str(screen.query_one("#echo-samples").render())
+            assert "random" not in shown and screen.random_pick is None
+            assert "4 closest to your prompt" in shown
+            hint = str(screen.query_one("#echo-hint").render())
+            assert "3 latest, 4 similar to your prompt)" in hint
+
+    asyncio.run(go())

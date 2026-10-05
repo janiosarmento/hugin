@@ -129,9 +129,11 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="echo-modal"):
             yield Label("Echo — describe the post", id="echo-title")
+            mix = f"{N_RECENT} latest, {N_SIMILAR} similar to your prompt"
+            if N_RANDOM:
+                mix += f", {N_RANDOM} random"
             yield Static(
-                f"{MIN_SAMPLES} published posts go along as writing samples "
-                f"({N_RECENT} latest, {N_SIMILAR} similar to your prompt, {N_RANDOM} random). "
+                f"{MIN_SAMPLES} published posts go along as writing samples ({mix}). "
                 "Ctrl+S sends, F2 switches writer, Esc cancels.",
                 id="echo-hint",
             )

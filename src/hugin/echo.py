@@ -23,8 +23,8 @@ ECHO_TIMEOUT = 900  # seconds; Echo's own server-side limit
 FALLBACK_MIN_TIMEOUT = 300  # long-form writing outlasts typical chat timeouts
 
 N_RECENT = 3
-N_SIMILAR = 3
-N_RANDOM = 1
+N_SIMILAR = 4
+N_RANDOM = 0  # set to 1 to add a random sample for stylistic variety
 MIN_SAMPLES = N_RECENT + N_SIMILAR + N_RANDOM
 
 
@@ -59,15 +59,17 @@ def _select_parts(posts: list[Post]) -> tuple[list[Post], list[Post]]:
 
 
 def draw_random(rest: list[Post], rng: random.Random | None = None) -> Post | None:
-    return (rng or random).choice(rest) if rest else None
+    """The random sample, or None when N_RANDOM is 0."""
+    return (rng or random).choice(rest) if rest and N_RANDOM else None
 
 
 def pick_similar(
     pool: list[Post],
     ranked_paths: list[str] | None,
-    n: int = N_SIMILAR,
+    n: int | None = None,
 ) -> list[Post]:
-    """Up to n candidates, in the order the semantic ranking puts them."""
+    """Up to n (default N_SIMILAR) candidates, in the ranking's order."""
+    n = N_SIMILAR if n is None else n
     by_abs = {str(p.path.resolve()): p for p in pool}
     out = []
     for path in ranked_paths or []:
@@ -84,7 +86,7 @@ def select_samples(
     rng: random.Random | None = None,
     random_pick: Post | None = None,
 ) -> list[Post]:
-    """3 most recent + 3 closest to the prompt + 1 random, all distinct.
+    """N_RECENT most recent + N_SIMILAR closest to the prompt + N_RANDOM random.
 
     `ranked_paths` is the semantic ranking (absolute paths, best first) of
     the user's prompt against the blog. `random_pick` pins the random sample
@@ -95,7 +97,9 @@ def select_samples(
     """
     rng = rng or random
     recent, rest = _select_parts(posts)
-    if random_pick is None or random_pick.path not in {p.path for p in rest}:
+    if not N_RANDOM:
+        random_pick = None
+    elif random_pick is None or random_pick.path not in {p.path for p in rest}:
         random_pick = draw_random(rest, rng)
     pool = [p for p in rest if random_pick is None or p.path != random_pick.path]
     similar = pick_similar(pool, ranked_paths)
