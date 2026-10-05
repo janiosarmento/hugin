@@ -54,7 +54,7 @@ def test_wait_screen_creates_draft(tmp_path, monkeypatch):
 
     async def fake_ask(message, persona, key):
         seen.update(message=message, persona=persona, key=key)
-        return "# Echo Title\n\nEcho body."
+        return "Echo Title\n\nEcho body."
 
     monkeypatch.setattr(ed, "ask_echo", fake_ask)
     monkeypatch.setattr(ed, "get_api_key", lambda: "k")
@@ -94,7 +94,7 @@ def test_h_key_creates_draft_in_main_screen(tmp_path, monkeypatch):
     from hugin.tui.review import HuginScreen
 
     async def fake_ask(message, persona, key):
-        return "# From Echo\n\nText."
+        return "From Echo\n\nText."
 
     monkeypatch.setattr(ed, "ask_echo", fake_ask)
     monkeypatch.setattr(ed, "get_api_key", lambda: "k")

@@ -74,7 +74,10 @@ def build_message(samples: list[Post], request: str) -> str:
     return (
         f"Here are {n} of my blog posts:\n\n"
         + "\n\n".join(blocks)
-        + f"\n\nWrite a new post in my voice, following this request:\n\n{request.strip()}"
+        + "\n\nWrite a new post in my voice, following the request below. "
+        "Put the post title alone on the first line (plain text, no # or "
+        "other markup, no quotes), then a blank line, then the post body."
+        f"\n\nRequest:\n\n{request.strip()}"
     )
 
 
@@ -119,12 +122,21 @@ async def ask_echo(message: str, persona: str, api_key: str) -> str:
     return text.strip()
 
 
+MAX_TITLE_CHARS = 120
+
+
 def split_title(text: str, fallback: str) -> tuple[str, str]:
-    """Pull a leading '# Title' line off Echo's answer, if there is one."""
-    match = re.match(r"\s*#\s+(.+?)\s*\n+(.*)", text, re.DOTALL)
-    if match:
-        return match.group(1).strip(), match.group(2).strip()
-    return fallback, text
+    """Take the first line of Echo's answer as the title, the rest as the body.
+
+    Tolerates stray markup on the title line (leading '#', '**', quotes). If
+    the first line is too long to be a title, the whole text is the body and
+    `fallback` is the title.
+    """
+    first, _, rest = text.strip().partition("\n")
+    title = first.strip().lstrip("#").strip().strip("*_\"'“”").strip()
+    if not title or len(title) > MAX_TITLE_CHARS:
+        return fallback, text.strip()
+    return title, rest.strip()
 
 
 def create_draft(directory: Path, text: str, request: str) -> Path:

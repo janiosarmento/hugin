@@ -96,19 +96,32 @@ def test_build_message_wraps_posts_and_ends_with_request(tmp_path):
 
 
 class TestSplitTitle:
-    def test_heading_is_extracted(self):
-        assert split_title("# My Title\n\nBody here", "fb") == ("My Title", "Body here")
+    def test_plain_first_line(self):
+        assert split_title("My Title\n\nBody here", "fb") == ("My Title", "Body here")
 
-    def test_no_heading_uses_fallback(self):
-        assert split_title("Just text", "fb") == ("fb", "Just text")
+    def test_stray_markup_is_stripped(self):
+        assert split_title("# My Title\n\nBody", "fb")[0] == "My Title"
+        assert split_title("**My Title**\nBody", "fb")[0] == "My Title"
+        assert split_title('"My Title"\nBody', "fb")[0] == "My Title"
+
+    def test_overlong_first_line_uses_fallback(self):
+        text = "word " * 60 + "\n\nmore"
+        title, body = split_title(text, "fb")
+        assert title == "fb" and body == text.strip()
+
+
+def test_build_message_asks_for_title_on_first_line(tmp_path):
+    msg = build_message([make_post(tmp_path, "a.md", 1)], "req")
+    assert "title alone on the first line" in msg
 
 
 def test_create_draft(tmp_path):
-    path = create_draft(tmp_path, "# Cats Rule\n\nMeow.", "about cats")
+    path = create_draft(tmp_path, "Cats Rule\n\nMeow.", "about cats")
     assert path.name == "cats-rule.md"
     text = path.read_text()
     assert "draft: true" in text and "Meow." in text
-    again = create_draft(tmp_path, "# Cats Rule\n\nMore.", "about cats")
+    assert "title: Cats Rule" in text and "slug: cats-rule" in text
+    again = create_draft(tmp_path, "Cats Rule\n\nMore.", "about cats")
     assert again.name == "cats-rule-1.md"
 
 
