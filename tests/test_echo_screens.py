@@ -63,7 +63,7 @@ def test_wait_screen_creates_draft(tmp_path, monkeypatch):
     async def keys(app, pilot):
         await pilot.pause(0.3)
 
-    path = _run(lambda: ed.EchoWaitScreen("write cats", _posts(tmp_path), tmp_path), keys)
+    path = _run(lambda: ed.EchoWaitScreen("write cats", _posts(tmp_path), tmp_path, None), keys)
     assert path.name == "echo-title.md"
     assert "Echo body." in path.read_text()
     assert seen["persona"] == "Jane Doe" and seen["message"].count("<post>") == 6
@@ -80,7 +80,7 @@ def test_wait_screen_error_returns_none(tmp_path, monkeypatch):
     async def keys(app, pilot):
         await pilot.pause(0.3)
 
-    assert _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path), keys) is None
+    assert _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None), keys) is None
     assert len(list(tmp_path.glob("*.md"))) == 6
 
 
@@ -175,3 +175,30 @@ def test_h_key_warns_without_enough_posts(tmp_path):
 
     asyncio.run(go())
     assert any("Not enough published posts" in n for n in notes)
+
+
+def test_wait_screen_assigns_category_from_system_llm(tmp_path, monkeypatch):
+    import hugin.llm as llm
+
+    (tmp_path / ".pages.yml").write_text(
+        "content:\n  - name: post\n    fields:\n      - name: categories\n"
+        "        type: select\n        options: [Technology, Life]\n"
+    )
+
+    async def fake_ask(message, persona, key):
+        return "Title\n\nBody"
+
+    async def fake_llm(engine, prompt, system=None):
+        return "Life"
+
+    monkeypatch.setattr(ed, "ask_echo", fake_ask)
+    monkeypatch.setattr(llm, "call_llm", fake_llm)
+    monkeypatch.setattr(ed, "get_api_key", lambda: "k")
+    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
+
+    async def keys(app, pilot):
+        await pilot.pause(0.3)
+
+    path = _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, object()), keys)
+    text = path.read_text()
+    assert "- Life" in text and "TBD" not in text.split("description")[0].split("categories:")[1]

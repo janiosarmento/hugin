@@ -15,9 +15,12 @@ from hugin.echo import (
     build_message,
     create_draft,
     get_api_key,
+    parse_answer,
+    pick_category,
     select_samples,
 )
 from hugin.engines import load_fulcrum_echo_persona
+from hugin.hugo import load_categories
 from hugin.scanner import Post
 
 
@@ -124,8 +127,9 @@ class EchoWaitScreen(ModalScreen[Path | None]):
     }
     """
 
-    def __init__(self, request: str, posts: list[Post], directory: Path) -> None:
+    def __init__(self, request: str, posts: list[Post], directory: Path, engine) -> None:
         super().__init__()
+        self._engine = engine
         self._request = request
         self._posts = posts
         self._directory = directory
@@ -148,7 +152,11 @@ class EchoWaitScreen(ModalScreen[Path | None]):
             persona = await asyncio.to_thread(load_fulcrum_echo_persona)
             api_key = await asyncio.to_thread(get_api_key)
             text = await ask_echo(message, persona, api_key)
-            path = create_draft(self._directory, text, self._request)
+            title, body = parse_answer(text, self._request)
+            self.query_one("#echo-wait-status", Label).update("Picking a category…")
+            categories = await asyncio.to_thread(load_categories, self._directory)
+            category = await pick_category(self._engine, title, body, categories)
+            path = create_draft(self._directory, text, self._request, category)
         except EchoError as e:
             self.notify(str(e), severity="error", timeout=10)
             self.dismiss(None)

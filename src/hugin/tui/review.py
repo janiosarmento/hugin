@@ -1965,7 +1965,7 @@ class HuginScreen(Screen):
         def on_prompt(request: str | None) -> None:
             if request:
                 self.app.push_screen(
-                    EchoWaitScreen(request, list(self.all_posts), self.directory),
+                    EchoWaitScreen(request, list(self.all_posts), self.directory, self.engine),
                     on_created,
                 )
 

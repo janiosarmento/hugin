@@ -11,6 +11,8 @@ from hugin.echo import (
     ask_echo,
     build_message,
     create_draft,
+    parse_category,
+    pick_category,
     has_enough_samples,
     select_samples,
     split_title,
@@ -161,3 +163,55 @@ class TestAskEcho:
         _patch_client(monkeypatch, lambda r: httpx.Response(200, json={"nope": 1}))
         with pytest.raises(EchoError, match="Unexpected"):
             asyncio.run(ask_echo("m", "p", "k"))
+
+
+CATS = ["Technology", "Cats & Pets", "Life"]
+
+
+class TestCategory:
+    def test_parse_exact_and_case_insensitive(self):
+        assert parse_category("technology", CATS) == "Technology"
+        assert parse_category('"Cats & Pets".', CATS) == "Cats & Pets"
+
+    def test_parse_inside_sentence(self):
+        assert parse_category("The best category is Life", CATS) == "Life"
+
+    def test_parse_no_match(self):
+        assert parse_category("Cooking", CATS) is None
+        assert parse_category("", CATS) is None
+
+    def test_pick_uses_system_llm_answer(self, monkeypatch):
+        import hugin.llm as llm
+
+        seen = {}
+
+        async def fake(engine, prompt, system=None):
+            seen["prompt"] = prompt
+            return "Cats & Pets"
+
+        monkeypatch.setattr(llm, "call_llm", fake)
+        got = asyncio.run(pick_category(object(), "T", "body text", CATS))
+        assert got == "Cats & Pets"
+        assert "- Technology" in seen["prompt"] and "body text" in seen["prompt"]
+
+    def test_pick_falls_back_to_first_on_unmatched_or_error(self, monkeypatch):
+        import hugin.llm as llm
+
+        async def nonsense(engine, prompt, system=None):
+            return "no idea"
+
+        async def boom(engine, prompt, system=None):
+            raise RuntimeError("down")
+
+        monkeypatch.setattr(llm, "call_llm", nonsense)
+        assert asyncio.run(pick_category(object(), "T", "b", CATS)) == "Technology"
+        monkeypatch.setattr(llm, "call_llm", boom)
+        assert asyncio.run(pick_category(object(), "T", "b", CATS)) == "Technology"
+
+    def test_pick_without_categories_is_none(self):
+        assert asyncio.run(pick_category(object(), "T", "b", [])) is None
+
+    def test_create_draft_writes_category(self, tmp_path):
+        path = create_draft(tmp_path, "Title\n\nBody", "req", "Life")
+        assert "- Life" in path.read_text()
+        assert "TBD" not in path.read_text().split("categories:")[1].split("\n")[1]

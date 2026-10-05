@@ -139,18 +139,77 @@ def split_title(text: str, fallback: str) -> tuple[str, str]:
     return title, rest.strip()
 
 
-def create_draft(directory: Path, text: str, request: str) -> Path:
+def parse_answer(text: str, request: str) -> tuple[str, str]:
+    """Split Echo's answer into (title, body); title is quote-safe."""
+    fallback = " ".join(request.split()[:8])
+    title, body = split_title(text, fallback)
+    return title.replace('"', "'"), body
+
+
+CATEGORY_PROMPT = """\
+Pick the single best category for the blog post below.
+
+Available categories:
+{categories}
+
+Post title: {title}
+
+Post text:
+{body}
+
+Answer with the category name only, exactly as written in the list above."""
+
+CATEGORY_BODY_CHARS = 6000
+
+
+def parse_category(response: str, categories: list[str]) -> str | None:
+    """Match the LLM answer against the known categories (case-insensitive)."""
+    answer = response.strip().splitlines()[0].strip().strip("-*\"'`. ") if response.strip() else ""
+    by_lower = {c.lower(): c for c in categories}
+    if answer.lower() in by_lower:
+        return by_lower[answer.lower()]
+    # Tolerate a short sentence around the name, e.g. "Category: Cats".
+    for lower, original in by_lower.items():
+        if lower in response.lower():
+            return original
+    return None
+
+
+async def pick_category(engine, title: str, body: str, categories: list[str]) -> str | None:
+    """Ask the system LLM (not Echo: cheaper) for the post's category.
+
+    Returns None when there are no categories or the answer matches none.
+    Falls back to the first category on LLM failure, since a TBD category
+    makes PagesCMS refuse to save the post.
+    """
+    if not categories:
+        return None
+    from hugin.llm import call_llm
+
+    prompt = CATEGORY_PROMPT.format(
+        categories="\n".join(f"- {c}" for c in categories),
+        title=title,
+        body=body[:CATEGORY_BODY_CHARS],
+    )
+    try:
+        answer = await call_llm(engine, prompt)
+    except Exception:
+        return categories[0]
+    return parse_category(answer, categories) or categories[0]
+
+
+def create_draft(
+    directory: Path, text: str, request: str, category: str | None = None
+) -> Path:
     from hugin.hugo import slugify
     from hugin.writer import create_post
 
-    fallback = " ".join(request.split()[:8])
-    title, body = split_title(text, fallback)
-    title = title.replace('"', "'")
+    title, body = parse_answer(text, request)
     base = slugify(title) or "echo-draft"
     slug, n = base, 1
     while (directory / f"{slug}.md").exists():
         slug = f"{base}-{n}"
         n += 1
     path = directory / f"{slug}.md"
-    create_post(path, title=title, slug=slug, body=body)
+    create_post(path, title=title, slug=slug, category=category, body=body)
     return path
