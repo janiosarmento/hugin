@@ -36,55 +36,47 @@ def make_post(tmp_path: Path, name: str, days_ago: int, size: int = 10, draft: b
 
 class TestSelectSamples:
     def _eight(self, tmp_path):
-        return [
-            make_post(tmp_path, "a.md", 1),
-            make_post(tmp_path, "b.md", 2),
-            make_post(tmp_path, "c.md", 3),
-            make_post(tmp_path, "big1.md", 50, size=500),
-            make_post(tmp_path, "big2.md", 60, size=900),
-            make_post(tmp_path, "s1.md", 70, size=20),
-            make_post(tmp_path, "s2.md", 80, size=30),
-            make_post(tmp_path, "s3.md", 90, size=40),
-        ]
+        return [make_post(tmp_path, f"{n}.md", d) for n, d in
+                [("a", 1), ("b", 2), ("c", 3), ("d", 50), ("e", 60), ("f", 70), ("g", 80), ("h", 90)]]
 
-    def test_recent_largest_and_one_random(self, tmp_path):
-        picked = select_samples(self._eight(tmp_path))
-        names = [p.filename for p in picked]
-        assert names[:5] == ["a.md", "b.md", "c.md", "big2.md", "big1.md"]
+    def _abs(self, tmp_path, *names):
+        return [str((tmp_path / f"{n}.md").resolve()) for n in names]
+
+    def test_recent_similar_and_random(self, tmp_path):
+        posts = self._eight(tmp_path)
+        picked = select_samples(posts, self._abs(tmp_path, "g", "f", "e"))
+        names = [p.path.stem for p in picked]
+        assert names[:3] == ["a", "b", "c"]
         assert len(names) == 6 and len(set(names)) == 6
-        assert names[5] in {"s1.md", "s2.md", "s3.md"}  # no ranking: random stand-in
 
-    def test_similar_pick_follows_ranking(self, tmp_path):
+    def test_similar_follow_ranking_and_skip_recent_and_random(self, tmp_path):
         posts = self._eight(tmp_path)
-        ranked = [str((tmp_path / n).resolve()) for n in ("a.md", "big1.md", "s3.md", "s1.md")]
-        # a.md and big1.md are already chosen, so s3.md is the best remaining
-        assert select_samples(posts, ranked)[5].filename == "s3.md"
+        rnd = posts[5]  # f
+        ranked = self._abs(tmp_path, "a", "f", "g", "d", "e")
+        names = [p.path.stem for p in select_samples(posts, ranked, random_pick=rnd)]
+        # a is recent and f is the pinned random, so the 2 similar are g and d
+        assert names == ["a", "b", "c", "g", "d", "f"]
 
-    def test_ranking_ignoring_drafts_and_unknown_paths(self, tmp_path):
+    def test_pinned_random_is_kept(self, tmp_path):
         posts = self._eight(tmp_path)
-        posts[-1].metadata["draft"] = True  # s3 becomes a draft
-        ranked = ["/nowhere.md", str((tmp_path / "s3.md").resolve()), str((tmp_path / "s2.md").resolve())]
-        assert select_samples(posts, ranked)[5].filename == "s2.md"
+        assert select_samples(posts, None, random_pick=posts[4])[-1].path.stem == "e"
 
-    def test_random_fallback_varies_with_rng(self, tmp_path):
+    def test_invalid_pinned_random_is_redrawn(self, tmp_path):
+        posts = self._eight(tmp_path)
+        recent = posts[0]  # already a recent sample, not a valid random pick
+        picked = select_samples(posts, None, random_pick=recent)
+        assert len({p.path for p in picked}) == 6
+
+    def test_no_ranking_falls_back_to_random(self, tmp_path):
+        picked = select_samples(self._eight(tmp_path))
+        assert len({p.path for p in picked}) == 6
+
+    def test_random_varies_with_rng(self, tmp_path):
         import random
 
         posts = self._eight(tmp_path)
-        seen = {select_samples(posts, None, random.Random(i))[5].filename for i in range(30)}
-        assert seen == {"s1.md", "s2.md", "s3.md"}
-
-    def test_largest_skips_already_recent(self, tmp_path):
-        posts = [
-            make_post(tmp_path, "huge-recent.md", 1, size=9000),
-            make_post(tmp_path, "b.md", 2),
-            make_post(tmp_path, "c.md", 3),
-            make_post(tmp_path, "old.md", 40, size=100),
-            make_post(tmp_path, "older.md", 41, size=50),
-            make_post(tmp_path, "oldest.md", 42, size=5),
-        ]
-        names = [p.filename for p in select_samples(posts)]
-        assert names.count("huge-recent.md") == 1
-        assert len(set(names)) == 6
+        seen = {select_samples(posts, None, random.Random(i))[-1].path.stem for i in range(40)}
+        assert len(seen) > 2
 
     def test_drafts_and_future_posts_excluded(self, tmp_path):
         posts = [

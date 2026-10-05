@@ -21,9 +21,9 @@ ECHO_URL = "https://echo.fulcrum.inc/api/v1/chat/completions"
 ECHO_TIMEOUT = 900  # seconds; Echo's own server-side limit
 
 N_RECENT = 3
-N_LARGEST = 2
-N_SIMILAR = 1
-MIN_SAMPLES = N_RECENT + N_LARGEST + N_SIMILAR
+N_SIMILAR = 2
+N_RANDOM = 1
+MIN_SAMPLES = N_RECENT + N_SIMILAR + N_RANDOM
 
 
 class EchoError(Exception):
@@ -44,8 +44,8 @@ def has_enough_samples(posts: list[Post]) -> bool:
     return len(published_posts(posts)) >= MIN_SAMPLES
 
 
-def _select_parts(posts: list[Post]) -> tuple[list[Post], list[Post], list[Post]]:
-    """(3 most recent, 2 largest of the rest, remaining candidates), published only."""
+def _select_parts(posts: list[Post]) -> tuple[list[Post], list[Post]]:
+    """(3 most recent, every other candidate), published posts only."""
     published = published_posts(posts)
     recent = sorted(
         (p for p in published if p.date is not None),
@@ -53,41 +53,54 @@ def _select_parts(posts: list[Post]) -> tuple[list[Post], list[Post], list[Post]
         reverse=True,
     )[:N_RECENT]
     taken = {p.path for p in recent}
-    rest = [p for p in published if p.path not in taken]
-    largest = sorted(rest, key=lambda p: p.path.stat().st_size, reverse=True)[:N_LARGEST]
-    taken |= {p.path for p in largest}
-    others = [p for p in rest if p.path not in taken]
-    return recent, largest, others
+    return recent, [p for p in published if p.path not in taken]
 
 
-def pick_similar(others: list[Post], ranked_paths: list[str] | None) -> Post | None:
-    """First candidate that appears in the semantic ranking, else None."""
-    by_abs = {str(p.path.resolve()): p for p in others}
+def draw_random(rest: list[Post], rng: random.Random | None = None) -> Post | None:
+    return (rng or random).choice(rest) if rest else None
+
+
+def pick_similar(
+    pool: list[Post],
+    ranked_paths: list[str] | None,
+    n: int = N_SIMILAR,
+) -> list[Post]:
+    """Up to n candidates, in the order the semantic ranking puts them."""
+    by_abs = {str(p.path.resolve()): p for p in pool}
+    out = []
     for path in ranked_paths or []:
         if path in by_abs:
-            return by_abs[path]
-    return None
+            out.append(by_abs[path])
+            if len(out) == n:
+                break
+    return out
 
 
 def select_samples(
     posts: list[Post],
     ranked_paths: list[str] | None = None,
     rng: random.Random | None = None,
+    random_pick: Post | None = None,
 ) -> list[Post]:
-    """3 most recent published posts, the 2 largest of the rest, and 1 similar.
+    """3 most recent + 2 closest to the prompt + 1 random, all distinct.
 
     `ranked_paths` is the semantic ranking (absolute paths, best first) of
-    the user's prompt against the blog; the first not-yet-chosen published
-    post in it is the "similar" sample. Without a ranking (embeddings
-    unavailable) a random other post stands in. All picks are distinct. With
-    fewer than MIN_SAMPLES published posts the result is shorter; callers
-    should check has_enough_samples() first.
+    the user's prompt against the blog. `random_pick` pins the random sample
+    (so a UI can show it before sending); it is drawn here when not given.
+    Without a ranking (embeddings unavailable) random posts stand in for
+    the missing similar ones. With fewer than MIN_SAMPLES published posts
+    the result is shorter; callers should check has_enough_samples() first.
     """
     rng = rng or random
-    recent, largest, others = _select_parts(posts)
-    similar = pick_similar(others, ranked_paths)
-    extra = [similar] if similar else rng.sample(others, min(N_SIMILAR, len(others)))
-    return recent + largest + extra
+    recent, rest = _select_parts(posts)
+    if random_pick is None or random_pick.path not in {p.path for p in rest}:
+        random_pick = draw_random(rest, rng)
+    pool = [p for p in rest if random_pick is None or p.path != random_pick.path]
+    similar = pick_similar(pool, ranked_paths)
+    if len(similar) < N_SIMILAR:
+        left = [p for p in pool if p.path not in {s.path for s in similar}]
+        similar += rng.sample(left, min(N_SIMILAR - len(similar), len(left)))
+    return recent + similar + ([random_pick] if random_pick else [])
 
 
 def build_message(samples: list[Post], request: str) -> str:

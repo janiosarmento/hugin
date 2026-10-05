@@ -15,6 +15,7 @@ from hugin.echo import (
     create_draft,
     parse_answer,
     _select_parts,
+    draw_random,
     pick_category,
     pick_similar,
     select_samples,
@@ -85,9 +86,12 @@ class EchoPromptScreen(ModalScreen[str | None]):
     def __init__(self, posts: list[Post] | None = None, index=None) -> None:
         super().__init__()
         self._index = index
-        self._recent, self._largest, self._others = _select_parts(posts or [])
-        self._similar_note = "closest to your prompt (picked when you send)"
-        self._similar: Post | None = None
+        self._recent, rest = _select_parts(posts or [])
+        # Drawn once, so the title shown is the one that gets sent.
+        self.random_pick = draw_random(rest)
+        self._pool = [p for p in rest if p is not self.random_pick]
+        self._similar_note = "2 closest to your prompt (picked when you send)"
+        self._similar: list[Post] = []
         self._debounce = None
 
     def compose(self) -> ComposeResult:
@@ -95,7 +99,7 @@ class EchoPromptScreen(ModalScreen[str | None]):
             yield Label("Echo — describe the post", id="echo-title")
             yield Static(
                 "Echo will get 6 published posts as writing samples (3 latest, "
-                "2 largest, 1 similar to your prompt). Ctrl+S sends, Esc cancels.",
+                "2 similar to your prompt, 1 random). Ctrl+S sends, Esc cancels.",
                 id="echo-hint",
             )
             yield TextArea(id="echo-prompt")
@@ -124,12 +128,16 @@ class EchoPromptScreen(ModalScreen[str | None]):
     def _samples_text(self) -> str:
         from rich.markup import escape
 
-        rows = [("latest", p) for p in self._recent] + [("largest", p) for p in self._largest]
-        lines = [f"  [b]{tag:<8}[/b] {escape(self._title(p))}" for tag, p in rows]
-        if self._similar is not None:
-            lines.append(f"  [b]{'similar':<8}[/b] {escape(self._title(self._similar))}")
-        elif self._others:
+        def row(tag: str, post: Post) -> str:
+            return f"  [b]{tag:<8}[/b] {escape(self._title(post))}"
+
+        lines = [row("latest", p) for p in self._recent]
+        if self._similar:
+            lines += [row("similar", p) for p in self._similar]
+        elif self._pool:
             lines.append(f"  [b]{'similar':<8}[/b] [i]{self._similar_note}[/i]")
+        if self.random_pick is not None:
+            lines.append(row("random", self.random_pick))
         return "Writing samples sent to Echo:\n" + "\n".join(lines)
 
     def _refresh_samples(self) -> None:
@@ -147,18 +155,18 @@ class EchoPromptScreen(ModalScreen[str | None]):
         if self._index is None:
             return
         if not text.strip():
-            self._similar = None
-            self._similar_note = "closest to your prompt (picked when you send)"
+            self._similar = []
+            self._similar_note = "2 closest to your prompt (picked when you send)"
             self._refresh_samples()
             return
         try:
             ranked = await asyncio.to_thread(self._index.rank_by_text, text)
         except Exception:
-            self._similar = None
+            self._similar = []
             self._similar_note = "random (embeddings unavailable)"
             self._refresh_samples()
             return
-        self._similar = pick_similar(self._others, ranked)
+        self._similar = pick_similar(self._pool, ranked)
         self._refresh_samples()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -202,10 +210,11 @@ class EchoWaitScreen(ModalScreen[Path | None]):
     }
     """
 
-    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None) -> None:
+    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None) -> None:
         super().__init__()
         self._engine = engine
         self._index = index
+        self._random_pick = random_pick
         self._request = request
         self._posts = posts
         self._directory = directory
@@ -229,7 +238,7 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                 except Exception:
                     ranked = None  # embeddings unavailable: random sample instead
             self.query_one("#echo-wait-status", Label).update(WAIT_TEXT)
-            samples = select_samples(self._posts, ranked)
+            samples = select_samples(self._posts, ranked, random_pick=self._random_pick)
             if not samples:
                 raise EchoError("No published posts to use as writing samples")
             message = build_message(samples, self._request)

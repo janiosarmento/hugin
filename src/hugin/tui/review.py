@@ -1962,14 +1962,19 @@ class HuginScreen(Screen):
             self._update_detail_panel()
             self.notify(f"Draft created: {path.name}")
 
+        prompt_screen = EchoPromptScreen(self.all_posts, self.index)
+
         def on_prompt(request: str | None) -> None:
             if request:
                 self.app.push_screen(
-                    EchoWaitScreen(request, list(self.all_posts), self.directory, self.engine, self.index),
+                    EchoWaitScreen(
+                        request, list(self.all_posts), self.directory, self.engine,
+                        self.index, prompt_screen.random_pick,
+                    ),
                     on_created,
                 )
 
-        self.app.push_screen(EchoPromptScreen(self.all_posts, self.index), on_prompt)
+        self.app.push_screen(prompt_screen, on_prompt)
 
     def action_news_ideas(self) -> None:
         """Open the news → post ideas screen."""

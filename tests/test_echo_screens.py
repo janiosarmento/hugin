@@ -287,15 +287,17 @@ def test_wait_screen_falls_back_and_warns(tmp_path, monkeypatch):
     assert any("402" in n and "sys" in n for n in notes)
 
 
-def test_prompt_screen_lists_sample_titles_and_updates_similar(tmp_path):
-    posts = _posts(tmp_path)  # P0 newest ... P5 oldest; all same size
-    posts.append(Post(tmp_path / "[odd].md", {"title": "Odd [markup] title"}, "x", False,
-                      date=datetime.now() - timedelta(days=99)))
-    (tmp_path / "[odd].md").write_text("x")
+def test_prompt_screen_lists_sample_titles_and_updates_similar(tmp_path, monkeypatch):
+    posts = _posts(tmp_path)  # P0 newest ... P5 oldest
+    odd = Post(tmp_path / "odd.md", {"title": "Odd [markup] title"}, "x", False,
+               date=datetime.now() - timedelta(days=99))
+    odd.path.write_text("x")
+    posts.append(odd)
+    monkeypatch.setattr(ed, "draw_random", lambda rest: posts[5])  # P5 is the random pick
 
     class FakeIndex:
         def rank_by_text(self, text):
-            return [str((tmp_path / "[odd].md").resolve())]
+            return [str(p.path.resolve()) for p in (odd, posts[5], posts[4], posts[3])]
 
     class Fast(ed.EchoPromptScreen):
         DEBOUNCE_SECONDS = 0.05
@@ -303,14 +305,20 @@ def test_prompt_screen_lists_sample_titles_and_updates_similar(tmp_path):
     async def go():
         app = App()
         async with app.run_test() as pilot:
-            app.push_screen(Fast(posts, FakeIndex()))
+            screen = Fast(posts, FakeIndex())
+            app.push_screen(screen)
             await pilot.pause()
-            shown = str(app.screen.query_one("#echo-samples").render())
-            assert shown.count("latest") == 3 and shown.count("largest") == 2
-            assert "P0" in shown and "picked when you send" in shown
+            shown = str(screen.query_one("#echo-samples").render())
+            assert shown.count("latest") == 3 and "P0" in shown
+            assert "picked when you send" in shown
+            assert shown.count("random") == 1 and "P5" in shown
+            assert screen.random_pick is posts[5]
             await pilot.press(*"cats")
             await pilot.pause(0.4)
-            shown = str(app.screen.query_one("#echo-samples").render())
-            assert "Odd [markup] title" in shown and "picked when you send" not in shown
+            shown = str(screen.query_one("#echo-samples").render())
+            # odd + P4 (P5 is the pinned random, so it is skipped in the ranking)
+            assert shown.count("similar") == 2
+            assert "Odd [markup] title" in shown and "P4" in shown
+            assert "picked when you send" not in shown
 
     asyncio.run(go())
