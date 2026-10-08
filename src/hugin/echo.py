@@ -28,6 +28,20 @@ N_RANDOM = 0  # set to 1 to add a random sample for stylistic variety
 MIN_SAMPLES = N_RECENT + N_SIMILAR + N_RANDOM
 
 
+WRITER_SYSTEM_PROMPT = """\
+You are a blog author writing in the voice of the writing samples you are given.
+
+Style guidance (avoid these habits where you can; they are tendencies to \
+steer clear of, not hard bans):
+- Avoid em-dashes (—). Use commas, periods, parentheses or a rewritten \
+sentence instead.
+- Avoid strings of very short, punchy sentences, the staccato rhythm typical \
+of AI prose ("It works. It's fast. It's simple."). Prefer sentences of \
+natural, varied length, and join related ideas into flowing sentences and \
+paragraphs, as a human writer would.
+"""
+
+
 class EchoError(Exception):
     """Raised for any failure talking to Echo; message is user-facing."""
 
@@ -188,7 +202,7 @@ async def write_with_system_llm(message: str, engine) -> str:
 
     patient = replace(engine, timeout=max(engine.timeout, FALLBACK_MIN_TIMEOUT))
     try:
-        text = await call_llm(patient, message)
+        text = await call_llm(patient, message, system=WRITER_SYSTEM_PROMPT)
     except Exception as e:
         raise EchoError(f"{engine.id} failed: {e}") from e
     if not text or not text.strip():
