@@ -168,7 +168,8 @@ async def ask_echo(message: str, persona: str, api_key: str) -> str:
     payload = {
         "model": "echo",
         "persona": persona,
-        "messages": [{"role": "user", "content": message}],
+        # Echo has no system field, so the style guidance rides along in the message
+        "messages": [{"role": "user", "content": f"{message}\n\n{WRITER_SYSTEM_PROMPT}"}],
     }
     headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "hugin/0.1"}
     try:

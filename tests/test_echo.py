@@ -176,7 +176,10 @@ class TestAskEcho:
         body = json.loads(seen["body"])
         assert body["persona"] == "Jane Doe"
         assert body["model"] == "echo"
-        assert body["messages"] == [{"role": "user", "content": "msg"}]
+        assert len(body["messages"]) == 1 and body["messages"][0]["role"] == "user"
+        content = body["messages"][0]["content"]
+        assert content.startswith("msg")
+        assert "em-dashes" in content
 
     @pytest.mark.parametrize("status,fragment", [(401, "401"), (500, "500")])
     def test_http_errors(self, monkeypatch, status, fragment):
