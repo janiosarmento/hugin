@@ -169,3 +169,20 @@ def test_load_categories_pages_cms_plain_list(tmp_path):
         "fields:\n  - name: category\n    type: select\n    options: [a, b]\n"
     )
     assert load_categories(tmp_path) == ["a", "b"]
+
+
+def test_load_categories_picks_collection_matching_posts_dir(tmp_path):
+    from hugin.hugo import load_categories
+
+    (tmp_path / ".pages.yml").write_text(
+        "content:\n"
+        "  - name: posts-pt\n    path: content/pt/post\n    type: collection\n"
+        "    fields:\n      - {name: categories, type: select, options: {values: [{label: A, value: alpha}]}}\n"
+        "  - name: posts-en\n    path: content/en/post\n    type: collection\n"
+        "    fields:\n      - {name: categories, type: select, options: {values: [{label: B, value: beta}]}}\n"
+    )
+    pt, en = tmp_path / "content/pt/post", tmp_path / "content/en/post"
+    pt.mkdir(parents=True)
+    en.mkdir(parents=True)
+    assert load_categories(pt) == ["alpha"]
+    assert load_categories(en) == ["beta"]

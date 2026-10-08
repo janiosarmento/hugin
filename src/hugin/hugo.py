@@ -263,7 +263,9 @@ def load_categories(posts_dir: Path) -> list[str]:
             try:
                 with open(pages_cfg) as f:
                     data = yaml.safe_load(f)
-                cats = _extract_pages_cms_categories(data)
+                cats = _extract_collection_categories(data, root, posts_dir)
+                if not cats:
+                    cats = _extract_pages_cms_categories(data)
                 if cats:
                     return cats
             except Exception:
@@ -304,6 +306,23 @@ def _select_option_values(options: Any) -> list[str]:
         if item:
             out.append(str(item))
     return out
+
+
+def _extract_collection_categories(data: Any, root: Path, posts_dir: Path) -> list[str]:
+    """Categories of the Pages CMS collection whose `path` is `posts_dir`.
+
+    Multilingual sites declare one collection per language, each with its own
+    category list; picking by path keeps an English blog on English categories.
+    """
+    if not isinstance(data, dict) or not isinstance(data.get("content"), list):
+        return []
+    target = posts_dir.resolve()
+    for item in data["content"]:
+        if not isinstance(item, dict) or not item.get("path"):
+            continue
+        if (root / str(item["path"])).resolve() == target:
+            return _extract_pages_cms_categories(item)
+    return []
 
 
 def _extract_pages_cms_categories(data: Any) -> list[str]:
