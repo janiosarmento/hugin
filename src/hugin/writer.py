@@ -127,6 +127,7 @@ def create_post(
     slug: str,
     category: str | None = None,
     body: str = "",
+    prompt: str | None = None,
 ) -> frontmatter.Post:
     """Create a new post with a complete frontmatter skeleton.
 
@@ -134,6 +135,8 @@ def create_post(
     description, categories/tags without a known value) are filled with
     "TBD" placeholders rather than left out, so PagesCMS's schema
     validation doesn't fail on missing required fields.
+
+    `prompt` (LLM-generated posts) is kept in the frontmatter for reference.
     """
     metadata = {
         "title": title,
@@ -147,6 +150,8 @@ def create_post(
         "description": "TBD",
         "tags": ["TBD"],
     }
+    if prompt:
+        metadata["prompt"] = prompt
     post = frontmatter.Post(body, **metadata)
     save_post(path, post)
     return post

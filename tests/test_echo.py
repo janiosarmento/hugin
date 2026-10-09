@@ -317,3 +317,10 @@ def test_http_error_detail_is_surfaced(monkeypatch):
     _patch_client(monkeypatch, lambda r: httpx.Response(402, json={"error": {"message": "out of credits"}}))
     with pytest.raises(EchoError, match="402: out of credits"):
         asyncio.run(ask_echo("m", "p", "k"))
+
+
+def test_create_draft_stores_prompt(tmp_path):
+    import frontmatter
+
+    path = create_draft(tmp_path, "Title\n\nBody", "write about\ncats")
+    assert frontmatter.load(str(path)).metadata["prompt"] == "write about\ncats"

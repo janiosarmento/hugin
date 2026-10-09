@@ -322,5 +322,5 @@ def create_draft(
         slug = f"{base}-{n}"
         n += 1
     path = directory / f"{slug}.md"
-    create_post(path, title=title, slug=slug, category=category, body=body)
+    create_post(path, title=title, slug=slug, category=category, body=body, prompt=request)
     return path
