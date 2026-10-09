@@ -824,6 +824,7 @@ class HuginScreen(Screen):
         )
         table.add_column("Field", style=f"bold {accent}", no_wrap=True)
         table.add_column("Value")
+        table.add_column("")
 
         skip_last = ("description", "tags")
         for key, value in meta.items():
@@ -831,14 +832,16 @@ class HuginScreen(Screen):
                 continue
             row = self._format_meta_value(value)
             if row is not None:
-                table.add_row(key, row)
+                self._add_field_row(table, key, row)
 
         desc = meta.get("description", "")
         if desc:
-            table.add_row("description", f"{desc} ({len(str(desc))} chars)")
+            self._add_field_row(
+                table, "description", f"{desc} ({len(str(desc))} chars)", "description"
+            )
         tags = meta.get("tags")
         if tags:
-            table.add_row("tags", ", ".join(str(t) for t in tags))
+            self._add_field_row(table, "tags", ", ".join(str(t) for t in tags), "tags")
         elif tags is not None:
             table.add_row("tags", "(none)")
 
@@ -869,6 +872,29 @@ class HuginScreen(Screen):
 
         self.query_one("#post-meta", Static).update(table)
         self._clear_action_area()
+
+    @staticmethod
+    def _add_field_row(table, key: str, display: str, field: str | None = None) -> None:
+        """Add a frontmatter row with a click-to-copy icon.
+
+        Single place that gives every frontmatter field its copy button.
+        """
+        from rich.style import Style
+        from rich.text import Text
+
+        field = field or key
+        icon = Text(
+            "⧉", style=Style(dim=True, meta={"@click": f"screen.copy_field({field!r})"})
+        )
+        table.add_row(key, display, icon)
+
+    def action_copy_field(self, key: str) -> None:
+        """Copy the raw value of a frontmatter field to the clipboard."""
+        value = self._format_meta_value(self.posts[self.current_index].metadata.get(key))
+        if value is None:
+            return
+        self._copy_to_clipboard(value)
+        self.notify(f"Copied {key}")
 
     @staticmethod
     def _format_meta_value(value) -> str | None:
