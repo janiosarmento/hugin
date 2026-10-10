@@ -30,9 +30,7 @@ The article must have a natural ending, even if the conclusion is uncertain, und
 
 Favor concrete observations, conversational language, dry humor, and occasional self-deprecation. Do not force jokes or metaphors.
 
-Avoid em-dashes (—). Use commas, periods, or parentheses instead.
-
-Avoid strings of very short, punchy sentences (the staccato rhythm typical of AI prose). Prefer natural, varied sentence lengths.
+Stylistic devices (em-dashes, parallel structures, short punchy sentences, rhetorical questions, contrasts) are fine when they serve a sentence. Abusing any one of them is not. Do not let a device become a habit: no recurring em-dash pattern, no string of short sentences in a row, no repeated "it's not X, it's Y" construction, and no device used again just because it worked earlier in the text.
 
 The goal is a draft that requires minimal editorial correction, not an imitation of superficial stylistic quirks."""
 
