@@ -46,3 +46,21 @@ def log_info(message: str) -> None:
             f.write(f"--- {datetime.now():%Y-%m-%d %H:%M:%S} INFO {message}\n\n")
     except OSError:
         pass
+
+
+def log_notification(message: str, severity: str) -> None:
+    """Record a warning/error notification shown in the TUI, in full.
+
+    Toast text cannot be selected or copied, so the log keeps it.
+    """
+    if severity not in ("warning", "error"):
+        return
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(
+                f"--- {datetime.now():%Y-%m-%d %H:%M:%S} "
+                f"NOTIFICATION {severity.upper()}\n{message}\n\n"
+            )
+    except OSError:
+        pass

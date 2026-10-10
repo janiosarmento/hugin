@@ -57,3 +57,15 @@ def test_llm_errors_cover_expected_failures_only():
     for exc in (httpx.ReadTimeout("t"), ValueError("loop"), KeyError("choices"), IndexError()):
         assert isinstance(exc, LLM_ERRORS)
     assert not isinstance(NameError("x"), LLM_ERRORS)
+
+
+def test_notifications_of_warning_and_error_are_logged_in_full():
+    import hugin.log as log
+
+    log.log_notification("all fine", "information")
+    log.log_notification("Error: connection refused\nsecond line", "error")
+    log.log_notification("careful", "warning")
+    text = log.LOG_PATH.read_text()
+    assert "all fine" not in text
+    assert "NOTIFICATION ERROR\nError: connection refused\nsecond line" in text
+    assert "NOTIFICATION WARNING\ncareful" in text

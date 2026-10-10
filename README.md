@@ -292,7 +292,7 @@ If your content directory contains `CLAUDE.md` or `AGENTS.md` (instruction files
 | `~/.hugin/affiliates.toml` | Affiliate link dictionary |
 | `~/.hugin/projects/<hash>.toml` | Per-project settings |
 | `~/.hugin/state/<hash>.json` | Processing state per directory (last post, timestamps) |
-| `~/.hugin/hugin.log` | Tracebacks of errors the UI only shows in one line, plus per-step timings of `o` (rotated at 1 MB) |
+| `~/.hugin/hugin.log` | Tracebacks of errors the UI only shows in one line, plus full text of warning/error notifications and per-step timings of `o` (rotated at 1 MB) |
 | `~/.hugin/trash/` | Posts deleted with `X` (restore by moving them back) |
 | `~/.hugin/embeddings/<hash>.json` | Embedding cache per directory |
 | `~/.hugin/embeddings/<hash>_kw.json` | Link-profile keywords per post (survives cache clears) |

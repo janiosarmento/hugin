@@ -11,6 +11,7 @@ from hugin.engines import CONFIG_DIR
 from hugin.engines import Engine
 from hugin.fsutil import atomic_write_text
 from hugin.hugo import HugoSite
+from hugin.log import log_notification
 from hugin.scanner import Post
 
 THEME_FILE = CONFIG_DIR / "theme.json"
@@ -60,6 +61,11 @@ class HuginApp(App):
         saved = _load_theme()
         if saved and saved in self.available_themes:
             self.theme = saved
+
+    def notify(self, message, *, title="", severity="information", timeout=None, markup=True):
+        """Show a notification; warnings and errors are also kept in the log."""
+        log_notification(f"{title}: {message}" if title else str(message), severity)
+        super().notify(message, title=title, severity=severity, timeout=timeout, markup=markup)
 
     def watch_theme(self, theme_name: str) -> None:
         _save_theme(theme_name)

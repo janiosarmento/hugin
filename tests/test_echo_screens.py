@@ -788,3 +788,41 @@ def test_small_blog_skips_the_llm_rerank(tmp_path, monkeypatch):
 def test_big_blog_still_reranks(tmp_path, monkeypatch):
     prompts = _count_outgoing_llm_calls(tmp_path, monkeypatch, rerank_min_posts=5)
     assert len(prompts) == 3  # profile + rerank + anchors
+
+
+def test_app_logs_error_notifications(tmp_path):
+    from unittest.mock import MagicMock
+
+    import hugin.log as log
+    from hugin.config import EmbeddingsConfig, FrontmatterConfig, HuginConfig, LinksConfig
+    from hugin.engines import Engine
+    from hugin.tui.app import HuginApp
+
+    site = MagicMock()
+    site.post_url.return_value = "/x"
+    site.warnings = []
+    index = MagicMock()
+    index.has_no_outgoing.return_value = False
+    index.get_post_url.return_value = "/x"
+    index.get_link_keywords.return_value = ""
+    index._cache = {}
+    posts = _posts(tmp_path)
+    app = HuginApp(
+        posts=posts, all_posts=list(posts),
+        engine=Engine("t", "http://localhost/v1", "m", 30, None),
+        pool={}, state={}, directory=tmp_path,
+        config=HuginConfig(LinksConfig(), EmbeddingsConfig(), FrontmatterConfig()),
+        site=site, index=index,
+    )
+
+    async def go():
+        async with app.run_test(size=(140, 50)) as pilot:
+            await pilot.pause()
+            app.notify("Error: boom", severity="error")
+            app.notify("just info")
+            await pilot.pause()
+
+    asyncio.run(go())
+    text = log.LOG_PATH.read_text()
+    assert "NOTIFICATION ERROR\nError: boom" in text
+    assert "just info" not in text
