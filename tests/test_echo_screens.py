@@ -988,3 +988,24 @@ def test_navigating_away_from_open_suggestions_follows_the_cursor(tmp_path, monk
 def test_esc_after_navigating_acts_on_the_post_under_the_cursor(tmp_path, monkeypatch):
     out = _current_after(tmp_path, monkeypatch, ["down", "escape"])
     assert out["index"] == 1 and out["state"] == "browsing"
+
+
+def test_llm_single_weak_word_anchor_is_dropped(monkeypatch):
+    from types import SimpleNamespace
+
+    import hugin.tui.review as review
+    from hugin.config import LinksConfig
+    from hugin.scanner import Post
+
+    async def llm(engine, prompt, **kw):
+        return '[{"target_url": "/a/", "anchor_text": "quando"}]'
+
+    monkeypatch.setattr(review, "call_llm", llm)
+    fake = SimpleNamespace(
+        engine=None, config=SimpleNamespace(links=LinksConfig()), _anchor_stats={},
+    )
+    post = Post(Path("x.md"), {"title": "X"}, "Lembro de quando era criança.\n", False)
+    result = asyncio.run(review.HuginScreen._find_anchors(
+        fake, post, [{"title": "A", "url": "/a/"}], set(),
+    ))
+    assert result == []

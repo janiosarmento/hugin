@@ -368,3 +368,32 @@ class TestTrimAnchorEdges:
         body = "Falamos muito do bolsonarismo ontem."
         result = find_keyword_anchors(body, [{"title": "x", "url": "/de-bolsonarismo/"}])
         assert result == [{"anchor_text": "bolsonarismo", "target_url": "/de-bolsonarismo/"}]
+
+
+class TestWeakAnchors:
+    def test_single_filler_words_are_weak(self):
+        from hugin.linker import is_weak_anchor
+
+        assert is_weak_anchor("quando")
+        assert is_weak_anchor("Também")
+        assert is_weak_anchor("when")
+        assert not is_weak_anchor("bolsonarismo")
+
+    def test_filler_word_inside_a_phrase_is_fine(self):
+        from hugin.linker import is_weak_anchor
+
+        assert not is_weak_anchor("Quando Tudo Tinha Peso")
+
+    def test_slug_fallback_never_picks_the_weak_word(self):
+        from hugin.linker import find_keyword_anchors
+
+        body = "Lembro de quando eu era criança e tudo era diferente."
+        url = "/quando-tudo-tinha-peso/"
+        assert find_keyword_anchors(body, [{"title": "x", "url": url}]) == []
+
+    def test_slug_fallback_still_matches_the_full_title(self):
+        from hugin.linker import find_keyword_anchors
+
+        body = "Escrevi antes em Quando Tudo Tinha Peso sobre isso."
+        result = find_keyword_anchors(body, [{"title": "x", "url": "/quando-tudo-tinha-peso/"}])
+        assert result == [{"anchor_text": "Quando Tudo Tinha Peso", "target_url": "/quando-tudo-tinha-peso/"}]

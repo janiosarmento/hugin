@@ -39,6 +39,7 @@ from hugin.linker import (
     check_anchor_viable,
     extract_existing_links,
     find_keyword_anchors,
+    is_weak_anchor,
     repair_anchor,
     trim_anchor_edges,
     find_protected_zones,
@@ -1559,7 +1560,7 @@ class HuginScreen(Screen):
 
         for e in entries:
             anchor = trim_anchor_edges(e["anchor"])
-            if not anchor or len(anchor.split()) > max_words:
+            if not anchor or len(anchor.split()) > max_words or is_weak_anchor(anchor):
                 continue
             pos = _find_whole_word(post.content, anchor)
             if pos == -1 or is_in_protected_zone(pos, len(anchor), zones):

@@ -184,6 +184,30 @@ the an of in on at to for with by from and or but as
 """.split())
 
 
+# Words too weak to be an anchor on their own ("quando" in the title "Quando
+# Tudo Tinha Peso"). Fine inside a longer phrase, so they are only rejected as
+# a single-word anchor. Lowercase, no accents.
+WEAK_SINGLE_WORDS = EDGE_STOPWORDS | frozenset("""
+quando como porque onde qual quais quem quanto quanta quantos quantas
+cada todo toda todos todas tudo nada algo alguem ninguem outro outra outros outras
+muito muita muitos muitas pouco pouca mais menos ainda ja sempre nunca depois antes
+agora entao tambem apenas so mesmo mesma assim aqui ali la
+esse essa esses essas este esta estes estas isso isto aquele aquela aquilo
+eu tu ele ela eles elas voce voces nos me te se lhe meu minha seu sua nosso nossa
+ser estar ter haver fazer foi era eram tinha tinham sao esta estao ha vai vao pode podem
+when how why where what which who whom whose each every all much many more less
+still always never after before then also only this that these those it its
+he she they we you i me my your our their is are was were be been being have has had
+do does did can will would could should
+""".split())
+
+
+def is_weak_anchor(anchor: str) -> bool:
+    """True for a single function/filler word that should not become a link."""
+    words = _WORD_RE.findall(anchor)
+    return len(words) == 1 and strip_accents(words[0].lower()) in WEAK_SINGLE_WORDS
+
+
 def trim_anchor_edges(anchor: str) -> str:
     """Drop prepositions/articles/conjunctions from both ends of an anchor.
 
@@ -274,7 +298,7 @@ def find_keyword_anchors(
         for length in range(len(parts), 0, -1):
             for start in range(len(parts) - length + 1):
                 phrase = " ".join(parts[start:start + length])
-                if length == 1 and len(phrase) < 6:
+                if length == 1 and (len(phrase) < 6 or is_weak_anchor(phrase)):
                     continue
                 phrase_candidates.append(phrase)
 
