@@ -394,3 +394,19 @@ class TestInheritedFields:
                             translation_key="my-first-pen")
         text = path.read_text()
         assert "thumbnail: /images/a.avif" in text and "translationKey: my-first-pen" in text and "- journaling" in text
+
+
+def test_write_with_system_llm_strips_reasoning(monkeypatch):
+    import asyncio
+
+    import hugin.llm as llm
+    from hugin.engines import Engine
+
+    async def fake_call_llm(engine, prompt, system=None):
+        return llm.strip_reasoning("<|channel>thought\nnotes\n<channel|>Real Title\nBody")
+
+    monkeypatch.setattr(llm, "call_llm", fake_call_llm)
+    engine = Engine("t", "http://x/v1", "m", 5, "key")
+    text = asyncio.run(echo.write_with_system_llm("msg", engine))
+    assert text == "Real Title\nBody"
+    assert echo.parse_answer(text, "req") == ("Real Title", "Body")

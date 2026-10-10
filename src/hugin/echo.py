@@ -310,9 +310,12 @@ async def ask_echo(message: str, persona: str, api_key: str) -> str:
         text = response.json()["choices"][0]["message"]["content"]
     except (ValueError, KeyError, IndexError, TypeError) as e:
         raise EchoError("Unexpected response format from Echo") from e
-    if not text or not text.strip():
+    from hugin.llm import strip_reasoning
+
+    text = strip_reasoning(text)
+    if not text:
         raise EchoError("Echo returned an empty answer")
-    return text.strip()
+    return text
 
 
 async def write_with_system_llm(message: str, engine) -> str:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from hugin.llm import build_prompt, parse_response
+from hugin.llm import build_prompt, parse_response, strip_reasoning
 
 
 class TestParseResponse:
@@ -155,3 +155,23 @@ def test_call_llm_reports_unexpected_response_shapes(monkeypatch):
         )
         with pytest.raises(ValueError, match="response format|no text"):
             asyncio.run(llm.call_llm(Engine("t", "http://x/v1", "m", 5, None), "hi"))
+
+
+class TestStripReasoning:
+    def test_removes_gemma_thought_channel(self):
+        text = "<|channel>thought\nPlanning the title.\n<channel|>Final Title\n\nBody text."
+        assert strip_reasoning(text) == "Final Title\n\nBody text."
+
+    def test_removes_think_block(self):
+        text = "<think>draft notes</think>\nAnswer"
+        assert strip_reasoning(text) == "Answer"
+
+    def test_drops_everything_after_unclosed_thought(self):
+        text = "Title\n<|channel>thought\nstill thinking, never answered"
+        assert strip_reasoning(text) == "Title"
+
+    def test_leaves_plain_text_alone(self):
+        assert strip_reasoning("Plain answer") == "Plain answer"
+
+    def test_empty_when_only_reasoning(self):
+        assert strip_reasoning("<|channel>thought\nonly notes\n<channel|>") == ""

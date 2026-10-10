@@ -203,6 +203,27 @@ def parse_response(text: str) -> list[str]:
     raise ValueError(f"Could not extract tags from the LLM response: {text[:200]}")
 
 
+REASONING_BLOCK_RE = re.compile(
+    r"<\|channel\>thought.*?<channel\|>|<think>.*?</think>",
+    re.DOTALL,
+)
+REASONING_MARKER_RE = re.compile(r"<\|channel\>\w*|<channel\|>|</?think>")
+
+
+def strip_reasoning(text: str) -> str:
+    """Remove the chain of thought some models (e.g. Gemma) emit inline.
+
+    Drops complete `<|channel>thought ... <channel|>` and `<think> ... </think>`
+    blocks, then any stray channel markers left behind. An unclosed opening
+    marker means the answer never came, so everything after it is dropped too.
+    """
+    text = REASONING_BLOCK_RE.sub("", text)
+    unclosed = re.search(r"<\|channel\>thought|<think>", text)
+    if unclosed:
+        text = text[:unclosed.start()]
+    return REASONING_MARKER_RE.sub("", text).strip()
+
+
 def _is_repetition_loop(text: str, threshold: float = 0.5) -> bool:
     """Return True if the response looks like a repetition hallucination.
 
@@ -251,6 +272,7 @@ async def call_llm(engine: Engine, prompt: str, system: str | None = None) -> st
         raise ValueError(f"Unexpected response format from {engine.id}: {response.text[:200]}") from e
     if not isinstance(text, str):
         raise ValueError(f"{engine.id} returned no text content")
+    text = strip_reasoning(text)
     if _is_repetition_loop(text):
         raise ValueError("Model returned a repetition loop — skipping")
     return text
