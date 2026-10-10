@@ -7,7 +7,7 @@ from textual.widgets import Input, TextArea
 
 import hugin.project as project
 from hugin.project import DEFAULT_EDITORIAL_CONSTRAINTS, ProjectConfig, WritingSettings, load_project, save_project
-from hugin.tui.project_settings import ProjectSettingsScreen
+from hugin.tui.project_settings import EditorialRulesScreen, ProjectSettingsScreen
 
 
 def _setup(monkeypatch, tmp_path, config=None):
@@ -24,7 +24,7 @@ def _save(blog, config, edit):
     async def go():
         app = App()
         async with app.run_test(size=(100, 60)) as pilot:
-            screen = ProjectSettingsScreen(config, blog)
+            screen = EditorialRulesScreen(config, blog)
             app.push_screen(screen)
             await pilot.pause()
             edit(screen)
@@ -93,3 +93,41 @@ def test_rules_without_a_language_name_are_not_saved(monkeypatch, tmp_path):
 
     _save(blog, config, edit)
     assert load_project(blog).writing.by_language == {}
+
+
+def test_settings_screen_opens_the_rules_screen_from_a_button(monkeypatch, tmp_path):
+    from textual.widgets import Button
+
+    blog, config = _setup(monkeypatch, tmp_path)
+
+    async def go():
+        app = App()
+        async with app.run_test(size=(100, 30)) as pilot:
+            app.push_screen(ProjectSettingsScreen(config, blog))
+            await pilot.pause()
+            app.screen.query_one("#btn-editorial-rules", Button).press()
+            await pilot.pause()
+            return type(app.screen).__name__
+
+    assert asyncio.run(go()) == "EditorialRulesScreen"
+
+
+def test_rules_screen_keeps_save_and_fields_on_a_30_row_terminal(monkeypatch, tmp_path):
+    from textual.widgets import Button
+
+    blog, config = _setup(monkeypatch, tmp_path)
+
+    async def go():
+        app = App()
+        async with app.run_test(size=(100, 30)) as pilot:
+            app.push_screen(EditorialRulesScreen(config, blog))
+            await pilot.pause()
+            scr = app.screen
+            return {
+                "save": scr.query_one("#btn-save-rules", Button).region,
+                "override": scr.query_one("#input-override-rules").region,
+            }
+
+    regions = asyncio.run(go())
+    assert regions["save"].y + regions["save"].height <= 30
+    assert regions["override"].y + regions["override"].height <= 30

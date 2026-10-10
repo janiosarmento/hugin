@@ -1,9 +1,9 @@
-"""Project settings screen."""
+"""Project settings screen, and the editorial rules screen it opens."""
 
 from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Static, TextArea
 
@@ -21,9 +21,9 @@ class ProjectSettingsScreen(ModalScreen[bool]):
     }
 
     #settings-modal {
-        width: 76;
+        width: 70;
         height: auto;
-        max-height: 95%;
+        max-height: 100%;
         border: round $accent;
         background: $surface;
         padding: 1 2;
@@ -48,14 +48,6 @@ class ProjectSettingsScreen(ModalScreen[bool]):
         margin-bottom: 0;
     }
 
-    #input-constraints {
-        height: 12;
-    }
-
-    #input-override-rules {
-        height: 6;
-    }
-
     #settings-buttons {
         height: auto;
         margin-top: 2;
@@ -71,13 +63,8 @@ class ProjectSettingsScreen(ModalScreen[bool]):
         self._config = config
         self._directory = directory
         self._global_wpl = global_words_per_link
-        overrides = config.writing.by_language
-        # The override shown first; renaming it in the form moves it instead of copying it
-        self._loaded_language = next(iter(overrides), "")
 
     def compose(self) -> ComposeResult:
-        writing = self._config.writing
-        overrides = ", ".join(writing.by_language) or "none"
         with VerticalScroll(id="settings-modal"):
             yield Label("Project Settings", classes="settings-title")
 
@@ -104,35 +91,22 @@ class ProjectSettingsScreen(ModalScreen[bool]):
                 type="integer",
             )
 
-            yield Label("Editorial constraints", classes="field-label")
+            yield Label("Editorial rules", classes="field-label")
             yield Static(
-                "Rules sent with every Echo draft of this blog. Blank = Hugin default.",
+                "Guidelines sent with every Echo draft of this blog, and per-language overrides.",
                 classes="field-hint",
             )
-            yield TextArea(writing.constraints, id="input-constraints")
-
-            yield Label("Language override", classes="field-label")
-            yield Static(
-                "Language as detected from the posts (Portuguese, English, Spanish, French). "
-                "Blank rules remove the override. Current overrides: " + overrides,
-                classes="field-hint",
-            )
-            yield Input(value=self._loaded_language, id="input-override-language")
-            yield TextArea(
-                writing.by_language.get(self._loaded_language, ""),
-                id="input-override-rules",
-            )
+            yield Button("Editorial rules…", id="btn-editorial-rules")
 
             with Horizontal(id="settings-buttons"):
                 yield Button("Save", id="btn-save-settings", variant="primary")
-                yield Button("Restore default rules", id="btn-restore-constraints")
                 yield Button("Cancel", id="btn-cancel-settings")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-save-settings":
             self._do_save()
-        elif event.button.id == "btn-restore-constraints":
-            self.query_one("#input-constraints", TextArea).load_text(DEFAULT_EDITORIAL_CONSTRAINTS)
+        elif event.button.id == "btn-editorial-rules":
+            self.app.push_screen(EditorialRulesScreen(self._config, self._directory))
         else:
             self.dismiss(False)
 
@@ -140,13 +114,6 @@ class ProjectSettingsScreen(ModalScreen[bool]):
         words_str = self.query_one("#input-words", Input).value.strip()
         style = self.query_one("#input-style", Input).value.strip()
         wpl_str = self.query_one("#input-words-per-link", Input).value.strip()
-        constraints = self.query_one("#input-constraints", TextArea).text.strip()
-        language = self.query_one("#input-override-language", Input).value.strip()
-        rules = self.query_one("#input-override-rules", TextArea).text.strip()
-
-        if rules and not language:
-            self.notify("Name the language before saving its rules.", severity="warning")
-            return
 
         try:
             words = int(words_str)
@@ -167,6 +134,125 @@ class ProjectSettingsScreen(ModalScreen[bool]):
         self._config.summary.words = words
         self._config.summary.style = style or self._config.summary.style
         self._config.links.words_per_link = wpl
+
+        save_project(self._directory, self._config)
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
+class EditorialRulesScreen(ModalScreen[bool]):
+    """Blog-wide editorial rules, plus one override per detected language.
+
+    Saves straight to the project file, so the rules take effect without
+    going back through the settings screen.
+    """
+
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    DEFAULT_CSS = """
+    EditorialRulesScreen {
+        align: center middle;
+    }
+
+    #rules-modal {
+        width: 90%;
+        max-width: 110;
+        height: 100%;
+        max-height: 100%;
+        border: round $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #rules-modal .settings-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #rules-modal .field-label {
+        margin-top: 1;
+        text-style: bold;
+    }
+
+    #rules-modal .field-hint {
+        color: $text-muted;
+    }
+
+    #input-constraints {
+        height: 1fr;
+        min-height: 3;
+    }
+
+    #input-override-rules {
+        height: 4;
+    }
+
+    #rules-buttons {
+        height: auto;
+        margin-top: 1;
+    }
+
+    #rules-buttons Button {
+        margin: 0 1 0 0;
+    }
+    """
+
+    def __init__(self, config: ProjectConfig, directory: Path) -> None:
+        super().__init__()
+        self._config = config
+        self._directory = directory
+        overrides = config.writing.by_language
+        # The override shown first; renaming it in the form moves it instead of copying it
+        self._loaded_language = next(iter(overrides), "")
+
+    def compose(self) -> ComposeResult:
+        writing = self._config.writing
+        overrides = ", ".join(writing.by_language) or "none"
+        with Vertical(id="rules-modal"):
+            yield Label("Editorial rules", classes="settings-title")
+
+            yield Label("Blog rules", classes="field-label")
+            yield Static(
+                "Sent with every Echo draft of this blog. Blank = Hugin default.",
+                classes="field-hint",
+            )
+            yield TextArea(writing.constraints, id="input-constraints")
+
+            yield Label("Language override", classes="field-label")
+            yield Static(
+                "Language as detected from the posts (Portuguese, English, Spanish, French). "
+                "Blank rules remove the override. Current overrides: " + overrides,
+                classes="field-hint",
+            )
+            yield Input(value=self._loaded_language, id="input-override-language")
+            yield TextArea(
+                writing.by_language.get(self._loaded_language, ""),
+                id="input-override-rules",
+            )
+
+            with Horizontal(id="rules-buttons"):
+                yield Button("Save", id="btn-save-rules", variant="primary")
+                yield Button("Restore default", id="btn-restore-constraints")
+                yield Button("Cancel", id="btn-cancel-rules")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-save-rules":
+            self._do_save()
+        elif event.button.id == "btn-restore-constraints":
+            self.query_one("#input-constraints", TextArea).load_text(DEFAULT_EDITORIAL_CONSTRAINTS)
+        else:
+            self.dismiss(False)
+
+    def _do_save(self) -> None:
+        constraints = self.query_one("#input-constraints", TextArea).text.strip()
+        language = self.query_one("#input-override-language", Input).value.strip()
+        rules = self.query_one("#input-override-rules", TextArea).text.strip()
+
+        if rules and not language:
+            self.notify("Name the language before saving its rules.", severity="warning")
+            return
 
         writing = self._config.writing
         writing.constraints = constraints or DEFAULT_EDITORIAL_CONSTRAINTS
