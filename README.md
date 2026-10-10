@@ -89,7 +89,7 @@ Hidden from the footer to keep it uncluttered, but still active — press `?` to
 | `m` | Open tag manager |
 | `c` | Clear embedding cache and restart |
 | `r` | Manage URL redirects (`_redirects` file) |
-| `X` | Delete the current post (with confirmation) |
+| `X` | Delete the current post (with confirmation; the file is moved to `~/.hugin/trash/`, not erased) |
 | `,` (comma) | Project settings |
 
 ### Tag manager keybindings

@@ -8,7 +8,10 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Input, Label, Static, TextArea
 
+from rich.markup import escape
+
 from hugin.redirects import append_redirect, read_redirects, write_redirects
+from hugin.trash import trash_location
 
 
 # ---------------------------------------------------------------------------
@@ -17,7 +20,7 @@ from hugin.redirects import append_redirect, read_redirects, write_redirects
 
 
 class ConfirmDeleteScreen(ModalScreen[bool]):
-    """Confirm permanent deletion of a post."""
+    """Confirm deleting a post (the file goes to the trash folder)."""
 
     BINDINGS = [("escape", "cancel", "Cancel")]
 
@@ -58,7 +61,11 @@ class ConfirmDeleteScreen(ModalScreen[bool]):
             yield Label(f'Delete "[bold]{self._title}[/bold]"?')
             if self._url:
                 yield Label(f"[dim]{self._url}[/dim]")
-            yield Label("This cannot be undone (use git to recover).", id="del-warning")
+            yield Label(
+                f"The file will be moved to the trash folder, not erased:\n"
+                f"{escape(trash_location())}",
+                id="del-warning",
+            )
             with Horizontal(id="del-buttons"):
                 yield Button("Delete", id="btn-delete", variant="error")
                 yield Button("Cancel", id="btn-cancel")

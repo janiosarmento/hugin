@@ -2143,15 +2143,21 @@ class HuginScreen(Screen):
             if not confirmed:
                 return
 
-            # Delete the file
+            # Move the file to the trash (never an irreversible delete)
+            from hugin.trash import move_to_trash
+
             try:
-                post.path.unlink()
-            except Exception as e:
-                self.notify(f"Error deleting file: {e}", severity="error")
+                trashed = move_to_trash(post.path)
+            except OSError as e:
+                self.notify(f"Error moving file to trash: {e}", severity="error")
                 return
 
-            # Remove from embedding index
-            self.index.remove_post(post)
+            # Remove from embedding index; the file is already gone, so a
+            # failure here must not stop the lists below from catching up
+            try:
+                self.index.remove_post(post)
+            except (KeyError, OSError) as e:
+                self.notify(f"Index not updated ({e}); clear caches with c", severity="warning")
 
             # Remove from in-memory lists
             idx = self.current_index
@@ -2177,7 +2183,7 @@ class HuginScreen(Screen):
                 self._clear_action_area()
                 self.query_one("#progress-label", Label).update("No posts")
 
-            self.notify(f"Deleted: {filename}")
+            self.notify(f"{filename} moved to {trashed}", timeout=10)
 
             # Offer redirect only if we know the URL
             if not post_url:
