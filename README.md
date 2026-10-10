@@ -68,7 +68,7 @@ Press `?` at any time on the main screen for a modal listing every keybinding be
 | `o` | Generate outgoing link suggestions (embedding + LLM) |
 | `e` | Open built-in editor |
 | `p` | Create new post |
-| `g` | Sync repository with GitHub (commit + pull --rebase + push) |
+| `g` | Sync repository with GitHub (commit + pull --rebase + push). The confirmation lists what will be committed. Never prompts for credentials, times out instead of hanging, refuses new files that look like secrets (`.env`, `*.pem`, `*.key`…) and leaves a rebase/merge you started untouched |
 | `/` | Inline search — filter post list by title or filename |
 | `Ctrl+P` | Change Textual theme (persists across sessions) |
 | `Escape` | Go back / cancel LLM call in progress |

@@ -170,8 +170,9 @@ class ConfirmGitSyncScreen(ModalScreen[bool]):
     }
 
     #gitsync-modal {
-        width: 52;
+        width: 72;
         height: auto;
+        max-height: 90%;
         border: solid $accent;
         background: $surface;
         padding: 1 2;
@@ -192,10 +193,25 @@ class ConfirmGitSyncScreen(ModalScreen[bool]):
     }
     """
 
+    MAX_LISTED = 12
+
+    def __init__(self, changes: list[str] | None = None) -> None:
+        super().__init__()
+        self._changes = changes or []
+
     def compose(self) -> ComposeResult:
         with Vertical(id="gitsync-modal"):
             yield Label("Sync repository with GitHub?")
             yield Static("Will commit local changes, pull --rebase, then push.")
+            if self._changes:
+                from rich.markup import escape
+
+                shown = self._changes[: self.MAX_LISTED]
+                lines = "\n".join(escape(line) for line in shown)
+                more = len(self._changes) - len(shown)
+                if more > 0:
+                    lines += f"\n…and {more} more"
+                yield Static(f"\nTo be committed:\n{lines}", id="gitsync-changes")
             with Horizontal(id="gitsync-buttons"):
                 yield Button("Yes", id="btn-yes", variant="primary")
                 yield Button("No", id="btn-no")
@@ -2360,7 +2376,9 @@ class HuginScreen(Screen):
                 self._start_spinner(self.current_index, "Syncing with GitHub...")
                 self._do_git_sync()
 
-        self.app.push_screen(ConfirmGitSyncScreen(), on_confirm)
+        from hugin.git import pending_changes
+
+        self.app.push_screen(ConfirmGitSyncScreen(pending_changes(self.directory)), on_confirm)
 
     @work(thread=True)
     def _do_git_sync(self) -> None:
