@@ -1009,3 +1009,28 @@ def test_llm_single_weak_word_anchor_is_dropped(monkeypatch):
         fake, post, [{"title": "A", "url": "/a/"}], set(),
     ))
     assert result == []
+
+
+def test_wait_screen_shows_the_cancel_hint_and_esc_cancels(tmp_path, monkeypatch):
+    finished = []
+
+    async def slow_ask(message, persona, key):
+        await asyncio.sleep(30)
+        finished.append(True)
+        return "T\n\nB"
+
+    monkeypatch.setattr(echo_mod, "ask_echo", slow_ask)
+    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
+    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
+    hints = []
+
+    async def keys(app, pilot):
+        await pilot.pause(0.3)
+        hints.append(str(app.screen.query_one("#echo-wait-hint").render()))
+        await pilot.press("escape")
+
+    result = _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None), keys)
+    assert result is None
+    assert hints == ["Esc to cancel"]
+    assert finished == []
+    assert len(list(tmp_path.glob("*.md"))) == 7  # no draft was written

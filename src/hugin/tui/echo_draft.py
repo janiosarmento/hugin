@@ -39,7 +39,7 @@ from hugin.hugo import load_categories
 from hugin.scanner import Post
 
 
-WAIT_TEXT = "Waiting for {who} (can take several minutes)…  Esc cancels"
+WAIT_TEXT = "Waiting for {who} (can take several minutes)…"
 
 
 SIMILAR_PENDING = f"{N_SIMILAR} closest to your prompt (picked when you send)"
@@ -331,6 +331,11 @@ class EchoWaitScreen(ModalScreen[Path | None]):
         margin-top: 1;
         text-align: center;
     }
+
+    #echo-wait-hint {
+        text-align: center;
+        color: $text-muted;
+    }
     """
 
     def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, writer: str = WRITER_ECHO, original: Post | None = None) -> None:
@@ -348,6 +353,7 @@ class EchoWaitScreen(ModalScreen[Path | None]):
         with Vertical(id="echo-wait-modal"):
             yield LoadingIndicator()
             yield Label(self._wait_text(), id="echo-wait-status")
+            yield Label("Esc to cancel", id="echo-wait-hint")
 
     def _wait_text(self) -> str:
         who = "the system LLM" if self._writer == WRITER_SYSTEM else "Echo"
