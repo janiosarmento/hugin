@@ -204,7 +204,12 @@ def build_message(samples: list[Post], request: str, original: Post | None = Non
             "sequel, an update, an addendum or a commentary on the original, "
             "do not refer to it, and do not assume the reader has seen it. "
             "The request below says what to improve or change in the "
-            "rewrite; the post must stand on its own. Write it in my voice. "
+            "rewrite. It may also bring new facts or a different outcome "
+            "(something that happened after the original was written): "
+            "weave them into the story as part of a single, coherent post "
+            "(change the angle, the verdict or the conclusion if needed), "
+            "never tack them on as an epilogue or a 'later I found out'. "
+            "The post must stand on its own. Write it in my voice. "
         )
     return (
         f"Here are {n} of my blog posts:\n\n"
