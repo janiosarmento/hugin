@@ -7,9 +7,12 @@ from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label, LoadingIndicator, RadioButton, RadioSet, Static, TextArea
+from textual.widgets import Button, Input, Label, LoadingIndicator, RadioButton, RadioSet, Static, TextArea
 
 from hugin.echo import (
+    DEFAULT_TARGET_WORDS,
+    MAX_TARGET_WORDS,
+    MIN_TARGET_WORDS,
     MIN_SAMPLES,
     N_RANDOM,
     N_RECENT,
@@ -110,6 +113,15 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         margin-right: 3;
     }
 
+    #echo-length {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    #echo-length Input {
+        width: 14;
+    }
+
     #echo-samples {
         height: auto;
         color: $text-muted;
@@ -145,6 +157,8 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         self._ranked_prompt: list[str] | None = None
         self._ranked_original: list[str] | None = None
         self._debounce = None
+        # Set when the prompt is sent; None for refactors (length comes from the original)
+        self.target_words: int | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical(id="echo-modal"):
@@ -173,6 +187,10 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
                 id="echo-hint",
             )
             yield TextArea(id="echo-prompt")
+            if self._original is None:
+                with Horizontal(id="echo-length"):
+                    yield Label("Length (words): ")
+                    yield Input(value=str(DEFAULT_TARGET_WORDS), id="echo-words", type="integer")
             with RadioSet(id="echo-writer"):
                 yield RadioButton("Echo", id="writer-echo", value=_last_writer == WRITER_ECHO)
                 yield RadioButton(self._system_label(), id="writer-system", value=_last_writer == WRITER_SYSTEM)
@@ -303,9 +321,19 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         if not text:
             self.notify("Write a prompt first.", severity="warning")
             return
+        self.target_words = self._read_target_words() if self._original is None else None
         global _last_writer
         _last_writer = self._writer()
         self.dismiss((text, _last_writer))
+
+    def _read_target_words(self) -> int:
+        """The length typed in the form, clamped; the default when it is not a number."""
+        raw = self.query_one("#echo-words", Input).value.strip()
+        try:
+            words = int(raw)
+        except ValueError:
+            return DEFAULT_TARGET_WORDS
+        return max(MIN_TARGET_WORDS, min(MAX_TARGET_WORDS, words))
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -344,9 +372,10 @@ class EchoWaitScreen(ModalScreen[Path | None]):
     }
     """
 
-    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, writer: str = WRITER_ECHO, original: Post | None = None) -> None:
+    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, writer: str = WRITER_ECHO, original: Post | None = None, words: int | None = None) -> None:
         super().__init__()
         self._original = original
+        self._words = words
         self._engine = engine
         self._index = index
         self._random_pick = random_pick
@@ -396,7 +425,7 @@ class EchoWaitScreen(ModalScreen[Path | None]):
             language = detect_language(" ".join(p.content for p in samples))
             message = build_message(
                 samples, self._request, self._original,
-                constraints=writing.for_language(language),
+                constraints=writing.for_language(language), words=self._words,
             )
             if self._writer == WRITER_SYSTEM:
                 text = await write_with_system_llm(message, self._engine)

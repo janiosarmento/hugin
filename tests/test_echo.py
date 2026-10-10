@@ -423,3 +423,9 @@ def test_write_with_system_llm_strips_reasoning(monkeypatch):
     text = asyncio.run(echo.write_with_system_llm("msg", engine))
     assert text == "Real Title\nBody"
     assert echo.parse_answer(text, "req") == ("Real Title", "Body")
+
+
+def test_build_message_states_the_target_length_for_new_posts(tmp_path):
+    p = make_post(tmp_path, "a.md", 1)
+    assert "Target length: about 800 words." in build_message([p], "req", words=800)
+    assert "Target length" not in build_message([p], "req")

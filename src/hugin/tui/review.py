@@ -2165,6 +2165,7 @@ class HuginScreen(Screen):
                     EchoWaitScreen(
                         request, list(self.all_posts), self.directory, self.engine,
                         self.index, prompt_screen.random_pick, writer, original,
+                        words=prompt_screen.target_words,
                     ),
                     on_created,
                 )

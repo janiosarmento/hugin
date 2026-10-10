@@ -28,6 +28,12 @@ N_SIMILAR = 4
 N_RANDOM = 0  # set to 1 to add a random sample for stylistic variety
 MIN_SAMPLES = N_RECENT + N_SIMILAR + N_RANDOM
 
+# Target length for a new post, asked for in the form (words). The model won't
+# hit it exactly, so this is a direction, not a limit.
+DEFAULT_TARGET_WORDS = 800
+MIN_TARGET_WORDS = 50
+MAX_TARGET_WORDS = 5000
+
 # Refactor mode (rewriting an existing post): the sample mix changes, and the
 # original goes along as its own block, never as a sample.
 R_N_RECENT = 2
@@ -202,7 +208,7 @@ def select_refactor_samples(
 
 def build_message(
     samples: list[Post], request: str, original: Post | None = None,
-    constraints: str | None = None,
+    constraints: str | None = None, words: int | None = None,
 ) -> str:
     blocks = []
     for post in samples:
@@ -211,6 +217,8 @@ def build_message(
     n = len(samples)
     if original is None:
         task = "Write a new post in my voice, following the request below. "
+        if words:
+            task += f"Target length: about {words} words. "
         extra = ""
     else:
         title = original.metadata.get("title", original.path.stem)

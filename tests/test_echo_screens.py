@@ -1066,3 +1066,41 @@ def test_wait_screen_cancel_hint_is_visible_inside_the_modal(tmp_path, monkeypat
     modal, hint = geometry[0]
     assert hint.height > 0
     assert modal.contains_region(hint)
+
+
+def test_length_field_defaults_to_800_for_new_posts_and_is_clamped(tmp_path):
+    from textual.widgets import Input
+
+    async def go():
+        app = App()
+        results = {}
+        async with app.run_test(size=(120, 60)) as pilot:
+            screen = ed.EchoPromptScreen([], None, None)
+            app.push_screen(screen)
+            await pilot.pause()
+            field = screen.query_one("#echo-words", Input)
+            results["default"] = field.value
+            field.value = "99999"
+            results["clamped"] = screen._read_target_words()
+            field.value = "soon"
+            results["fallback"] = screen._read_target_words()
+        return results
+
+    results = asyncio.run(go())
+    assert results == {"default": "800", "clamped": 5000, "fallback": 800}
+
+
+def test_refactor_form_has_no_length_field(tmp_path):
+    from textual.widgets import Input
+
+    posts = _posts(tmp_path)
+
+    async def go():
+        app = App()
+        async with app.run_test(size=(120, 60)) as pilot:
+            app.push_screen(ed.EchoPromptScreen(posts, None, None, posts[0]))
+            await pilot.pause()
+            assert not app.screen.query("#echo-words")
+            assert app.screen.query(Input) is not None
+
+    asyncio.run(go())
