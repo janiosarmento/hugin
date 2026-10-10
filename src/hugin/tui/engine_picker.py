@@ -2,6 +2,8 @@
 
 import httpx
 
+from hugin.log import log_exception
+
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Vertical
@@ -207,7 +209,9 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
 
             self._show_models(models)
 
-        except Exception as e:
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError) as e:
+            # unreachable server, or a model list in a shape we don't know
+            log_exception("list models")
             self._show_manual_input(f"Error: {e} — type model name:")
 
     def action_cancel(self) -> None:

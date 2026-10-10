@@ -3,9 +3,11 @@
 import re
 
 import frontmatter
+import yaml
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button,
@@ -313,8 +315,8 @@ class EditorScreen(Screen[bool]):
             body_editor = self.query_one("#body-editor", TextArea)
             if body_editor.text != self._original_content:
                 return True
-        except Exception:
-            pass
+        except NoMatches:
+            pass  # body editor not mounted (raw mode)
 
         return False
 
@@ -340,7 +342,7 @@ class EditorScreen(Screen[bool]):
             raw_text = _quote_frontmatter_fields(raw_text)
             try:
                 parsed = frontmatter.loads(raw_text)
-            except Exception as exc:
+            except (yaml.YAMLError, ValueError) as exc:
                 # Stay in raw mode — don't switch to empty structured fields
                 self._raw_mode = True
                 self.notify(f"YAML error: {exc}", severity="error", timeout=8)
@@ -401,7 +403,7 @@ class EditorScreen(Screen[bool]):
             fixed = _quote_frontmatter_fields(raw_text)
             try:
                 frontmatter.loads(fixed)
-            except Exception as exc:
+            except (yaml.YAMLError, ValueError) as exc:
                 self.notify(f"Can't save — invalid YAML: {exc}", severity="error", timeout=8)
                 return
             save_raw(post.path, fixed)

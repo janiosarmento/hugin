@@ -10,6 +10,8 @@ from typing import Any
 import tomlkit
 import yaml
 
+from hugin.log import log_exception
+
 # Date prefix pattern in filenames: YYYY-MM-DD-
 DATE_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-")
 
@@ -268,8 +270,9 @@ def load_categories(posts_dir: Path) -> list[str]:
                     cats = _extract_pages_cms_categories(data)
                 if cats:
                     return cats
-            except Exception:
-                pass
+            except (OSError, yaml.YAMLError):
+                # A broken .pages.yml must not stop the search, but leave a trace
+                log_exception(f"read {pages_cfg}")
 
         parent = root.parent
         if parent == root:

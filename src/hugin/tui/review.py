@@ -7,9 +7,11 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+import yaml
 from textual import work
+from textual.app import ComposeResult, ScreenError, ScreenStackError
 from textual.binding import Binding
-from textual.app import ComposeResult
+from textual.css.query import NoMatches
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
 from textual.widgets import (
@@ -64,6 +66,7 @@ from hugin.llm import (
 from hugin.normalizer import detect_language, normalize_keyword, normalize_keywords, normalize_tag, normalize_tags, strip_accents
 from hugin.scanner import Post, collect_keyword_pool, format_pool_for_prompt
 from hugin.project import ProjectConfig, load_project
+from hugin.log import log_exception
 from hugin.state import mark_processed, save_state, get_last_post, set_last_post
 from hugin.writer import write_keywords, write_summary, write_tags
 
@@ -384,8 +387,8 @@ class LoadingScreen(ModalScreen):
             self.query_one("#loading-label", Static).update(
                 f"{char}  {self._message}"
             )
-        except Exception:
-            pass
+        except NoMatches:
+            pass  # the overlay is closing
 
 
 _KEY_DISPLAY = {
@@ -766,8 +769,8 @@ class HuginScreen(Screen):
         if self._loading_screen is not None:
             try:
                 self._loading_screen.dismiss()
-            except Exception:
-                pass
+            except (ScreenError, ScreenStackError):
+                pass  # already closed (e.g. cancelled with Esc)
             self._loading_screen = None
 
     def _set_spinner_message(self, message: str) -> None:
@@ -1003,7 +1006,8 @@ class HuginScreen(Screen):
             )
             normalized = normalize_tags(raw_tags, post.tags, self.pool)
             self._display_tags(normalized)
-        except Exception as e:
+        except Exception as e:  # UI boundary: show it, keep the traceback in the log
+            log_exception("llm request")
             self._display_error(self._format_error(e))
 
     def _display_tags(self, tags: list[str]) -> None:
@@ -1116,7 +1120,8 @@ class HuginScreen(Screen):
             existing_keywords = post.metadata.get("keywords") or []
             normalized = normalize_keywords(raw_keywords, existing_keywords, keyword_pool)
             self._display_keywords(normalized, keyword_pool)
-        except Exception as e:
+        except Exception as e:  # UI boundary: show it, keep the traceback in the log
+            log_exception("llm request")
             self._display_error(self._format_error(e))
 
     def _display_keywords(self, keywords: list[str], keyword_pool: dict[str, int]) -> None:
@@ -1213,7 +1218,8 @@ class HuginScreen(Screen):
                 style=self._project.summary.style,
             )
             self._display_summary(summary)
-        except Exception as e:
+        except Exception as e:  # UI boundary: show it, keep the traceback in the log
+            log_exception("llm request")
             self._display_error(self._format_error(e))
 
     def _display_summary(self, summary: str) -> None:
@@ -1252,7 +1258,7 @@ class HuginScreen(Screen):
         try:
             ta = self.query_one("#summary-editor", TextArea)
             final_summary = ta.text.strip()
-        except Exception:
+        except NoMatches:
             final_summary = self._suggested_summary
 
         if not final_summary:
@@ -1278,7 +1284,7 @@ class HuginScreen(Screen):
                     counter.update(f"[bold red]({chars} chars — over {MAX_SUMMARY_CHARS})[/bold red]")
                 else:
                     counter.update(f"({chars} chars)")
-            except Exception:
+            except NoMatches:
                 pass
 
     # === INCOMING LINKS ===
@@ -1539,7 +1545,8 @@ class HuginScreen(Screen):
             validated = (validated + fallback)[:budget]
             self._finish_outgoing(post, validated)
 
-        except Exception as e:
+        except Exception as e:  # UI boundary
+            log_exception("incoming links")
             self._stop_spinner()
             self._state = STATE_BROWSING
             self.notify(f"Error: {e}", severity="error")
@@ -1651,7 +1658,8 @@ class HuginScreen(Screen):
             validated = validated[:budget]
             self._finish_outgoing(post, validated, mark_empty=True)
 
-        except Exception as e:
+        except Exception as e:  # UI boundary
+            log_exception("outgoing links")
             self._stop_spinner()
             self._state = STATE_BROWSING
             self.notify(f"Error: {e}", severity="error")
@@ -1839,7 +1847,8 @@ class HuginScreen(Screen):
                 similar = await asyncio.to_thread(
                     self.index.find_similar, post, n=SUGGEST_N_SIMILAR
                 )
-            except Exception:
+            except (OSError, ValueError, KeyError):
+                log_exception("suggest: similar posts")
                 similar = []  # embeddings unavailable: ask without the hint
             prompt = build_suggest_prompt(
                 post.metadata.get("title", post.filename),
@@ -1864,7 +1873,8 @@ class HuginScreen(Screen):
             self._state = STATE_BROWSING
             self._show_suggestions(novel, len(suggestions))
 
-        except Exception as e:
+        except Exception as e:  # UI boundary
+            log_exception("suggest topics")
             self._stop_spinner()
             self._state = STATE_BROWSING
             self.notify(f"Error: {e}", severity="error")
@@ -2078,7 +2088,8 @@ class HuginScreen(Screen):
             for path in paths:
                 try:
                     loaded = fm.load(str(path))
-                except Exception:
+                except (OSError, ValueError, yaml.YAMLError):
+                    log_exception(f"news draft {path.name}")
                     continue
                 post = Post(
                     path=path,
@@ -2326,7 +2337,7 @@ class HuginScreen(Screen):
             code = e.response.status_code
             try:
                 body = e.response.json().get("error", {}).get("message", "")
-            except Exception:
+            except (ValueError, AttributeError):
                 body = e.response.text[:200]
             return f"HTTP {code}: {body}"
         if isinstance(e, ValueError):

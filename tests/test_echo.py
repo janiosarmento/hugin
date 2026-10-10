@@ -229,7 +229,7 @@ class TestCategory:
             return "no idea"
 
         async def boom(engine, prompt, system=None):
-            raise RuntimeError("down")
+            raise httpx.ConnectError("down")
 
         monkeypatch.setattr(llm, "call_llm", nonsense)
         assert asyncio.run(pick_category(object(), "T", "b", CATS)) == "Technology"
@@ -306,7 +306,7 @@ class TestFallback:
         self._setup(monkeypatch, EchoError("echo down"))
 
         async def bad(engine, prompt, system=None):
-            raise RuntimeError("llm down")
+            raise httpx.ConnectError("llm down")
 
         monkeypatch.setattr(llm, "call_llm", bad)
         with pytest.raises(EchoError, match="echo down.*llm down"):

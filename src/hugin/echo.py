@@ -15,6 +15,7 @@ from pathlib import Path
 import httpx
 
 from hugin.engines import load_fulcrum_echo_secret
+from hugin.log import log_exception
 from hugin.scanner import Post
 
 ECHO_URL = "https://echo.fulcrum.inc/api/v1/chat/completions"
@@ -47,6 +48,15 @@ of AI prose ("It works. It's fast. It's simple."). Prefer sentences of \
 natural, varied length, and join related ideas into flowing sentences and \
 paragraphs, as a human writer would.
 """
+
+
+# What a failed LLM call can raise: network/HTTP problems, a repetition loop
+# or malformed JSON (ValueError), and an unexpected response shape. Anything
+# else is a bug and must not be swallowed.
+LLM_ERRORS = (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError)
+
+# What the embedding index can raise when the model or its files are unusable
+EMBEDDING_ERRORS = (OSError, RuntimeError, ValueError, ImportError)
 
 
 class EchoError(Exception):
@@ -270,8 +280,8 @@ def _error_detail(response: httpx.Response) -> str:
     """Short server-side reason (e.g. 'insufficient credits'), if the body has one."""
     try:
         err = response.json().get("error")
-    except Exception:
-        return ""
+    except (ValueError, AttributeError):
+        return ""  # body is not JSON, or not a JSON object
     if isinstance(err, dict):
         err = err.get("message")
     return f": {str(err)[:200]}" if err else ""
@@ -317,7 +327,7 @@ async def write_with_system_llm(message: str, engine) -> str:
     patient = replace(engine, timeout=max(engine.timeout, FALLBACK_MIN_TIMEOUT))
     try:
         text = await call_llm(patient, message, system=WRITER_SYSTEM_PROMPT)
-    except Exception as e:
+    except LLM_ERRORS as e:
         raise EchoError(f"{engine.id} failed: {e}") from e
     if not text or not text.strip():
         raise EchoError(f"{engine.id} returned nothing")
@@ -417,7 +427,8 @@ async def pick_category(engine, title: str, body: str, categories: list[str]) ->
     )
     try:
         answer = await call_llm(engine, prompt)
-    except Exception:
+    except LLM_ERRORS:
+        log_exception("pick category")
         return categories[0]
     return parse_category(answer, categories) or categories[0]
 

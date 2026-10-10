@@ -221,7 +221,8 @@ class NewsIdeasScreen(Screen):
             self._last_items = items
             self._show_results(query, ideas)
 
-        except Exception as e:
+        except Exception as e:  # UI boundary: report it, keep the traceback in the log
+            log_exception("news ideas")
             self.notify(f"Error: {e}", severity="error")
             self._show_phase("search")
 

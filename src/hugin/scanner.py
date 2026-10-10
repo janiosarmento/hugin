@@ -8,6 +8,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 import frontmatter
+import yaml
 
 from hugin.normalizer import detect_language
 from hugin.state import get_last_processed
@@ -139,7 +140,7 @@ def load_posts(directory: Path, problems: list[str] | None = None) -> list[Post]
 
         try:
             post = frontmatter.load(str(path), encoding="utf-8")
-        except Exception as e:
+        except (yaml.YAMLError, ValueError, OSError) as e:
             # Auto-repair: try quoting title/description and re-parse
             raw = path.read_text(encoding="utf-8")
             repaired = _maybe_repair_yaml(raw)
@@ -148,7 +149,7 @@ def load_posts(directory: Path, problems: list[str] | None = None) -> list[Post]
                 continue
             try:
                 post = frontmatter.loads(repaired)
-            except Exception:
+            except (yaml.YAMLError, ValueError):
                 report(f"{path.name}: unreadable, skipped ({_short(e)})")
                 continue
 

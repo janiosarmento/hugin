@@ -9,6 +9,7 @@ import click
 from hugin.config import load_config
 from hugin.embeddings import EmbeddingIndex
 from hugin.engines import get_engine
+from hugin.log import log_exception
 from hugin.hugo import HugoSite, ensure_ignored_in_hugo
 from hugin.scanner import AGENT_FILES
 from hugin.scanner import (
@@ -251,8 +252,9 @@ def build_profiles(
                 keywords = (await call_llm(engine, prompt, system=LINK_KEYWORDS_SYSTEM)).strip()
                 index.store_link_keywords(post, keywords)
                 click.echo(f" ✓")
-            except Exception as e:
-                click.echo(f" ✗ {e}")
+            except Exception as e:  # per-post failure must not stop the batch
+                log_exception(f"profile {post.filename}")
+                click.echo(f" ✗ {type(e).__name__}: {e}")
                 errors += 1
 
         click.echo()

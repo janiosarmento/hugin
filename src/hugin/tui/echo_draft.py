@@ -14,6 +14,7 @@ from hugin.echo import (
     N_RANDOM,
     N_RECENT,
     N_SIMILAR,
+    EMBEDDING_ERRORS,
     R_N_LIKE_ORIGINAL,
     R_N_RECENT,
     R_N_SIMILAR,
@@ -33,6 +34,7 @@ from hugin.echo import (
     write_with_system_llm,
 )
 from hugin.engines import load_fulcrum_echo_persona
+from hugin.log import log_exception
 from hugin.hugo import load_categories
 from hugin.scanner import Post
 
@@ -252,7 +254,8 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
             return
         try:
             self._ranked_prompt = await asyncio.to_thread(self._index.rank_by_text, text)
-        except Exception:
+        except EMBEDDING_ERRORS:
+            log_exception("echo: rank prompt")
             self._ranked_prompt = None
             self._similar = []
             self._similar_note = "random (embeddings unavailable)"
@@ -268,7 +271,8 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
             self._ranked_original = await asyncio.to_thread(
                 self._index.rank_by_text, original_query(self._original)
             )
-        except Exception:
+        except EMBEDDING_ERRORS:
+            log_exception("echo: rank original")
             return  # the wait screen falls back to random posts
         self._pick_displayed()
 
@@ -364,7 +368,8 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                         ranked_original = await asyncio.to_thread(
                             self._index.rank_by_text, original_query(self._original)
                         )
-                except Exception:
+                except EMBEDDING_ERRORS:
+                    log_exception("echo: rank for samples")
                     ranked = ranked_original = None  # embeddings unavailable: random sample instead
             self.query_one("#echo-wait-status", Label).update(self._wait_text())
             if self._original is None:
@@ -398,6 +403,11 @@ class EchoWaitScreen(ModalScreen[Path | None]):
             if category is None:
                 self.query_one("#echo-wait-status", Label).update("Picking a category…")
                 categories = await asyncio.to_thread(load_categories, self._directory)
+                if not categories:
+                    self.notify(
+                        "No categories found (check .pages.yml); category left as TBD",
+                        severity="warning",
+                    )
                 category = await pick_category(self._engine, title, body, categories)
             path = create_draft(
                 self._directory, text, self._request, category,
@@ -410,7 +420,8 @@ class EchoWaitScreen(ModalScreen[Path | None]):
             self.notify(str(e), severity="error", timeout=10)
             self.dismiss(None)
             return
-        except Exception as e:
+        except Exception as e:  # UI boundary: report it, keep the traceback in the log
+            log_exception("echo draft")
             self.notify(f"Echo draft failed: {e}", severity="error", timeout=10)
             self.dismiss(None)
             return
