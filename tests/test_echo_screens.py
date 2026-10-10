@@ -83,8 +83,16 @@ def test_wait_screen_error_returns_none(tmp_path, monkeypatch):
     async def keys(app, pilot):
         await pilot.pause(0.3)
 
-    assert _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None), keys) is None
-    assert len(list(tmp_path.glob("*.md"))) == 7
+    path = _run(lambda: ed.EchoWaitScreen("write about cats", _posts(tmp_path), tmp_path, None), keys)
+    # The failure still leaves an empty draft that holds the prompt
+    assert path.name == "write-about-cats.md"
+    import frontmatter
+
+    draft = frontmatter.load(str(path))
+    assert draft.content == ""
+    assert draft.metadata["prompt"] == "write about cats"
+    assert draft.metadata["draft"] is True
+    assert len(list(tmp_path.glob("*.md"))) == 8
 
 
 def test_h_key_creates_draft_in_main_screen(tmp_path, monkeypatch):
@@ -388,7 +396,8 @@ def test_wait_screen_system_writer_without_engine_fails_cleanly(tmp_path):
     async def keys(app, pilot):
         await pilot.pause(0.3)
 
-    assert _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None, writer="system"), keys) is None
+    path = _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None, writer="system"), keys)
+    assert path.read_text().count("prompt: q") == 1  # failure kept the prompt in an empty draft
 
 
 def test_prompt_screen_without_random_sample(tmp_path):

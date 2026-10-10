@@ -423,15 +423,34 @@ class EchoWaitScreen(ModalScreen[Path | None]):
             )
             self.notify(f"Written by {who}")
         except EchoError as e:
-            self.notify(str(e), severity="error", timeout=10)
-            self.dismiss(None)
+            self.dismiss(self._empty_draft(str(e)))
             return
         except Exception as e:  # UI boundary: report it, keep the traceback in the log
             log_exception("echo draft")
-            self.notify(f"Echo draft failed: {e}", severity="error", timeout=10)
-            self.dismiss(None)
+            self.dismiss(self._empty_draft(f"Echo draft failed: {e}"))
             return
         self.dismiss(path)
+
+    def _empty_draft(self, error: str) -> Path | None:
+        """After a failure, keep the prompt: an empty draft with it in the frontmatter."""
+        try:
+            inherited = inherited_fields(self._original) if self._original else {}
+            path = create_draft(
+                self._directory, "", self._request, inherited.get("category"),
+                refactor_of=self._original.filename if self._original else None,
+                thumbnail=inherited.get("thumbnail"),
+                translation_key=inherited.get("translation_key"),
+            )
+        except (OSError, ValueError):
+            log_exception("echo: empty draft after failure")
+            self.notify(error, severity="error", timeout=10)
+            return None
+        self.notify(
+            f"{error}\nAn empty draft was created to keep your prompt "
+            f"(frontmatter field 'prompt'): {path.name}",
+            severity="error", timeout=15,
+        )
+        return path
 
     def action_cancel(self) -> None:
         self.workers.cancel_all()
