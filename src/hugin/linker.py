@@ -172,6 +172,36 @@ def _find_whole_word(body: str, anchor: str, start: int = 0) -> int:
     return -1
 
 
+# Function words (Portuguese + English) that add nothing at the edge of an
+# anchor: "do bolsonarismo" should link "bolsonarismo". Compared lowercase and
+# without accents.
+EDGE_STOPWORDS = frozenset("""
+a o as os um uma uns umas
+de do da dos das em no na nos nas por pelo pela pelos pelas
+para pra com sem sob sobre ate entre ao aos
+e ou mas que
+the an of in on at to for with by from and or but as
+""".split())
+
+
+def trim_anchor_edges(anchor: str) -> str:
+    """Drop prepositions/articles/conjunctions from both ends of an anchor.
+
+    "do bolsonarismo" -> "bolsonarismo"; "com o" -> "" (nothing left, so the
+    caller should discard it). Inner function words are kept
+    ("Game of Thrones"). The result is a substring of `anchor`.
+    """
+    words = list(_WORD_RE.finditer(anchor))
+    first, last = 0, len(words)
+    while first < last and strip_accents(words[first].group().lower()) in EDGE_STOPWORDS:
+        first += 1
+    while last > first and strip_accents(words[last - 1].group().lower()) in EDGE_STOPWORDS:
+        last -= 1
+    if first == last:
+        return ""
+    return anchor[words[first].start():words[last - 1].end()]
+
+
 _WORD_RE = re.compile(r"\w[\w\-]*")
 
 
@@ -255,8 +285,9 @@ def find_keyword_anchors(
             m = re.search(pattern, body_norm)
             if m and not is_in_protected_zone(m.start(), len(kw_norm), zones):
                 # Extract original (accented) text from body at the same position
-                anchor = body[m.start():m.end()]
-                results.append({"anchor_text": anchor, "target_url": url})
+                anchor = trim_anchor_edges(body[m.start():m.end()])
+                if anchor:
+                    results.append({"anchor_text": anchor, "target_url": url})
                 break
 
     return results

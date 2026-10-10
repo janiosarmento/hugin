@@ -40,6 +40,7 @@ from hugin.linker import (
     extract_existing_links,
     find_keyword_anchors,
     repair_anchor,
+    trim_anchor_edges,
     find_protected_zones,
     is_in_protected_zone,
     list_links,
@@ -1544,8 +1545,8 @@ class HuginScreen(Screen):
                 e["anchor"] = retry_response.strip().strip('"').strip("'")
 
         for e in entries:
-            anchor = e["anchor"]
-            if len(anchor.split()) > max_words:
+            anchor = trim_anchor_edges(e["anchor"])
+            if not anchor or len(anchor.split()) > max_words:
                 continue
             pos = _find_whole_word(post.content, anchor)
             if pos == -1 or is_in_protected_zone(pos, len(anchor), zones):

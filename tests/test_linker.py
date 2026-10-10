@@ -335,3 +335,36 @@ class TestRepairAnchor:
         from hugin.linker import repair_anchor
 
         assert repair_anchor(self.BODY, "water fountain") is None
+
+
+
+class TestTrimAnchorEdges:
+    def test_drops_leading_preposition(self):
+        from hugin.linker import trim_anchor_edges
+
+        assert trim_anchor_edges("do bolsonarismo") == "bolsonarismo"
+        assert trim_anchor_edges("of the water fountain") == "water fountain"
+
+    def test_drops_trailing_function_words(self):
+        from hugin.linker import trim_anchor_edges
+
+        assert trim_anchor_edges("doença renal de") == "doença renal"
+
+    def test_all_function_words_leaves_nothing(self):
+        from hugin.linker import trim_anchor_edges
+
+        assert trim_anchor_edges("com o") == ""
+        assert trim_anchor_edges("Até") == ""
+
+    def test_inner_function_words_and_case_are_kept(self):
+        from hugin.linker import trim_anchor_edges
+
+        assert trim_anchor_edges("Game of Thrones") == "Game of Thrones"
+        assert trim_anchor_edges("Doença de Chagas") == "Doença de Chagas"
+
+    def test_keyword_anchors_are_trimmed(self):
+        from hugin.linker import find_keyword_anchors
+
+        body = "Falamos muito do bolsonarismo ontem."
+        result = find_keyword_anchors(body, [{"title": "x", "url": "/de-bolsonarismo/"}])
+        assert result == [{"anchor_text": "bolsonarismo", "target_url": "/de-bolsonarismo/"}]

@@ -886,3 +886,32 @@ def test_esc_cancels_a_running_outgoing_flow(tmp_path, monkeypatch):
     assert seen["after"] == "HuginScreen"
     assert seen["state"] == STATE_BROWSING
     assert len(started) == 1 and finished == []
+
+
+class TestAnchorEdgeTrimming:
+    def test_llm_anchor_loses_edge_prepositions_and_pure_stopword_anchors_are_dropped(
+        self, monkeypatch,
+    ):
+        body = "Falamos do bolsonarismo e brincamos com o gato.\n"
+
+        async def llm(engine, prompt, **kw):
+            return (
+                '[{"target_url": "/a/", "anchor_text": "do bolsonarismo"},'
+                ' {"target_url": "/b/", "anchor_text": "com o"}]'
+            )
+
+        from types import SimpleNamespace
+
+        import hugin.tui.review as review
+        from hugin.config import LinksConfig
+        from hugin.scanner import Post
+
+        monkeypatch.setattr(review, "call_llm", llm)
+        fake = SimpleNamespace(
+            engine=None, config=SimpleNamespace(links=LinksConfig()), _anchor_stats={},
+        )
+        post = Post(Path("x.md"), {"title": "X"}, body, False)
+        result = asyncio.run(review.HuginScreen._find_anchors(
+            fake, post, [{"title": "A", "url": "/a/"}, {"title": "B", "url": "/b/"}], set(),
+        ))
+        assert result == [{"anchor_text": "bolsonarismo", "target_url": "/a/"}]

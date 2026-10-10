@@ -370,6 +370,7 @@ Rules:
 - The anchor_text must appear verbatim in the post body.
 - Prefer MULTI-WORD phrases over single words when the full phrase appears in the text. A compound term ("leucemia felina", "doença renal crônica", "sistema imune") is a better anchor than any single word from it.
 - Anchors must be between 1 and {max_anchor_words} words. Prefer the longest meaningful phrase that fits naturally, not the shortest. Never use full sentences.
+- An anchor must not start or end with a preposition, article or conjunction ("bolsonarismo", not "do bolsonarismo"; "water fountain", not "the water fountain").
 - Do not suggest anchors inside headings, code blocks, inline code, images, or existing links.
 - Suggest at most one anchor per candidate post.
 - Omit candidates for which no natural anchor exists — do not force one.
