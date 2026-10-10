@@ -1,6 +1,7 @@
 """Entrypoint CLI."""
 
 import asyncio
+import signal
 from datetime import datetime
 from pathlib import Path
 
@@ -18,6 +19,19 @@ from hugin.scanner import (
     load_posts,
 )
 from hugin.state import load_state
+
+
+def _ignore_ctrl_z() -> None:
+    """Keep Ctrl+Z from stopping Hugin outside the TUI.
+
+    Before the TUI starts (git sync, embedding index) and between restarts the
+    terminal is in normal mode, so Ctrl+Z sends SIGTSTP and the shell stops
+    Hugin mid-startup. While the TUI runs, Textual turns that key into a plain
+    keypress. Textual also installs its own SIGTSTP handler and restores normal
+    mode on exit, so this is applied again after every app run.
+    """
+    if hasattr(signal, "SIGTSTP"):
+        signal.signal(signal.SIGTSTP, signal.SIG_IGN)
 
 
 def _git_sync_startup(directory: Path) -> None:
@@ -55,6 +69,7 @@ def main(
     clear_cache: bool,
 ) -> None:
     """hugin: manage Hugo blog posts — tags, summaries, links, and editing."""
+    _ignore_ctrl_z()
     directory = directory.resolve()
     config = load_config()
 
@@ -127,6 +142,7 @@ def main(
             startup_warnings=load_problems,
         )
         app.run()
+        _ignore_ctrl_z()
 
         if app.return_code == 42:
             # Restart: rebuild everything
