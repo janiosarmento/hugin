@@ -357,7 +357,9 @@ class NewPostScreen(ModalScreen[str | None]):
 
 
 class LoadingScreen(ModalScreen):
-    """Non-interactive modal with animated spinner and status message."""
+    """Modal with animated spinner and status message; Esc cancels the work."""
+
+    BINDINGS = [("escape", "cancel", "Cancel")]
 
     DEFAULT_CSS = """
     LoadingScreen {
@@ -366,7 +368,7 @@ class LoadingScreen(ModalScreen):
 
     #loading-box {
         width: 60;
-        height: 5;
+        height: 7;
         border: round $accent;
         background: $surface;
         padding: 1 2;
@@ -378,12 +380,23 @@ class LoadingScreen(ModalScreen):
         content-align: center middle;
         text-style: bold;
     }
+
+    #loading-hint {
+        width: 100%;
+        content-align: center middle;
+        color: $text-muted;
+    }
     """
 
-    def __init__(self, message: str = "Processing...") -> None:
+    def __init__(self, message: str = "Processing...", on_cancel=None) -> None:
         super().__init__()
         self._message = message
+        self._on_cancel = on_cancel
         self._frame = 0
+
+    def action_cancel(self) -> None:
+        if self._on_cancel is not None:
+            self._on_cancel()
 
     def compose(self) -> ComposeResult:
         with Vertical(id="loading-box"):
@@ -391,6 +404,7 @@ class LoadingScreen(ModalScreen):
                 f"{SPINNER_FRAMES[0]}  {self._message}",
                 id="loading-label",
             )
+            yield Static("Esc to cancel", id="loading-hint")
 
     def on_mount(self) -> None:
         self._timer = self.set_interval(0.08, self._tick)
@@ -775,7 +789,7 @@ class HuginScreen(Screen):
 
     def _start_spinner(self, index: int, message: str = "Processing...") -> None:
         self._spinning_row = index
-        self._loading_screen = LoadingScreen(message)
+        self._loading_screen = LoadingScreen(message, on_cancel=self.action_back)
         self.app.push_screen(self._loading_screen)
 
     def _stop_spinner(self, done: bool = False) -> None:

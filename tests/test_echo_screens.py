@@ -826,3 +826,63 @@ def test_app_logs_error_notifications(tmp_path):
     text = log.LOG_PATH.read_text()
     assert "NOTIFICATION ERROR\nError: boom" in text
     assert "just info" not in text
+
+
+def test_esc_cancels_a_running_outgoing_flow(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+
+    import hugin.tui.review as review
+    from hugin.config import EmbeddingsConfig, FrontmatterConfig, HuginConfig, LinksConfig
+    from hugin.engines import Engine
+    from hugin.tui.review import STATE_BROWSING, HuginScreen, LoadingScreen
+
+    started = []
+    finished = []
+
+    async def slow_llm(engine, prompt, **kw):
+        started.append(prompt)
+        await asyncio.sleep(30)
+        finished.append(prompt)
+        return "x"
+
+    monkeypatch.setattr(review, "call_llm", slow_llm)
+
+    posts = _posts(tmp_path)
+    posts[0].content = "word " * 700
+    site = MagicMock()
+    site.post_url.return_value = "/x"
+    site.warnings = []
+    index = MagicMock()
+    index.has_no_outgoing.return_value = False
+    index.get_post_url.return_value = "/x"
+    index.get_link_keywords.return_value = ""
+    index._cache = {}
+    seen = {}
+
+    class Host(App):
+        def on_mount(self):
+            self.push_screen(HuginScreen(
+                posts=posts, all_posts=list(posts),
+                engine=Engine("t", "http://localhost/v1", "m", 30, None),
+                pool={}, state={}, directory=tmp_path,
+                config=HuginConfig(LinksConfig(), EmbeddingsConfig(), FrontmatterConfig()),
+                site=site, index=index,
+            ))
+
+    async def go():
+        app = Host()
+        async with app.run_test(size=(140, 50)) as pilot:
+            await pilot.pause()
+            await pilot.press("o")
+            await pilot.pause(0.3)
+            seen["during"] = isinstance(app.screen, LoadingScreen)
+            await pilot.press("escape")
+            await pilot.pause(0.3)
+            seen["after"] = type(app.screen).__name__
+            seen["state"] = app.screen._state
+
+    asyncio.run(go())
+    assert seen["during"] is True
+    assert seen["after"] == "HuginScreen"
+    assert seen["state"] == STATE_BROWSING
+    assert len(started) == 1 and finished == []
