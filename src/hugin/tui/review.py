@@ -838,11 +838,24 @@ class HuginScreen(Screen):
     # --- Navigation ---
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        if self._state != STATE_BROWSING:
+        # While an LLM call runs the table is covered by the loading modal.
+        # Anywhere else, moving the cursor means "work on that post": leaving
+        # a review open would keep acting on the previous one.
+        if self._state == STATE_LOADING:
             return
         if event.cursor_row is not None and event.cursor_row != self.current_index:
+            self._state = STATE_BROWSING
             self.current_index = event.cursor_row
             self._update_detail_panel()
+
+    def _leave_review(self) -> None:
+        """Drop the open suggestions and act on the post under the cursor."""
+        self._stop_spinner()
+        self._state = STATE_BROWSING
+        cursor = self.query_one("#post-table", DataTable).cursor_row
+        if cursor is not None and 0 <= cursor < len(self.posts):
+            self.current_index = cursor
+        self._update_detail_panel()
 
     def _navigate_to_post(self, index: int) -> None:
         if 0 <= index < len(self.posts):
@@ -2387,8 +2400,7 @@ class HuginScreen(Screen):
             elif self._mode == "outgoing":
                 self._apply_outgoing()
         elif event.button.id == "btn-skip":
-            self._state = STATE_BROWSING
-            self._update_detail_panel()
+            self._leave_review()
             self.query_one("#post-table", DataTable).focus()
         elif event.button.id == "btn-copy-suggestions":
             if self._suggested_topics:
@@ -2564,9 +2576,7 @@ class HuginScreen(Screen):
             self.query_one("#section-header", Label).update("")
             self.notify("Cancelled")
         elif self._state == STATE_REVIEWING:
-            self._stop_spinner()
-            self._state = STATE_BROWSING
-            self._update_detail_panel()
+            self._leave_review()
 
     def action_quit(self) -> None:
         post = self.posts[self.current_index]

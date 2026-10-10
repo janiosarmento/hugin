@@ -915,3 +915,76 @@ class TestAnchorEdgeTrimming:
             fake, post, [{"title": "A", "url": "/a/"}, {"title": "B", "url": "/b/"}], set(),
         ))
         assert result == [{"anchor_text": "bolsonarismo", "target_url": "/a/"}]
+
+
+def _review_session(tmp_path, monkeypatch):
+    """A HuginScreen host whose `o` ends in the REVIEWING state."""
+    from unittest.mock import MagicMock
+
+    import hugin.tui.review as review
+    from hugin.config import EmbeddingsConfig, FrontmatterConfig, HuginConfig, LinksConfig
+    from hugin.engines import Engine
+    from hugin.tui.review import HuginScreen
+
+    async def fake_llm(engine, prompt, **kw):
+        return "[]"
+
+    monkeypatch.setattr(review, "call_llm", fake_llm)
+
+    posts = _posts(tmp_path)
+    for p in posts:
+        p.content = "I love my litter box. " + "word " * 700
+    site = MagicMock()
+    site.post_url.return_value = "/x"
+    site.warnings = []
+    index = MagicMock()
+    index.has_no_outgoing.return_value = False
+    index.get_post_url.return_value = "/x"
+    index.get_link_keywords.return_value = ""
+    index.find_similar.return_value = [{"title": "Litter", "url": "/litter-box/", "score": 0.9}]
+    index.find_by_shared_tags.return_value = []
+    index._cache = {}
+
+    class Host(App):
+        def on_mount(self):
+            self.push_screen(HuginScreen(
+                posts=posts, all_posts=list(posts),
+                engine=Engine("t", "http://localhost/v1", "m", 30, None),
+                pool={}, state={}, directory=tmp_path,
+                config=HuginConfig(LinksConfig(), EmbeddingsConfig(), FrontmatterConfig()),
+                site=site, index=index,
+            ))
+
+    return Host()
+
+
+def _current_after(tmp_path, monkeypatch, keys):
+    from hugin.tui.review import STATE_REVIEWING
+
+    out = {}
+
+    async def go():
+        app = _review_session(tmp_path, monkeypatch)
+        async with app.run_test(size=(140, 50)) as pilot:
+            await pilot.pause()
+            await pilot.press("o")
+            await pilot.pause(0.8)
+            out["reviewing"] = app.screen._state == STATE_REVIEWING
+            await pilot.press(*keys)
+            await pilot.pause(0.3)
+            out["index"] = app.screen.current_index
+            out["state"] = app.screen._state
+
+    asyncio.run(go())
+    return out
+
+
+def test_navigating_away_from_open_suggestions_follows_the_cursor(tmp_path, monkeypatch):
+    out = _current_after(tmp_path, monkeypatch, ["down", "down"])
+    assert out["reviewing"] is True
+    assert out["index"] == 2 and out["state"] == "browsing"
+
+
+def test_esc_after_navigating_acts_on_the_post_under_the_cursor(tmp_path, monkeypatch):
+    out = _current_after(tmp_path, monkeypatch, ["down", "escape"])
+    assert out["index"] == 1 and out["state"] == "browsing"
