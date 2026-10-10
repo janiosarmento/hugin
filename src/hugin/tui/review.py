@@ -1965,8 +1965,6 @@ class HuginScreen(Screen):
             if path is None:
                 return
             import frontmatter as fm
-            from rich.text import Text
-
             loaded = fm.load(str(path))
             post = Post(
                 path=path,
@@ -1976,16 +1974,10 @@ class HuginScreen(Screen):
                 tags=[],
                 date=loaded.metadata.get("date"),
             )
-            self.posts.append(post)
-            self.all_posts.append(post)
-            table = self.query_one("#post-table", DataTable)
-            title = loaded.metadata.get("title", path.stem)
-            row_key = f"echo-{path.name}"
-            table.add_row("—", Text(f"[DRAFT] {title}", style="dim"), key=row_key)
-            self._row_keys.append(row_key)
-            self.current_index = len(self.posts) - 1
-            table.move_cursor(row=self.current_index)
-            self._update_detail_panel()
+            # Insert at top (newest first) and rebuild so the cursor lands on it
+            self.posts.insert(0, post)
+            self.all_posts.insert(0, post)
+            self._rebuild_post_table()
             self.notify(f"Draft created: {path.name}")
 
         prompt_screen = EchoPromptScreen(self.all_posts, self.index, self.engine)
@@ -2014,11 +2006,10 @@ class HuginScreen(Screen):
             if not paths:
                 return
             import frontmatter as fm
-            from rich.text import Text
 
-            table = self.query_one("#post-table", DataTable)
             now = datetime.now()
-            first_new_index = len(self.posts)
+            added = 0
+            # Insert at top (newest first), keeping the batch's own order
             for path in paths:
                 try:
                     loaded = fm.load(str(path))
@@ -2032,16 +2023,12 @@ class HuginScreen(Screen):
                     tags=[],
                     date=now,
                 )
-                self.posts.append(post)
-                self.all_posts.append(post)
-                title = loaded.metadata.get("title", path.stem)
-                row_key = f"news-{path.name}"
-                table.add_row("—", Text(f"[DRAFT] {title}", style="dim"), key=row_key)
-                self._row_keys.append(row_key)
+                self.posts.insert(added, post)
+                self.all_posts.insert(added, post)
+                added += 1
 
-            self.current_index = first_new_index
-            table.move_cursor(row=first_new_index)
-            self._update_detail_panel()
+            if added:
+                self._rebuild_post_table()
             self.notify(f"{len(paths)} draft(s) created")
 
         self.app.push_screen(
