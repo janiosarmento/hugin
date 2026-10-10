@@ -36,3 +36,13 @@ def log_warning(message: str) -> None:
             f.write(f"--- {datetime.now():%Y-%m-%d %H:%M:%S} WARNING {message}\n\n")
     except OSError:
         pass
+
+
+def log_info(message: str) -> None:
+    """Append a one-line informational entry (e.g. step timings) to the log."""
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"--- {datetime.now():%Y-%m-%d %H:%M:%S} INFO {message}\n\n")
+    except OSError:
+        pass

@@ -4,6 +4,7 @@ import asyncio
 import json
 import math
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -66,7 +67,7 @@ from hugin.llm import (
 from hugin.normalizer import detect_language, normalize_keyword, normalize_keywords, normalize_tag, normalize_tags, strip_accents
 from hugin.scanner import Post, collect_keyword_pool, format_pool_for_prompt
 from hugin.project import ProjectConfig, load_project
-from hugin.log import log_exception
+from hugin.log import log_exception, log_info
 from hugin.state import mark_processed, save_state, get_last_post, set_last_post
 from hugin.writer import write_keywords, write_summary, write_tags
 
@@ -1451,67 +1452,78 @@ class HuginScreen(Screen):
     async def _find_anchors(
         self, post: Post, candidates: list[dict], existing_urls: set[str],
     ) -> list[dict]:
-        """Ask LLM to find anchor text in the post body for each candidate.
+        """Find anchor text in the post body for each candidate.
 
-        Returns validated suggestions with anchor_text and target_url.
+        Candidates with a strong deterministic match (a multi-word phrase
+        from the target's slug) are settled without the LLM; the rest are
+        sent to it in one call, and anchors it gets wrong are re-asked
+        concurrently. Returns validated suggestions with anchor_text and
+        target_url.
         """
         existing_normalized = {u.rstrip("/") for u in existing_urls}
+        max_words = self.config.links.max_anchor_words
+        zones = find_protected_zones(post.content)
+
+        validated = [
+            s for s in find_keyword_anchors(post.content, candidates)
+            if len(s["anchor_text"].split()) >= 2
+            and len(s["anchor_text"].split()) <= max_words
+            and s["target_url"].rstrip("/") not in existing_normalized
+        ]
+        settled = {s["target_url"] for s in validated}
+        remaining = [c for c in candidates if c["url"] not in settled]
+        self._anchor_stats = {"keyword": len(validated), "llm_asked": len(remaining), "retries": 0}
+        if not remaining:
+            return validated
+
         candidates_json = json.dumps([
             {"title": c["title"], "summary": "", "url": c["url"]}
-            for c in candidates
+            for c in remaining
         ])
-
         user_msg = ANCHOR_USER_TEMPLATE.format(
             body=post.content, candidates_json=candidates_json,
         )
-        system = ANCHOR_SYSTEM_PROMPT.format(
-            max_anchor_words=self.config.links.max_anchor_words,
-        )
+        system = ANCHOR_SYSTEM_PROMPT.format(max_anchor_words=max_words)
         response = await call_llm(self.engine, user_msg, system=system)
 
-        suggestions = parse_anchor_response(response)
-        zones = find_protected_zones(post.content)
-        candidate_urls = {c["url"] for c in candidates}
-        max_words = self.config.links.max_anchor_words
-        validated = []
-
-        for i, s in enumerate(suggestions, 1):
-            if len(suggestions) > 1:
-                self._set_spinner_message(
-                    f"Step 3/3 — Validating anchor {i}/{len(suggestions)}..."
-                )
+        remaining_urls = {c["url"] for c in remaining}
+        entries = []
+        for s in parse_anchor_response(response):
             anchor = s.get("anchor_text", "")
             target = s.get("target_url", "")
             if not anchor or not target:
                 continue
-            if target not in candidate_urls:
+            if target not in remaining_urls:
                 continue
             if target.rstrip("/") in existing_normalized:
                 continue
             if len(anchor.split()) > max_words:
                 continue
+            entries.append({"anchor": anchor, "target": target})
 
-            pos = _find_whole_word(post.content, anchor)
-            if pos == -1:
-                # Retry: ask LLM for a different anchor
-                candidate_info = next(
-                    (c for c in candidates if c["url"] == target), None,
-                )
-                if not candidate_info:
-                    continue
-                retry_response = await call_llm(self.engine, RETRY_PROMPT.format(
-                    anchor_text=anchor, title=candidate_info["title"],
-                    url=target, body=post.content,
+        # Anchors the LLM paraphrased: re-ask for all of them at once
+        by_url = {c["url"]: c for c in remaining}
+        to_retry = [e for e in entries if _find_whole_word(post.content, e["anchor"]) == -1]
+        self._anchor_stats["retries"] = len(to_retry)
+        if to_retry:
+            responses = await asyncio.gather(*(
+                call_llm(self.engine, RETRY_PROMPT.format(
+                    anchor_text=e["anchor"], title=by_url[e["target"]]["title"],
+                    url=e["target"], body=post.content,
                 ))
-                anchor = retry_response.strip().strip('"').strip("'")
-                pos = _find_whole_word(post.content, anchor)
-                if pos == -1 or len(anchor.split()) > max_words:
-                    continue
+                for e in to_retry
+            ))
+            for e, retry_response in zip(to_retry, responses):
+                e["anchor"] = retry_response.strip().strip('"').strip("'")
 
-            if is_in_protected_zone(pos, len(anchor), zones):
+        for e in entries:
+            anchor = e["anchor"]
+            if len(anchor.split()) > max_words:
                 continue
-
-            validated.append({"anchor_text": anchor, "target_url": target})
+            pos = _find_whole_word(post.content, anchor)
+            if pos == -1 or is_in_protected_zone(pos, len(anchor), zones):
+                continue
+            validated.append({"anchor_text": anchor, "target_url": e["target"]})
 
         return validated
 
@@ -1571,17 +1583,26 @@ class HuginScreen(Screen):
     async def _run_outgoing(self, post: Post, budget: int) -> None:
         """Find outgoing links automatically: embed + tags → rerank → anchor + keyword fallback."""
         try:
-            # Step 0: always regenerate link profile on explicit trigger
-            self._set_spinner_message("Step 1/4 — Building link profile...")
+            timings: list[tuple[str, float]] = []
+            t0 = time.perf_counter()
+
+            def lap(name: str) -> None:
+                nonlocal t0
+                now = time.perf_counter()
+                timings.append((name, now - t0))
+                t0 = now
+
+            # Step 1: always regenerate link profile on explicit trigger
+            self._set_spinner_message("Step 1 — Building link profile...")
             kw_prompt = LINK_KEYWORDS_USER_TEMPLATE.format(
                 title=post.metadata.get("title", post.filename),
                 content=post.content[:3000],
             )
             keywords = (await call_llm(self.engine, kw_prompt, system=LINK_KEYWORDS_SYSTEM)).strip()
             self.index.set_link_keywords(post, self.site.post_url, keywords)
-            total_steps = 4
+            lap("profile")
 
-            self._set_spinner_message(f"Step {total_steps - 2}/{total_steps} — Searching similar posts...")
+            self._set_spinner_message("Step 2 — Searching similar posts...")
             existing_urls = extract_existing_links(post.content)
             existing_normalized = {u.rstrip("/") for u in existing_urls}
             pre_filter_n = max(self.config.links.candidates * 4, 20)
@@ -1603,6 +1624,7 @@ class HuginScreen(Screen):
                 if url not in seen or c["score"] > seen[url]["score"]:
                     seen[url] = c
             candidates = sorted(seen.values(), key=lambda x: x["score"], reverse=True)
+            lap("search")
 
             if not candidates:
                 self._stop_spinner()
@@ -1613,31 +1635,41 @@ class HuginScreen(Screen):
                 self.query_one("#section-header", Label).update("")
                 return
 
-            # LLM reranking — inclusive mode
-            self._set_spinner_message(f"Step {total_steps - 1}/{total_steps} — Reranking {len(candidates)} candidates...")
-            rerank_json = json.dumps([
-                {"title": c["title"], "url": c["url"]} for c in candidates
-            ])
-            rerank_prompt = RERANK_USER_TEMPLATE.format(
-                title=post.metadata.get("title", post.filename),
-                body=post.content[:2000],
-                candidates_json=rerank_json,
-            )
-            rerank_response = await call_llm(self.engine, rerank_prompt, system=RERANK_SYSTEM)
-            relevant_urls = set(parse_rerank_response(rerank_response))
+            # Reranking only pays off when there are more candidates than
+            # the final list can hold (a small blog has none to discard)
+            if len(candidates) > self.config.links.candidates:
+                self._set_spinner_message(f"Step 3/4 — Reranking {len(candidates)} candidates...")
+                rerank_json = json.dumps([
+                    {"title": c["title"], "url": c["url"]} for c in candidates
+                ])
+                rerank_prompt = RERANK_USER_TEMPLATE.format(
+                    title=post.metadata.get("title", post.filename),
+                    body=post.content[:2000],
+                    candidates_json=rerank_json,
+                )
+                rerank_response = await call_llm(self.engine, rerank_prompt, system=RERANK_SYSTEM)
+                relevant_urls = set(parse_rerank_response(rerank_response))
 
-            # Keep: reranked + mention-boosted; guarantee a minimum of 3 pass through
-            reranked = [
-                c for c in candidates
-                if c["url"] in relevant_urls or c.get("score", 0) > 1.0
-            ]
-            min_candidates = max(3, self.config.links.candidates // 2)
-            if len(reranked) < min_candidates:
-                # Supplement with highest-score candidates not yet included
-                included_urls = {c["url"] for c in reranked}
-                extras = [c for c in candidates if c["url"] not in included_urls]
-                reranked += extras[:min_candidates - len(reranked)]
-            candidates = reranked[:self.config.links.candidates]
+                # Keep: reranked + mention-boosted; guarantee a minimum of 3 pass through
+                reranked = [
+                    c for c in candidates
+                    if c["url"] in relevant_urls or c.get("score", 0) > 1.0
+                ]
+                min_candidates = max(3, self.config.links.candidates // 2)
+                if len(reranked) < min_candidates:
+                    # Supplement with highest-score candidates not yet included
+                    included_urls = {c["url"] for c in reranked}
+                    extras = [c for c in candidates if c["url"] not in included_urls]
+                    reranked += extras[:min_candidates - len(reranked)]
+                candidates = reranked
+                anchor_step = "Step 4/4"
+                lap("rerank")
+            else:
+                anchor_step = "Step 3/3"
+
+            # Only as many candidates as links could ever be placed (plus
+            # slack for anchors that fail validation)
+            candidates = candidates[:min(self.config.links.candidates, budget + 2)]
 
             if not candidates:
                 self._stop_spinner()
@@ -1649,8 +1681,9 @@ class HuginScreen(Screen):
                 return
 
             # LLM anchor finding
-            self._set_spinner_message(f"Step {total_steps}/{total_steps} — Finding anchors for {len(candidates)} posts...")
+            self._set_spinner_message(f"{anchor_step} — Finding anchors for {len(candidates)} posts...")
             validated = await self._find_anchors(post, candidates, existing_urls)
+            lap("anchors")
             validated = [
                 s for s in validated
                 if check_anchor_viable(
@@ -1672,6 +1705,13 @@ class HuginScreen(Screen):
                 validated = validated + keyword_suggestions
 
             validated = validated[:budget]
+            lap("finish")
+            stats = getattr(self, "_anchor_stats", {})
+            log_info(
+                f"outgoing {post.filename}: "
+                + ", ".join(f"{n} {t:.1f}s" for n, t in timings)
+                + f"; candidates={len(candidates)} {stats}"
+            )
             self._finish_outgoing(post, validated, mark_empty=True)
 
         except Exception as e:  # UI boundary

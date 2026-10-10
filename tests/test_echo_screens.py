@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from textual.app import App
 
@@ -571,3 +572,138 @@ def test_u_key_sends_similar_post_titles_to_the_llm(tmp_path, monkeypatch):
     asyncio.run(go())
     assert index.find_similar.call_args.kwargs["n"] == 5
     assert "- Litter box guide\n- Cat food" in prompts[0]
+
+
+class TestFindAnchors:
+    """Anchor finding: slug matches skip the LLM, retries run concurrently."""
+
+    BODY = (
+        "I bought a litter box last week. My cat loves the automatic "
+        "feeder and the water fountain too.\n"
+    )
+
+    def _run(self, monkeypatch, candidates, llm):
+        from types import SimpleNamespace
+
+        import hugin.tui.review as review
+        from hugin.config import LinksConfig
+        from hugin.scanner import Post
+
+        monkeypatch.setattr(review, "call_llm", llm)
+        fake = SimpleNamespace(
+            engine=None, config=SimpleNamespace(links=LinksConfig()), _anchor_stats={},
+        )
+        post = Post(Path("x.md"), {"title": "X"}, self.BODY, False)
+        result = asyncio.run(review.HuginScreen._find_anchors(fake, post, candidates, set()))
+        return result, fake
+
+    def test_multiword_slug_match_skips_the_llm(self, monkeypatch):
+        calls = []
+
+        async def llm(engine, prompt, **kw):
+            calls.append(prompt)
+            return "[]"
+
+        result, fake = self._run(
+            monkeypatch, [{"title": "Litter", "url": "/litter-box/"}], llm,
+        )
+        assert result == [{"anchor_text": "litter box", "target_url": "/litter-box/"}]
+        assert calls == []
+        assert fake._anchor_stats["llm_asked"] == 0
+
+    def test_only_unsettled_candidates_go_to_the_llm(self, monkeypatch):
+        prompts = []
+
+        async def llm(engine, prompt, **kw):
+            prompts.append(prompt)
+            return '[{"target_url": "/water/", "anchor_text": "water fountain"}]'
+
+        result, _ = self._run(monkeypatch, [
+            {"title": "Litter", "url": "/litter-box/"},
+            {"title": "Water", "url": "/water/"},
+        ], llm)
+        assert [r["target_url"] for r in result] == ["/litter-box/", "/water/"]
+        assert '"/water/"' in prompts[0]
+        assert '"/litter-box/"' not in prompts[0]
+
+    def test_retries_run_concurrently(self, monkeypatch):
+        import time
+
+        async def llm(engine, prompt, **kw):
+            await asyncio.sleep(0.3)
+            if "does not appear verbatim" in prompt:
+                return "automatic feeder" if "/feeder/" in prompt else "water fountain"
+            return (
+                '[{"target_url": "/feeder/", "anchor_text": "auto feeder"},'
+                ' {"target_url": "/water/", "anchor_text": "drinking fountain"}]'
+            )
+
+        start = time.perf_counter()
+        result, fake = self._run(monkeypatch, [
+            {"title": "Feeder", "url": "/feeder/"},
+            {"title": "Water", "url": "/water/"},
+        ], llm)
+        elapsed = time.perf_counter() - start
+
+        assert {r["anchor_text"] for r in result} == {"automatic feeder", "water fountain"}
+        assert fake._anchor_stats["retries"] == 2
+        assert elapsed < 0.85  # 0.3 (anchors) + 0.3 (both retries), not 0.9
+
+
+def test_o_key_runs_the_outgoing_pipeline_and_logs_timings(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+
+    import hugin.log as log
+    import hugin.tui.review as review
+    from hugin.config import EmbeddingsConfig, FrontmatterConfig, HuginConfig, LinksConfig
+    from hugin.engines import Engine
+    from hugin.tui.review import HuginScreen
+
+    prompts = []
+
+    async def fake_llm(engine, prompt, **kw):
+        prompts.append(prompt)
+        return "[]"
+
+    monkeypatch.setattr(review, "call_llm", fake_llm)
+
+    posts = _posts(tmp_path)
+    posts[0].content = "word " * 700  # budget: 2 links
+    site = MagicMock()
+    site.post_url.return_value = "/x"
+    site.warnings = []
+    index = MagicMock()
+    index.has_no_outgoing.return_value = False
+    index.get_post_url.return_value = "/x"
+    index.get_link_keywords.return_value = ""
+    index.find_similar.return_value = [
+        {"title": f"T{i}", "url": f"/t{i}/", "score": 0.8 - i / 100} for i in range(6)
+    ]
+    index.find_by_shared_tags.return_value = []
+    index._cache = {}
+
+    class Host(App):
+        def on_mount(self):
+            self.push_screen(HuginScreen(
+                posts=posts, all_posts=list(posts),
+                engine=Engine("t", "http://localhost/v1", "m", 30, None),
+                pool={}, state={}, directory=tmp_path,
+                config=HuginConfig(LinksConfig(), EmbeddingsConfig(), FrontmatterConfig()),
+                site=site, index=index,
+            ))
+
+    async def go():
+        app = Host()
+        async with app.run_test(size=(140, 50)) as pilot:
+            await pilot.pause()
+            await pilot.press("o")
+            await pilot.pause(1.0)
+
+    asyncio.run(go())
+    # profile + anchors only: 6 candidates are few enough to skip the rerank
+    assert len(prompts) == 2
+    # budget 2 -> only 4 candidates reach the anchor step
+    assert prompts[1].count('"url"') == 4
+    text = log.LOG_PATH.read_text()
+    assert "INFO outgoing p0.md" in text and "anchors" in text
+    assert "NameError" not in text
