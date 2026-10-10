@@ -56,3 +56,12 @@ def test_underlying_screen_bindings_do_not_fire_while_help_is_open():
             assert isinstance(app.screen, HelpScreen)
 
     asyncio.run(run())
+
+
+def test_display_key_keeps_case_and_marks_shift():
+    from hugin.tui.review import _display_key
+
+    assert _display_key("z") == "z"
+    assert _display_key("Z") == "Shift+Z"
+    assert _display_key("question_mark") == "?"
+    assert _display_key("comma") == ","

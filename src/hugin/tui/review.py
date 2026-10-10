@@ -394,7 +394,12 @@ _KEY_DISPLAY = {
 
 
 def _display_key(key: str) -> str:
-    return _KEY_DISPLAY.get(key, key.upper() if len(key) == 1 else key)
+    """Key label for the help modal; z and Shift+Z must stay distinguishable."""
+    if key in _KEY_DISPLAY:
+        return _KEY_DISPLAY[key]
+    if len(key) == 1 and key.isalpha() and key.isupper():
+        return f"Shift+{key}"
+    return key
 
 
 class HelpScreen(ModalScreen):
