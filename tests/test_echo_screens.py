@@ -480,3 +480,45 @@ def test_R_key_warns_without_enough_posts(tmp_path):
 
     posts = _posts(tmp_path)[:6]
     assert not has_enough_samples(posts, posts[0])
+
+
+def test_copy_body_button_copies_markdown_without_frontmatter(tmp_path):
+    from unittest.mock import MagicMock
+
+    from hugin.config import EmbeddingsConfig, FrontmatterConfig, HuginConfig, LinksConfig
+    from hugin.engines import Engine
+    from hugin.tui.review import HuginScreen
+
+    posts = _posts(tmp_path)
+    posts[0].path.write_text("---\ntitle: P0\n---\n\nHello **body**.\n")
+    site = MagicMock()
+    site.post_url.return_value = "/x"
+    site.warnings = []
+    index = MagicMock()
+    index.has_no_outgoing.return_value = False
+    index.get_post_url.return_value = "/x"
+    index.get_link_keywords.return_value = ""
+    copied = []
+
+    class Host(App):
+        def on_mount(self):
+            self.push_screen(HuginScreen(
+                posts=posts, all_posts=list(posts),
+                engine=Engine("t", "http://localhost/v1", "m", 30, None),
+                pool={}, state={}, directory=tmp_path,
+                config=HuginConfig(LinksConfig(), EmbeddingsConfig(), FrontmatterConfig()),
+                site=site, index=index,
+            ))
+
+        def copy_to_clipboard(self, text):
+            copied.append(text)
+
+    async def go():
+        app = Host()
+        async with app.run_test(size=(140, 50)) as pilot:
+            await pilot.pause()
+            await pilot.click("#btn-copy-body")
+            await pilot.pause()
+
+    asyncio.run(go())
+    assert copied == ["Hello **body**."]

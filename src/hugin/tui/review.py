@@ -585,7 +585,7 @@ class HuginScreen(Screen):
         margin-bottom: 1;
     }
 
-    #btn-goto-original {
+    #btn-copy-body, #btn-goto-original {
         margin-left: 1;
     }
 
@@ -683,6 +683,7 @@ class HuginScreen(Screen):
                 yield Static("", id="post-meta")
                 with Horizontal(id="post-buttons"):
                     yield Button("Copy .md to clipboard", id="btn-copy-post")
+                    yield Button("Copy body", id="btn-copy-body")
                     yield Button("Go to original", id="btn-goto-original", classes="hidden")
                 yield Label("", classes="section-label", id="section-header")
                 yield Vertical(id="suggested-tags-container")
@@ -2270,6 +2271,14 @@ class HuginScreen(Screen):
             text = post.path.read_text()
             self._copy_to_clipboard(text)
             self.notify(f"{post.filename} copied to clipboard")
+        elif event.button.id == "btn-copy-body":
+            import frontmatter as fm
+
+            post = self.posts[self.current_index]
+            # Read from disk: the editor may have changed the file since the scan
+            body = fm.loads(post.path.read_text()).content
+            self._copy_to_clipboard(body)
+            self.notify(f"{post.filename} body copied to clipboard")
 
     # === ERROR HANDLING ===
 
