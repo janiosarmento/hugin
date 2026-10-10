@@ -137,6 +137,19 @@ class TestSplitTitle:
         assert title == "fb" and body == text.strip()
 
 
+def test_build_message_puts_editorial_constraints_before_the_request(tmp_path):
+    msg = build_message([make_post(tmp_path, "a.md", 1)], "Write about cats",
+                        constraints="Avoid em-dashes.")
+    assert "Editorial constraints (follow them strictly):\n\nAvoid em-dashes." in msg
+    assert msg.index("Avoid em-dashes.") < msg.index("Request:")
+    assert msg.endswith("Write about cats")
+
+
+def test_build_message_without_constraints_has_no_rules_block(tmp_path):
+    msg = build_message([make_post(tmp_path, "a.md", 1)], "req", constraints="   ")
+    assert "Editorial constraints" not in msg
+
+
 def test_build_message_asks_for_title_on_first_line(tmp_path):
     msg = build_message([make_post(tmp_path, "a.md", 1)], "req")
     assert "title alone on the first line" in msg
@@ -179,7 +192,7 @@ class TestAskEcho:
         assert len(body["messages"]) == 1 and body["messages"][0]["role"] == "user"
         content = body["messages"][0]["content"]
         assert content.startswith("msg")
-        assert "em-dashes" in content
+        assert "writing samples you are given" in content
 
     @pytest.mark.parametrize("status,fragment", [(401, "401"), (500, "500")])
     def test_http_errors(self, monkeypatch, status, fragment):

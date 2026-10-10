@@ -36,18 +36,10 @@ R_N_LIKE_ORIGINAL = 2  # closest to the post being rewritten
 R_MIN_SAMPLES = R_N_RECENT + R_N_SIMILAR + R_N_LIKE_ORIGINAL
 
 
-WRITER_SYSTEM_PROMPT = """\
-You are a blog author writing in the voice of the writing samples you are given.
-
-Style guidance (avoid these habits where you can; they are tendencies to \
-steer clear of, not hard bans):
-- Avoid em-dashes (—). Use commas, periods, parentheses or a rewritten \
-sentence instead.
-- Avoid strings of very short, punchy sentences, the staccato rhythm typical \
-of AI prose ("It works. It's fast. It's simple."). Prefer sentences of \
-natural, varied length, and join related ideas into flowing sentences and \
-paragraphs, as a human writer would.
-"""
+WRITER_SYSTEM_PROMPT = (
+    "You are a blog author writing in the voice of the writing samples you are given. "
+    "The editorial constraints in the request are mandatory."
+)
 
 
 # What a failed LLM call can raise: network/HTTP problems, a repetition loop
@@ -208,7 +200,10 @@ def select_refactor_samples(
     return recent + similar + like_original
 
 
-def build_message(samples: list[Post], request: str, original: Post | None = None) -> str:
+def build_message(
+    samples: list[Post], request: str, original: Post | None = None,
+    constraints: str | None = None,
+) -> str:
     blocks = []
     for post in samples:
         title = post.metadata.get("title", post.path.stem)
@@ -251,6 +246,10 @@ def build_message(samples: list[Post], request: str, original: Post | None = Non
             "borrow their content.\n\n"
             "The request below says what to change. "
         )
+    rules = (
+        f"\n\nEditorial constraints (follow them strictly):\n\n{constraints.strip()}"
+        if constraints and constraints.strip() else ""
+    )
     return (
         f"Here are {n} of my blog posts:\n\n"
         + "\n\n".join(blocks)
@@ -258,7 +257,8 @@ def build_message(samples: list[Post], request: str, original: Post | None = Non
         + f"\n\n{task}"
         "Put the post title alone on the first line (plain text, no # or "
         "other markup, no quotes), then a blank line, then the post body."
-        f"\n\nRequest:\n\n{request.strip()}"
+        + rules
+        + f"\n\nRequest:\n\n{request.strip()}"
     )
 
 

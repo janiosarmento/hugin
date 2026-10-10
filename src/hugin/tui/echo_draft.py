@@ -36,6 +36,8 @@ from hugin.echo import (
 from hugin.engines import load_fulcrum_echo_persona
 from hugin.log import log_exception
 from hugin.hugo import load_categories
+from hugin.normalizer import detect_language
+from hugin.project import load_project
 from hugin.scanner import Post
 
 
@@ -390,7 +392,12 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                 )
             if not samples:
                 raise EchoError("No published posts to use as writing samples")
-            message = build_message(samples, self._request, self._original)
+            writing = (await asyncio.to_thread(load_project, self._directory)).writing
+            language = detect_language(" ".join(p.content for p in samples))
+            message = build_message(
+                samples, self._request, self._original,
+                constraints=writing.for_language(language),
+            )
             if self._writer == WRITER_SYSTEM:
                 text = await write_with_system_llm(message, self._engine)
                 who = f"{self._engine.id} / {self._engine.model}"
