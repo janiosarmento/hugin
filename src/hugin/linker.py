@@ -184,10 +184,12 @@ the an of in on at to for with by from and or but as
 """.split())
 
 
-# Words too weak to be an anchor on their own ("quando" in the title "Quando
-# Tudo Tinha Peso"). Fine inside a longer phrase, so they are only rejected as
-# a single-word anchor. Lowercase, no accents.
+# Words too weak to carry an anchor ("quando" in the title "Quando Tudo Tinha
+# Peso", "eu não" in "Eu não quero seu dinheiro"). Fine next to a content word,
+# so an anchor is only rejected when every one of its words is in this set.
+# Lowercase, no accents.
 WEAK_SINGLE_WORDS = EDGE_STOPWORDS | frozenset("""
+nao nem sim not no yes nor
 quando como porque onde qual quais quem quanto quanta quantos quantas
 cada todo toda todos todas tudo nada algo alguem ninguem outro outra outros outras
 muito muita muitos muitas pouco pouca mais menos ainda ja sempre nunca depois antes
@@ -203,12 +205,12 @@ do does did can will would could should
 
 
 def is_weak_anchor(anchor: str) -> bool:
-    """True for a single function/filler word that should not become a link."""
+    """True when every word of the anchor is a filler word ("eu não", "when")."""
     words = _WORD_RE.findall(anchor)
-    return len(words) == 1 and strip_accents(words[0].lower()) in WEAK_SINGLE_WORDS
+    return bool(words) and all(strip_accents(w.lower()) in WEAK_SINGLE_WORDS for w in words)
 
 
-def trim_anchor_edges(anchor: str) -> str:
+def trim_anchor_edges(anchor: str, stopwords: frozenset[str] = EDGE_STOPWORDS) -> str:
     """Drop prepositions/articles/conjunctions from both ends of an anchor.
 
     "do bolsonarismo" -> "bolsonarismo"; "com o" -> "" (nothing left, so the
@@ -217,9 +219,9 @@ def trim_anchor_edges(anchor: str) -> str:
     """
     words = list(_WORD_RE.finditer(anchor))
     first, last = 0, len(words)
-    while first < last and strip_accents(words[first].group().lower()) in EDGE_STOPWORDS:
+    while first < last and strip_accents(words[first].group().lower()) in stopwords:
         first += 1
-    while last > first and strip_accents(words[last - 1].group().lower()) in EDGE_STOPWORDS:
+    while last > first and strip_accents(words[last - 1].group().lower()) in stopwords:
         last -= 1
     if first == last:
         return ""
@@ -298,7 +300,9 @@ def find_keyword_anchors(
         for length in range(len(parts), 0, -1):
             for start in range(len(parts) - length + 1):
                 phrase = " ".join(parts[start:start + length])
-                if length == 1 and (len(phrase) < 6 or is_weak_anchor(phrase)):
+                if length == 1 and len(phrase) < 6:
+                    continue
+                if is_weak_anchor(phrase):
                     continue
                 phrase_candidates.append(phrase)
 
@@ -309,7 +313,13 @@ def find_keyword_anchors(
             m = re.search(pattern, body_norm)
             if m and not is_in_protected_zone(m.start(), len(kw_norm), zones):
                 # Extract original (accented) text from body at the same position
-                anchor = trim_anchor_edges(body[m.start():m.end()])
+                matched = body[m.start():m.end()]
+                # A piece of the title should start and end on content words;
+                # the whole title is linked as written
+                is_whole = len(kw.split()) == len(parts)
+                anchor = trim_anchor_edges(
+                    matched, EDGE_STOPWORDS if is_whole else WEAK_SINGLE_WORDS,
+                )
                 if anchor:
                     results.append({"anchor_text": anchor, "target_url": url})
                 break

@@ -383,6 +383,22 @@ class TestWeakAnchors:
         from hugin.linker import is_weak_anchor
 
         assert not is_weak_anchor("Quando Tudo Tinha Peso")
+        assert not is_weak_anchor("não quero")
+
+    def test_phrases_made_only_of_filler_words_are_weak(self):
+        from hugin.linker import is_weak_anchor
+
+        assert is_weak_anchor("eu não")
+        assert is_weak_anchor("Quando Tudo")
+        assert is_weak_anchor("when it is")
+
+    def test_slug_fallback_skips_all_filler_subphrases(self):
+        from hugin.linker import find_keyword_anchors
+
+        body = "Eu não gosto disso, eu não quero."
+        url = "/eu-nao-quero-seu-dinheiro/"
+        result = find_keyword_anchors(body, [{"title": "x", "url": url}])
+        assert all(r["anchor_text"].lower() != "eu não" for r in result)
 
     def test_slug_fallback_never_picks_the_weak_word(self):
         from hugin.linker import find_keyword_anchors
@@ -397,3 +413,14 @@ class TestWeakAnchors:
         body = "Escrevi antes em Quando Tudo Tinha Peso sobre isso."
         result = find_keyword_anchors(body, [{"title": "x", "url": "/quando-tudo-tinha-peso/"}])
         assert result == [{"anchor_text": "Quando Tudo Tinha Peso", "target_url": "/quando-tudo-tinha-peso/"}]
+
+
+def test_slug_piece_is_trimmed_to_content_words_but_whole_title_is_not():
+    from hugin.linker import find_keyword_anchors
+
+    url = "/eu-nao-quero-seu-dinheiro/"
+    piece = find_keyword_anchors("Falei do seu dinheiro.", [{"title": "x", "url": url}])
+    assert piece == [{"anchor_text": "dinheiro", "target_url": url}]
+
+    whole = find_keyword_anchors("Veja Eu não quero seu dinheiro.", [{"title": "x", "url": url}])
+    assert whole[0]["anchor_text"] == "Eu não quero seu dinheiro"
