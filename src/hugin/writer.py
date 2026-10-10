@@ -1,13 +1,13 @@
 """Centralised post writing — single path for all frontmatter serialisation."""
 
-import os
-import tempfile
 from datetime import date, datetime
 from pathlib import Path
 
 import frontmatter
 import yaml
 from frontmatter.default_handlers import SafeDumper as _FMDumper
+
+from hugin.fsutil import atomic_write_text
 
 
 # --- Custom YAML representer for datetime/date ---
@@ -87,37 +87,12 @@ def save_post(path: Path, post) -> None:
     _ensure_datetime_fields(post.metadata)
     post.metadata = _reorder_metadata(dict(post.metadata))
 
-    dir_path = path.parent
-    fd, tmp_path = tempfile.mkstemp(dir=str(dir_path), suffix=".md")
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(frontmatter.dumps(post, sort_keys=False))
-            f.write("\n")
-        os.replace(tmp_path, str(path))
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    atomic_write_text(path, frontmatter.dumps(post, sort_keys=False) + "\n")
 
 
 def save_raw(path: Path, text: str) -> None:
     """Write raw file content as-is (no frontmatter processing). Atomic."""
-    dir_path = path.parent
-    fd, tmp_path = tempfile.mkstemp(dir=str(dir_path), suffix=".md")
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(text)
-            if not text.endswith("\n"):
-                f.write("\n")
-        os.replace(tmp_path, str(path))
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    atomic_write_text(path, text if text.endswith("\n") else text + "\n")
 
 
 def create_post(

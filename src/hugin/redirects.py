@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from hugin.fsutil import atomic_write_text
+
 
 def find_redirects_file(posts_dir: Path) -> Path | None:
     """Walk up from posts_dir to find static/_redirects.
@@ -43,9 +45,8 @@ def read_redirects(path: Path) -> list[tuple[str, str, str]]:
 
 def write_redirects(path: Path, entries: list[tuple[str, str, str]]) -> None:
     """Write entries back to the _redirects file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"{origin} {dest} {code}" for origin, dest, code in entries]
-    path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    atomic_write_text(path, "\n".join(lines) + ("\n" if lines else ""))
 
 
 def append_redirect(path: Path, origin: str, dest: str, code: str = "301") -> None:

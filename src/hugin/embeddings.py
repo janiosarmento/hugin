@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from hugin.engines import CONFIG_DIR
+from hugin.fsutil import atomic_write_text, quarantine
 
 EMBEDDINGS_DIR = CONFIG_DIR / "embeddings"
 CACHE_VERSION = 6
@@ -183,30 +184,28 @@ class EmbeddingIndex:
         """Load existing cache from disk."""
         if self._cache_path.exists():
             try:
-                with open(self._cache_path) as f:
+                with open(self._cache_path, encoding="utf-8") as f:
                     data = json.load(f)
                 if data.get("version") == CACHE_VERSION:
                     self._cache = data
             except (json.JSONDecodeError, KeyError):
-                pass
+                quarantine(self._cache_path)  # a cache: rebuilt from the posts
         if self._keywords_path.exists():
             try:
-                with open(self._keywords_path) as f:
+                with open(self._keywords_path, encoding="utf-8") as f:
                     self._keywords = json.load(f)
             except (json.JSONDecodeError, KeyError):
+                # Costly LLM output: keep the broken file for manual recovery
+                quarantine(self._keywords_path)
                 self._keywords = {}
 
     def _save_cache(self) -> None:
         """Write cache to disk."""
-        EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
-        with open(self._cache_path, "w") as f:
-            json.dump(self._cache, f)
+        atomic_write_text(self._cache_path, json.dumps(self._cache))
 
     def _save_keywords(self) -> None:
         """Write link keywords to their own file (survives cache clears)."""
-        EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
-        with open(self._keywords_path, "w") as f:
-            json.dump(self._keywords, f)
+        atomic_write_text(self._keywords_path, json.dumps(self._keywords))
 
     def clear_cache(self) -> None:
         """Delete the embedding cache file and reset in-memory cache.

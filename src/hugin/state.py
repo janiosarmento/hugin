@@ -5,6 +5,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from hugin.fsutil import atomic_write_text, quarantine
+
 STATE_DIR = Path.home() / ".hugin" / "state"
 
 
@@ -18,15 +20,16 @@ def load_state(directory: Path) -> dict:
     if not path.exists():
         return {"directory": str(directory.resolve()), "posts": {}}
 
-    with open(path) as f:
-        return json.load(f)
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        quarantine(path)  # corrupt state must not stop Hugin from starting
+        return {"directory": str(directory.resolve()), "posts": {}}
 
 
 def save_state(directory: Path, state: dict) -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    path = _state_path(directory)
-    with open(path, "w") as f:
-        json.dump(state, f, indent=2)
+    atomic_write_text(_state_path(directory), json.dumps(state, indent=2))
 
 
 def mark_processed(state: dict, filename: str) -> None:
