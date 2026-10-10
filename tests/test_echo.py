@@ -324,3 +324,45 @@ def test_create_draft_stores_prompt(tmp_path):
 
     path = create_draft(tmp_path, "Title\n\nBody", "write about\ncats")
     assert frontmatter.load(str(path)).metadata["prompt"] == "write about\ncats"
+
+
+class TestRefactor:
+    def _posts(self, tmp_path, n=9):
+        return [make_post(tmp_path, f"{c}.md", d) for c, d in zip("abcdefghi", range(1, n + 1))]
+
+    def _abs(self, tmp_path, *names):
+        return [str((tmp_path / f"{n}.md").resolve()) for n in names]
+
+    def test_mix_is_2_recent_2_prompt_2_original_without_overlap(self, tmp_path):
+        posts = self._posts(tmp_path)
+        original = posts[4]  # e
+        got = echo.select_refactor_samples(
+            posts, original,
+            ranked_prompt=self._abs(tmp_path, "h", "a", "g", "i"),
+            ranked_original=self._abs(tmp_path, "e", "g", "f", "d", "c"),
+        )
+        # recent: a, b; prompt: h, g (a is already taken); original: f, d (e is the original, g taken)
+        assert [p.filename for p in got] == ["a.md", "b.md", "h.md", "g.md", "f.md", "d.md"]
+
+    def test_original_is_never_a_sample_and_rankings_are_optional(self, tmp_path):
+        posts = self._posts(tmp_path)
+        got = echo.select_refactor_samples(posts, posts[0])
+        assert len(got) == 6 and posts[0] not in got
+        assert len({p.path for p in got}) == 6
+
+    def test_has_enough_samples_excludes_original(self, tmp_path):
+        posts = self._posts(tmp_path, 7)
+        assert has_enough_samples(posts, posts[0])
+        assert not has_enough_samples(posts[:6], posts[0])
+
+    def test_message_carries_the_original_block(self, tmp_path):
+        posts = self._posts(tmp_path, 3)
+        msg = build_message(posts[1:], "tighter", original=posts[0])
+        assert "<original>\n# a.md" in msg and "Rewrite the original post" in msg
+        assert msg.endswith("tighter")
+        assert "<original>" not in build_message(posts, "x")
+
+    def test_create_draft_links_back_to_original(self, tmp_path):
+        path = create_draft(tmp_path, "Better\n\nBody.", "tighter", refactor_of="old.md")
+        assert "refactor_of: old.md" in path.read_text()
+        assert "refactor_of" not in create_draft(tmp_path, "Other\n\nBody.", "x").read_text()

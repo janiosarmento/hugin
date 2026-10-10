@@ -14,14 +14,19 @@ from hugin.echo import (
     N_RANDOM,
     N_RECENT,
     N_SIMILAR,
+    R_N_LIKE_ORIGINAL,
+    R_N_RECENT,
+    R_N_SIMILAR,
     EchoError,
     build_message,
     create_draft,
     parse_answer,
     _select_parts,
     draw_random,
+    original_query,
     pick_category,
     pick_similar,
+    select_refactor_samples,
     select_samples,
     write_with_fallback,
     write_with_system_llm,
@@ -35,6 +40,7 @@ WAIT_TEXT = "Waiting for {who} (can take several minutes)…  Esc cancels"
 
 
 SIMILAR_PENDING = f"{N_SIMILAR} closest to your prompt (picked when you send)"
+R_SIMILAR_PENDING = f"{R_N_SIMILAR} closest to your prompt (picked when you send)"
 
 WRITER_ECHO = "echo"
 WRITER_SYSTEM = "system"
@@ -47,7 +53,9 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
     """Text area where the user describes the post; also picks who writes it.
 
     Dismisses with (prompt, writer) where writer is WRITER_ECHO or
-    WRITER_SYSTEM, or None when cancelled.
+    WRITER_SYSTEM, or None when cancelled. With `original` it is the refactor
+    variant: the samples are 2 latest, 2 closest to the prompt and 2 closest
+    to that post.
     """
 
     BINDINGS = [
@@ -114,26 +122,43 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
 
     DEBOUNCE_SECONDS = 1.0
 
-    def __init__(self, posts: list[Post] | None = None, index=None, engine=None) -> None:
+    def __init__(
+        self, posts: list[Post] | None = None, index=None, engine=None,
+        original: Post | None = None,
+    ) -> None:
         super().__init__()
         self._index = index
         self._engine = engine
-        self._recent, rest = _select_parts(posts or [])
+        self._original = original
+        self._recent, rest = _select_parts(posts or [], original)
         # Drawn once, so the title shown is the one that gets sent.
-        self.random_pick = draw_random(rest)
+        self.random_pick = None if original else draw_random(rest)
         self._pool = [p for p in rest if p is not self.random_pick]
-        self._similar_note = SIMILAR_PENDING
+        self._similar_note = R_SIMILAR_PENDING if original else SIMILAR_PENDING
         self._similar: list[Post] = []
+        self._like_original: list[Post] = []
+        self._ranked_prompt: list[str] | None = None
+        self._ranked_original: list[str] | None = None
         self._debounce = None
 
     def compose(self) -> ComposeResult:
         with Vertical(id="echo-modal"):
-            yield Label("Echo — describe the post", id="echo-title")
-            mix = f"{N_RECENT} latest, {N_SIMILAR} similar to your prompt"
-            if N_RANDOM:
-                mix += f", {N_RANDOM} random"
+            if self._original is None:
+                heading = "Echo — describe the post"
+                mix = f"{N_RECENT} latest, {N_SIMILAR} similar to your prompt"
+                if N_RANDOM:
+                    mix += f", {N_RANDOM} random"
+                count = MIN_SAMPLES
+            else:
+                heading = f"Refactor — {self._title(self._original)}"
+                mix = (
+                    f"{R_N_RECENT} latest, {R_N_SIMILAR} similar to your prompt, "
+                    f"{R_N_LIKE_ORIGINAL} similar to the original"
+                )
+                count = R_N_RECENT + R_N_SIMILAR + R_N_LIKE_ORIGINAL
+            yield Label(heading, id="echo-title")
             yield Static(
-                f"{MIN_SAMPLES} published posts go along as writing samples ({mix}). "
+                f"{count} published posts go along as writing samples ({mix}). "
                 "Ctrl+S sends, F2 switches writer, Esc cancels.",
                 id="echo-hint",
             )
@@ -149,6 +174,8 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
     def on_mount(self) -> None:
         self.query_one("#echo-prompt", TextArea).focus()
         self._fit_prompt()
+        if self._original is not None:
+            self._rank_original()
 
     def on_resize(self) -> None:
         self._fit_prompt()
@@ -186,9 +213,16 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
             lines += [row("similar", p) for p in self._similar]
         elif self._pool:
             lines.append(f"  [b]{'similar':<8}[/b] [i]{self._similar_note}[/i]")
+        if self._original is not None:
+            if self._like_original:
+                lines += [row("like it", p) for p in self._like_original]
+            elif self._pool:
+                lines.append(
+                    f"  [b]{'like it':<8}[/b] [i]{R_N_LIKE_ORIGINAL} closest to the original[/i]"
+                )
         if self.random_pick is not None:
             lines.append(row("random", self.random_pick))
-        return "Writing samples sent to Echo:\n" + "\n".join(lines)
+        return "Writing samples sent along:\n" + "\n".join(lines)
 
     def _refresh_samples(self) -> None:
         self.query_one("#echo-samples", Static).update(self._samples_text())
@@ -200,23 +234,50 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         text = event.text_area.text
         self._debounce = self.set_timer(self.DEBOUNCE_SECONDS, lambda: self._rank(text))
 
-    @work(exclusive=True)
+    @work(exclusive=True, group="rank-prompt")
     async def _rank(self, text: str) -> None:
         if self._index is None:
             return
         if not text.strip():
+            self._ranked_prompt = None
             self._similar = []
-            self._similar_note = SIMILAR_PENDING
-            self._refresh_samples()
+            self._similar_note = R_SIMILAR_PENDING if self._original else SIMILAR_PENDING
+            self._pick_displayed()
             return
         try:
-            ranked = await asyncio.to_thread(self._index.rank_by_text, text)
+            self._ranked_prompt = await asyncio.to_thread(self._index.rank_by_text, text)
         except Exception:
+            self._ranked_prompt = None
             self._similar = []
             self._similar_note = "random (embeddings unavailable)"
             self._refresh_samples()
             return
-        self._similar = pick_similar(self._pool, ranked)
+        self._pick_displayed()
+
+    @work(exclusive=True, group="rank-original")
+    async def _rank_original(self) -> None:
+        if self._index is None:
+            return
+        try:
+            self._ranked_original = await asyncio.to_thread(
+                self._index.rank_by_text, original_query(self._original)
+            )
+        except Exception:
+            return  # the wait screen falls back to random posts
+        self._pick_displayed()
+
+    def _pick_displayed(self) -> None:
+        """Samples shown under the prompt; same picks the wait screen will make."""
+        if self._original is None:
+            self._similar = pick_similar(self._pool, self._ranked_prompt)
+        else:
+            self._similar = pick_similar(self._pool, self._ranked_prompt, R_N_SIMILAR)
+            taken = {p.path for p in self._similar}
+            self._like_original = pick_similar(
+                [p for p in self._pool if p.path not in taken],
+                self._ranked_original,
+                R_N_LIKE_ORIGINAL,
+            )
         self._refresh_samples()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -262,8 +323,9 @@ class EchoWaitScreen(ModalScreen[Path | None]):
     }
     """
 
-    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, writer: str = WRITER_ECHO) -> None:
+    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, writer: str = WRITER_ECHO, original: Post | None = None) -> None:
         super().__init__()
+        self._original = original
         self._engine = engine
         self._index = index
         self._random_pick = random_pick
@@ -287,18 +349,27 @@ class EchoWaitScreen(ModalScreen[Path | None]):
     @work(exclusive=True)
     async def _run(self) -> None:
         try:
-            ranked = None
+            ranked = ranked_original = None
             if self._index is not None:
-                self.query_one("#echo-wait-status", Label).update("Finding a similar post…")
+                self.query_one("#echo-wait-status", Label).update("Finding similar posts…")
                 try:
                     ranked = await asyncio.to_thread(self._index.rank_by_text, self._request)
+                    if self._original is not None:
+                        ranked_original = await asyncio.to_thread(
+                            self._index.rank_by_text, original_query(self._original)
+                        )
                 except Exception:
-                    ranked = None  # embeddings unavailable: random sample instead
+                    ranked = ranked_original = None  # embeddings unavailable: random sample instead
             self.query_one("#echo-wait-status", Label).update(self._wait_text())
-            samples = select_samples(self._posts, ranked, random_pick=self._random_pick)
+            if self._original is None:
+                samples = select_samples(self._posts, ranked, random_pick=self._random_pick)
+            else:
+                samples = select_refactor_samples(
+                    self._posts, self._original, ranked, ranked_original
+                )
             if not samples:
                 raise EchoError("No published posts to use as writing samples")
-            message = build_message(samples, self._request)
+            message = build_message(samples, self._request, self._original)
             if self._writer == WRITER_SYSTEM:
                 text = await write_with_system_llm(message, self._engine)
                 who = f"{self._engine.id} / {self._engine.model}"
@@ -317,7 +388,10 @@ class EchoWaitScreen(ModalScreen[Path | None]):
             self.query_one("#echo-wait-status", Label).update("Picking a category…")
             categories = await asyncio.to_thread(load_categories, self._directory)
             category = await pick_category(self._engine, title, body, categories)
-            path = create_draft(self._directory, text, self._request, category)
+            path = create_draft(
+                self._directory, text, self._request, category,
+                refactor_of=self._original.filename if self._original else None,
+            )
             self.notify(f"Written by {who}")
         except EchoError as e:
             self.notify(str(e), severity="error", timeout=10)

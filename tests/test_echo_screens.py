@@ -406,3 +406,74 @@ def test_prompt_screen_without_random_sample(tmp_path):
             assert "3 latest, 4 similar to your prompt)" in hint
 
     asyncio.run(go())
+
+
+def test_R_key_refactors_post_and_goto_original(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+
+    from textual.widgets import Button, DataTable
+
+    from hugin.config import EmbeddingsConfig, FrontmatterConfig, HuginConfig, LinksConfig
+    from hugin.engines import Engine
+    from hugin.tui.review import HuginScreen
+
+    seen = {}
+
+    async def fake_ask(message, persona, key):
+        seen["message"] = message
+        return "Rewritten\n\nNew text."
+
+    monkeypatch.setattr(echo_mod, "ask_echo", fake_ask)
+    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
+    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "Jane Doe")
+
+    posts = _posts(tmp_path)
+    site = MagicMock()
+    site.post_url.return_value = "/x"
+    site.warnings = []
+    index = MagicMock()
+    index.has_no_outgoing.return_value = False
+    index.get_post_url.return_value = "/x"
+    index.get_link_keywords.return_value = ""
+
+    class Host(App):
+        def on_mount(self):
+            self.push_screen(HuginScreen(
+                posts=posts, all_posts=list(posts),
+                engine=Engine("t", "http://localhost/v1", "m", 30, None),
+                pool={}, state={}, directory=tmp_path,
+                config=HuginConfig(LinksConfig(), EmbeddingsConfig(), FrontmatterConfig()), site=site, index=index,
+            ))
+
+    async def go():
+        app = Host()
+        async with app.run_test(size=(140, 50)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            goto = screen.query_one("#btn-goto-original", Button)
+            assert goto.has_class("hidden")  # p0 is not a refactor
+            await pilot.press("R")
+            await pilot.pause()
+            assert isinstance(app.screen, ed.EchoPromptScreen)
+            await pilot.press(*"tighter", "ctrl+s")
+            await pilot.pause(0.5)
+            assert isinstance(app.screen, HuginScreen)
+            draft = (tmp_path / "rewritten.md").read_text()
+            assert "refactor_of: p0.md" in draft and "prompt: tighter" in draft
+            assert seen["message"].count("<post>") == 6 and "<original>" in seen["message"]
+            assert screen.query_one("#post-table", DataTable).row_count == 8
+            assert screen.current_index == 0
+            assert not goto.has_class("hidden")
+            screen.action_goto_original()
+            await pilot.pause()
+            assert screen.posts[screen.current_index].filename == "p0.md"
+            assert goto.has_class("hidden")
+
+    asyncio.run(go())
+
+
+def test_R_key_warns_without_enough_posts(tmp_path):
+    from hugin.echo import has_enough_samples
+
+    posts = _posts(tmp_path)[:6]
+    assert not has_enough_samples(posts, posts[0])

@@ -27,6 +27,13 @@ N_SIMILAR = 4
 N_RANDOM = 0  # set to 1 to add a random sample for stylistic variety
 MIN_SAMPLES = N_RECENT + N_SIMILAR + N_RANDOM
 
+# Refactor mode (rewriting an existing post): the sample mix changes, and the
+# original goes along as its own block, never as a sample.
+R_N_RECENT = 2
+R_N_SIMILAR = 2  # closest to the prompt
+R_N_LIKE_ORIGINAL = 2  # closest to the post being rewritten
+R_MIN_SAMPLES = R_N_RECENT + R_N_SIMILAR + R_N_LIKE_ORIGINAL
+
 
 WRITER_SYSTEM_PROMPT = """\
 You are a blog author writing in the voice of the writing samples you are given.
@@ -56,18 +63,31 @@ def published_posts(posts: list[Post]) -> list[Post]:
     return [p for p in posts if _is_published(p)]
 
 
-def has_enough_samples(posts: list[Post]) -> bool:
-    return len(published_posts(posts)) >= MIN_SAMPLES
+def has_enough_samples(posts: list[Post], original: Post | None = None) -> bool:
+    candidates = [p for p in published_posts(posts) if original is None or p.path != original.path]
+    return len(candidates) >= (MIN_SAMPLES if original is None else R_MIN_SAMPLES)
 
 
-def _select_parts(posts: list[Post]) -> tuple[list[Post], list[Post]]:
-    """(3 most recent, every other candidate), published posts only."""
-    published = published_posts(posts)
+def original_query(original: Post) -> str:
+    """Text used to find the posts closest to `original`."""
+    return f"{original.metadata.get('title', '')}\n\n{original.content}"
+
+
+def _select_parts(
+    posts: list[Post], original: Post | None = None
+) -> tuple[list[Post], list[Post]]:
+    """(most recent, every other candidate), published posts only.
+
+    `original` (refactor mode) is never a candidate.
+    """
+    published = [
+        p for p in published_posts(posts) if original is None or p.path != original.path
+    ]
     recent = sorted(
         (p for p in published if p.date is not None),
         key=lambda p: p.date.replace(tzinfo=None),
         reverse=True,
-    )[:N_RECENT]
+    )[: N_RECENT if original is None else R_N_RECENT]
     taken = {p.path for p in recent}
     return recent, [p for p in published if p.path not in taken]
 
@@ -123,16 +143,66 @@ def select_samples(
     return recent + similar + ([random_pick] if random_pick else [])
 
 
-def build_message(samples: list[Post], request: str) -> str:
+def select_refactor_similar(
+    pool: list[Post],
+    ranked_prompt: list[str] | None,
+    ranked_original: list[str] | None,
+    rng: random.Random | None = None,
+) -> tuple[list[Post], list[Post]]:
+    """(closest to the prompt, closest to the original), no overlap.
+
+    Each list is topped up randomly when its ranking is unavailable.
+    """
+    rng = rng or random
+    similar = pick_similar(pool, ranked_prompt, R_N_SIMILAR)
+    left = [p for p in pool if p.path not in {s.path for s in similar}]
+    if len(similar) < R_N_SIMILAR:
+        similar += rng.sample(left, min(R_N_SIMILAR - len(similar), len(left)))
+        left = [p for p in left if p.path not in {s.path for s in similar}]
+    like_original = pick_similar(left, ranked_original, R_N_LIKE_ORIGINAL)
+    if len(like_original) < R_N_LIKE_ORIGINAL:
+        rest = [p for p in left if p.path not in {s.path for s in like_original}]
+        like_original += rng.sample(rest, min(R_N_LIKE_ORIGINAL - len(like_original), len(rest)))
+    return similar, like_original
+
+
+def select_refactor_samples(
+    posts: list[Post],
+    original: Post,
+    ranked_prompt: list[str] | None = None,
+    ranked_original: list[str] | None = None,
+    rng: random.Random | None = None,
+) -> list[Post]:
+    """2 most recent + 2 closest to the prompt + 2 closest to the original."""
+    recent, rest = _select_parts(posts, original)
+    similar, like_original = select_refactor_similar(rest, ranked_prompt, ranked_original, rng)
+    return recent + similar + like_original
+
+
+def build_message(samples: list[Post], request: str, original: Post | None = None) -> str:
     blocks = []
     for post in samples:
         title = post.metadata.get("title", post.path.stem)
         blocks.append(f"<post>\n# {title}\n\n{post.content.strip()}\n</post>")
     n = len(samples)
+    if original is None:
+        task = "Write a new post in my voice, following the request below. "
+        extra = ""
+    else:
+        title = original.metadata.get("title", original.path.stem)
+        extra = (
+            "\n\nHere is the post to rewrite:\n\n"
+            f"<original>\n# {title}\n\n{original.content.strip()}\n</original>"
+        )
+        task = (
+            "Rewrite the original post as a new post in my voice, following "
+            "the request below. "
+        )
     return (
         f"Here are {n} of my blog posts:\n\n"
         + "\n\n".join(blocks)
-        + "\n\nWrite a new post in my voice, following the request below. "
+        + extra
+        + f"\n\n{task}"
         "Put the post title alone on the first line (plain text, no # or "
         "other markup, no quotes), then a blank line, then the post body."
         f"\n\nRequest:\n\n{request.strip()}"
@@ -310,7 +380,11 @@ async def pick_category(engine, title: str, body: str, categories: list[str]) ->
 
 
 def create_draft(
-    directory: Path, text: str, request: str, category: str | None = None
+    directory: Path,
+    text: str,
+    request: str,
+    category: str | None = None,
+    refactor_of: str | None = None,
 ) -> Path:
     from hugin.hugo import slugify
     from hugin.writer import create_post
@@ -322,5 +396,6 @@ def create_draft(
         slug = f"{base}-{n}"
         n += 1
     path = directory / f"{slug}.md"
-    create_post(path, title=title, slug=slug, category=category, body=body, prompt=request)
+    create_post(path, title=title, slug=slug, category=category, body=body,
+                prompt=request, refactor_of=refactor_of)
     return path

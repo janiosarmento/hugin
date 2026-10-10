@@ -215,6 +215,8 @@ persona = "Janio Sarmento"  # optional; whose voice Echo writes in
 
 Press `h` (hidden; listed under `?`) to ask Echo for a new post: describe it in the prompt box, Ctrl+S sends it together with 7 published posts as writing samples (the 3 latest and the 4 semantically closest to your prompt (a random sample is available by setting `N_RANDOM = 1`); with fewer than 7 published posts it just warns; the counts are `N_RECENT`/`N_SIMILAR`/`N_RANDOM` in `echo.py`), and the answer is saved as a new `draft: true` post. The prompt box has a writer selector (F2 toggles): Echo, or the engine selected with `n` called directly, for A/B comparisons; the choice is remembered for the session and a notification says who wrote the draft. If Echo is the writer and fails for any reason (no credits, bad or missing key, timeout, network), the same request goes to the engine selected with `n` and a warning says why. The category is always picked by that engine, never by Echo.
 
+Press `R` (hidden; listed under `?`) on a post to rewrite it: same prompt box, writers and fallback as `h`, but the post goes along as the text to rewrite, with 6 other published posts as samples (the 2 latest, the 2 closest to your prompt and the 2 closest to the original; counts are `R_N_*` in `echo.py`). The result is a new draft on top of the list whose frontmatter has `refactor_of: <original filename>` (plus the usual `prompt`). Posts with `refactor_of` show a "Go to original" button next to "Copy .md to clipboard". Hugin never touches the original: keeping one, both or none is up to you.
+
 ### Link settings (`~/.hugin/links.toml`)
 
 Global defaults for link management:

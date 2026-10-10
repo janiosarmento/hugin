@@ -128,6 +128,7 @@ def create_post(
     category: str | None = None,
     body: str = "",
     prompt: str | None = None,
+    refactor_of: str | None = None,
 ) -> frontmatter.Post:
     """Create a new post with a complete frontmatter skeleton.
 
@@ -137,6 +138,7 @@ def create_post(
     validation doesn't fail on missing required fields.
 
     `prompt` (LLM-generated posts) is kept in the frontmatter for reference.
+    `refactor_of` is the filename of the post this one rewrites.
     """
     metadata = {
         "title": title,
@@ -152,6 +154,8 @@ def create_post(
     }
     if prompt:
         metadata["prompt"] = prompt
+    if refactor_of:
+        metadata["refactor_of"] = refactor_of
     post = frontmatter.Post(body, **metadata)
     save_post(path, post)
     return post

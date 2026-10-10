@@ -501,6 +501,7 @@ class HuginScreen(Screen):
         Binding("u", "suggest", "Sugg", show=False, tooltip="Suggest new post topics with LLM"),
         Binding("w", "news_ideas", "News", show=False, tooltip="News → post ideas (search Google News, generate drafts)"),
         Binding("h", "echo_draft", "Echo", show=False, tooltip="Ask Echo to write a new draft post in your voice"),
+        Binding("R", "refactor_post", "Refactor", show=False, tooltip="Rewrite the current post as a new draft with Echo or the system LLM"),
         Binding("n", "pick_engine", "Engine", show=False, tooltip="Select LLM engine and model"),
         Binding("c", "clear_caches", "Clr", show=False, tooltip="Clear embedding cache and restart"),
         Binding("r", "redirects", "Redirs", show=False, tooltip="Manage URL redirects (_redirects file)"),
@@ -578,9 +579,14 @@ class HuginScreen(Screen):
         margin-top: 1;
     }
 
-    #btn-copy-post {
+    #post-buttons {
+        height: auto;
         margin-top: 1;
         margin-bottom: 1;
+    }
+
+    #btn-goto-original {
+        margin-left: 1;
     }
 
     #review-buttons {
@@ -675,7 +681,9 @@ class HuginScreen(Screen):
                 yield Static("", id="engine-label")
                 yield Label(id="progress-label")
                 yield Static("", id="post-meta")
-                yield Button("Copy .md to clipboard", id="btn-copy-post")
+                with Horizontal(id="post-buttons"):
+                    yield Button("Copy .md to clipboard", id="btn-copy-post")
+                    yield Button("Go to original", id="btn-goto-original", classes="hidden")
                 yield Label("", classes="section-label", id="section-header")
                 yield Vertical(id="suggested-tags-container")
                 yield Input(
@@ -871,6 +879,9 @@ class HuginScreen(Screen):
             table.add_row("link profile", link_keywords)
 
         self.query_one("#post-meta", Static).update(table)
+        self.query_one("#btn-goto-original", Button).set_class(
+            not meta.get("refactor_of"), "hidden"
+        )
         self._clear_action_area()
 
     @staticmethod
@@ -1947,16 +1958,42 @@ class HuginScreen(Screen):
     # === ECHO DRAFT ===
 
     def action_echo_draft(self) -> None:
+        self._start_echo_draft()
+
+    def action_refactor_post(self) -> None:
+        """Rewrite the current post as a new draft that points back to it."""
+        if self._state != STATE_BROWSING or not self.posts:
+            return
+        self._start_echo_draft(original=self.posts[self.current_index])
+
+    def action_goto_original(self) -> None:
+        """Jump to the post the current draft was refactored from."""
+        name = self.posts[self.current_index].metadata.get("refactor_of")
+        if not name:
+            return
+        target = next((p for p in self.all_posts if p.filename == name), None)
+        if target is None:
+            self.notify(f"Original post not found: {name}", severity="warning")
+            return
+        if target not in self.posts:
+            self._close_search()
+        for i, p in enumerate(self.posts):
+            if p.path == target.path:
+                self._navigate_to_post(i)
+                return
+
+    def _start_echo_draft(self, original: Post | None = None) -> None:
+        """Prompt, wait, and add the new draft on top; `original` = refactor mode."""
         if self._state != STATE_BROWSING:
             return
 
-        from hugin.echo import MIN_SAMPLES, has_enough_samples
+        from hugin.echo import MIN_SAMPLES, R_MIN_SAMPLES, has_enough_samples
         from hugin.tui.echo_draft import EchoPromptScreen, EchoWaitScreen
 
-        if not has_enough_samples(self.all_posts):
+        if not has_enough_samples(self.all_posts, original):
             self.notify(
                 f"Not enough published posts to give Echo references "
-                f"(need at least {MIN_SAMPLES}).",
+                f"(need at least {MIN_SAMPLES if original is None else R_MIN_SAMPLES}).",
                 severity="warning",
             )
             return
@@ -1980,7 +2017,7 @@ class HuginScreen(Screen):
             self._rebuild_post_table()
             self.notify(f"Draft created: {path.name}")
 
-        prompt_screen = EchoPromptScreen(self.all_posts, self.index, self.engine)
+        prompt_screen = EchoPromptScreen(self.all_posts, self.index, self.engine, original)
 
         def on_prompt(result: tuple[str, str] | None) -> None:
             if result:
@@ -1988,7 +2025,7 @@ class HuginScreen(Screen):
                 self.app.push_screen(
                     EchoWaitScreen(
                         request, list(self.all_posts), self.directory, self.engine,
-                        self.index, prompt_screen.random_pick, writer,
+                        self.index, prompt_screen.random_pick, writer, original,
                     ),
                     on_created,
                 )
@@ -2226,6 +2263,8 @@ class HuginScreen(Screen):
                 text = "\n".join(f"• {t}" for t in self._suggested_topics)
                 self._copy_to_clipboard(text)
                 self.notify(f"{len(self._suggested_topics)} topics copied to clipboard")
+        elif event.button.id == "btn-goto-original":
+            self.action_goto_original()
         elif event.button.id == "btn-copy-post":
             post = self.posts[self.current_index]
             text = post.path.read_text()
