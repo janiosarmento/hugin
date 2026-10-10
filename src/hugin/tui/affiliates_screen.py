@@ -1,5 +1,7 @@
 """Affiliate links editor: browse, add, edit and remove keyword → URL entries."""
 
+import unicodedata
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -13,6 +15,11 @@ from hugin.affiliates import (
     save_affiliate,
     validate_affiliate,
 )
+
+
+def _sort_key(keyword: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", keyword)
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
 
 
 class AffiliateEditScreen(ModalScreen[tuple[str, str] | None]):
@@ -193,7 +200,9 @@ class AffiliatesScreen(Screen[None]):
 
     def _reload(self, select: str | None = None) -> None:
         table = self.query_one("#af-table", DataTable)
-        self._entries = load_affiliates()
+        # Alphabetical for browsing (accents and case ignored); the file keeps its own order
+        loaded = load_affiliates()
+        self._entries = {k: loaded[k] for k in sorted(loaded, key=_sort_key)}
         table.clear()
         for keyword, url in self._entries.items():
             table.add_row(keyword, url, key=keyword)

@@ -76,7 +76,7 @@ def test_screen_add_edit_remove(aff_file):
             await pilot.press(*"food", "enter", *"https://amzn.to/ccc", "enter")
             await pilot.pause()
             assert table.row_count == 3
-            assert table.cursor_row == 2  # cursor lands on the new entry
+            assert table.cursor_row == 0  # sorted: "food" comes first, cursor lands on it
 
             await pilot.press("e")  # edit "food": change the URL
             await pilot.pause()
@@ -114,3 +114,24 @@ def test_screen_rejects_invalid_and_cancel_keeps_file(aff_file):
 
     asyncio.run(go())
     assert aff_file.read_text() == before
+
+
+def test_screen_lists_alphabetically_ignoring_case_and_accents(aff_file):
+    aff.save_affiliate("água", "https://amzn.to/1")
+    aff.save_affiliate("Zebra", "https://amzn.to/2")
+    aff.save_affiliate("bowl", "https://amzn.to/3")
+
+    async def go():
+        app = App()
+        async with app.run_test(size=(120, 40)) as pilot:
+            app.push_screen(screen.AffiliatesScreen())
+            await pilot.pause()
+            table = app.screen.query_one("#af-table", DataTable)
+            names = [table.get_row_at(i)[0] for i in range(table.row_count)]
+            assert names == ["água", "bowl", "litter box", "scratcher", "Zebra"]
+            # actions follow the displayed order, not the file order
+            table.move_cursor(row=4)
+            await pilot.press("c")
+            await pilot.pause()
+
+    asyncio.run(go())
