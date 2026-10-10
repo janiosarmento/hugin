@@ -443,6 +443,10 @@ class HelpScreen(ModalScreen):
     .help-desc {
         width: 1fr;
     }
+
+    HelpScreen #btn-close {
+        margin-top: 1;
+    }
     """
 
     def __init__(self, bindings: list[Binding]) -> None:
@@ -471,9 +475,9 @@ class HelpScreen(ModalScreen):
 
     def _fit_list(self) -> None:
         # Modal is capped at 90% of the screen; subtract its chrome (border 2,
-        # padding 2, title 2, button 3) so the list takes all the remaining
+        # padding 2, title 2, button 3 + 1 gap) so the list takes all the remaining
         # room and only scrolls when the content really doesn't fit.
-        room = int(self.size.height * 0.9) - 9
+        room = int(self.size.height * 0.9) - 10
         self.query_one("#help-list").styles.max_height = max(room, 3)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
