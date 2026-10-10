@@ -1,5 +1,6 @@
 """Hugo config parsing and URL inference."""
 
+import json
 import re
 import tomllib
 import unicodedata
@@ -10,7 +11,8 @@ from typing import Any
 import tomlkit
 import yaml
 
-from hugin.log import log_exception
+from hugin.fsutil import atomic_write_text
+from hugin.log import log_exception, log_warning
 
 # Date prefix pattern in filenames: YYYY-MM-DD-
 DATE_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-")
@@ -221,31 +223,33 @@ def _ensure_ignored_toml(config_path: Path, patterns: dict[str, str]) -> list[st
 
     if added:
         doc["ignoreFiles"] = existing
-        config_path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+        atomic_write_text(config_path, tomlkit.dumps(doc))
 
     return added
 
 
 def _ensure_ignored_yaml(config_path: Path, patterns: dict[str, str]) -> list[str]:
-    """Add missing ignoreFiles patterns to a YAML Hugo config."""
+    """Add missing ignoreFiles patterns to a YAML Hugo config.
+
+    Re-dumping the parsed YAML would drop every comment and reorder keys,
+    so the file is only ever appended to, and only when it has no
+    `ignoreFiles` key yet. If it has one, it is left alone (edit it by hand).
+    """
     text = config_path.read_text(encoding="utf-8")
     data = yaml.safe_load(text) or {}
+    if "ignoreFiles" in data:
+        missing = [n for n, p in patterns.items() if p not in list(data["ignoreFiles"] or [])]
+        if missing:
+            log_warning(
+                f"{config_path.name} has ignoreFiles without {', '.join(missing)}; "
+                "add them by hand (Hugin does not rewrite YAML configs)"
+            )
+        return []
 
-    existing: list[str] = list(data.get("ignoreFiles", []))
-    added = []
-    for name, pattern in patterns.items():
-        if pattern not in existing:
-            existing.append(pattern)
-            added.append(name)
-
-    if added:
-        data["ignoreFiles"] = existing
-        config_path.write_text(
-            yaml.dump(data, allow_unicode=True, default_flow_style=False),
-            encoding="utf-8",
-        )
-
-    return added
+    block = "ignoreFiles:\n" + "".join(f"  - {json.dumps(p)}\n" for p in patterns.values())
+    sep = "" if text.endswith("\n") or not text else "\n"
+    atomic_write_text(config_path, text + sep + block)
+    return list(patterns)
 
 
 def load_categories(posts_dir: Path) -> list[str]:
@@ -263,7 +267,7 @@ def load_categories(posts_dir: Path) -> list[str]:
         pages_cfg = root / ".pages.yml"
         if pages_cfg.is_file():
             try:
-                with open(pages_cfg) as f:
+                with open(pages_cfg, encoding="utf-8") as f:
                     data = yaml.safe_load(f)
                 cats = _extract_collection_categories(data, root, posts_dir)
                 if not cats:

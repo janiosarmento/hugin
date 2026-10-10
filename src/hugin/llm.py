@@ -200,7 +200,7 @@ def parse_response(text: str) -> list[str]:
     if matches:
         return matches
 
-    raise ValueError(f"Não foi possível extrair tags da resposta do LLM: {text[:200]}")
+    raise ValueError(f"Could not extract tags from the LLM response: {text[:200]}")
 
 
 def _is_repetition_loop(text: str, threshold: float = 0.5) -> bool:
@@ -245,8 +245,12 @@ async def call_llm(engine: Engine, prompt: str, system: str | None = None) -> st
         )
         response.raise_for_status()
 
-    data = response.json()
-    text = data["choices"][0]["message"]["content"]
+    try:
+        text = response.json()["choices"][0]["message"]["content"]
+    except (ValueError, KeyError, IndexError, TypeError) as e:
+        raise ValueError(f"Unexpected response format from {engine.id}: {response.text[:200]}") from e
+    if not isinstance(text, str):
+        raise ValueError(f"{engine.id} returned no text content")
     if _is_repetition_loop(text):
         raise ValueError("Model returned a repetition loop — skipping")
     return text

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from hugin.engines import CONFIG_DIR
+from hugin.fsutil import atomic_write_text
 
 PROJECTS_DIR = CONFIG_DIR / "projects"
 
@@ -68,4 +69,4 @@ def save_project(directory: Path, config: ProjectConfig) -> None:
         f"words_per_link = {config.links.words_per_link}  # 0 = use global default",
         "",
     ]
-    path.write_text("\n".join(lines))
+    atomic_write_text(path, "\n".join(lines))

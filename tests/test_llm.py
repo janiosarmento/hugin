@@ -136,3 +136,22 @@ def test_suggest_prompt_lists_similar_posts_only_when_given():
 
     without = build_suggest_prompt("T", "body", [])
     assert "EXISTING POSTS" not in without and "{existing}" not in without
+
+
+def test_call_llm_reports_unexpected_response_shapes(monkeypatch):
+    import asyncio
+
+    import httpx
+    import pytest
+
+    import hugin.llm as llm
+    from hugin.engines import Engine
+
+    real = httpx.AsyncClient
+    for body in ({"error": "x"}, {"choices": []}, {"choices": [{"message": {"content": None}}]}):
+        monkeypatch.setattr(
+            llm.httpx, "AsyncClient",
+            lambda body=body, **kw: real(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=body)), **kw),
+        )
+        with pytest.raises(ValueError, match="response format|no text"):
+            asyncio.run(llm.call_llm(Engine("t", "http://x/v1", "m", 5, None), "hi"))

@@ -2328,7 +2328,7 @@ class HuginScreen(Screen):
             self.action_goto_original()
         elif event.button.id == "btn-copy-post":
             post = self.posts[self.current_index]
-            text = post.path.read_text()
+            text = post.path.read_text(encoding="utf-8")
             self._copy_to_clipboard(text)
             self.notify(f"{post.filename} copied to clipboard")
         elif event.button.id == "btn-copy-body":
@@ -2336,7 +2336,7 @@ class HuginScreen(Screen):
 
             post = self.posts[self.current_index]
             # Read from disk: the editor may have changed the file since the scan
-            body = fm.loads(post.path.read_text()).content
+            body = fm.loads(post.path.read_text(encoding="utf-8")).content
             self._copy_to_clipboard(body)
             self.notify(f"{post.filename} body copied to clipboard")
 

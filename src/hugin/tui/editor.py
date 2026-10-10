@@ -226,7 +226,7 @@ class EditorScreen(Screen[bool]):
         self._original_meta = dict(post.metadata)
         self._original_content = post.content
         self._raw_mode = False
-        self._original_raw = post.path.read_text()
+        self._original_raw = post.path.read_text(encoding="utf-8")
 
     def compose(self) -> ComposeResult:
         yield Static(f"Editing: {self.post.filename}", id="editor-title")

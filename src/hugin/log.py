@@ -26,3 +26,13 @@ def log_exception(context: str) -> None:
             f.write("\n")
     except OSError:
         pass
+
+
+def log_warning(message: str) -> None:
+    """Append a one-line warning to the log (no traceback)."""
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"--- {datetime.now():%Y-%m-%d %H:%M:%S} WARNING {message}\n\n")
+    except OSError:
+        pass

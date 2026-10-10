@@ -45,7 +45,7 @@ def _parse_date(value) -> datetime | None:
 
 
 def _is_toml_frontmatter(path: Path) -> bool:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         first_line = f.readline().strip()
     return first_line == "+++"
 

@@ -186,3 +186,30 @@ def test_load_categories_picks_collection_matching_posts_dir(tmp_path):
     en.mkdir(parents=True)
     assert load_categories(pt) == ["alpha"]
     assert load_categories(en) == ["beta"]
+
+
+class TestEnsureIgnoredYaml:
+    def test_appends_without_touching_existing_content(self, tmp_path):
+        from hugin.hugo import ensure_ignored_in_hugo
+
+        cfg = tmp_path / "config.yaml"
+        original = "# my site\nbaseURL: https://x.org/  # keep me\ntitle: Blog\n"
+        cfg.write_text(original, encoding="utf-8")
+        posts = tmp_path / "content"
+        posts.mkdir()
+        added = ensure_ignored_in_hugo(posts, ["CLAUDE.md"])
+        assert added == ["CLAUDE.md"]
+        text = cfg.read_text(encoding="utf-8")
+        assert text.startswith(original)  # comments and order intact
+        assert 'ignoreFiles:\n  - "^CLAUDE\\\\.md$"\n' in text
+
+    def test_existing_ignorefiles_is_never_rewritten(self, tmp_path):
+        from hugin.hugo import ensure_ignored_in_hugo
+
+        cfg = tmp_path / "config.yaml"
+        original = "# c\nignoreFiles:\n  - '^other$'  # mine\n"
+        cfg.write_text(original, encoding="utf-8")
+        posts = tmp_path / "content"
+        posts.mkdir()
+        assert ensure_ignored_in_hugo(posts, ["CLAUDE.md"]) == []
+        assert cfg.read_text(encoding="utf-8") == original

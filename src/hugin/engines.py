@@ -4,6 +4,8 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from hugin.fsutil import atomic_write_text
+
 CONFIG_DIR = Path.home() / ".hugin"
 ENGINES_FILE = CONFIG_DIR / "engines.toml"
 
@@ -84,12 +86,12 @@ class Engine:
 def _ensure_engines_file() -> Path:
     if not ENGINES_FILE.exists():
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        ENGINES_FILE.write_text(DEFAULT_ENGINES + "\n" + FULCRUM_ECHO_BLOCK)
+        atomic_write_text(ENGINES_FILE, DEFAULT_ENGINES + "\n" + FULCRUM_ECHO_BLOCK)
     else:
-        text = ENGINES_FILE.read_text()
+        text = ENGINES_FILE.read_text(encoding="utf-8")
         if f"[{FULCRUM_ECHO_SECTION}]" not in text:
             sep = "" if text.endswith("\n\n") else "\n" if text.endswith("\n") else "\n\n"
-            ENGINES_FILE.write_text(text + sep + FULCRUM_ECHO_BLOCK)
+            atomic_write_text(ENGINES_FILE, text + sep + FULCRUM_ECHO_BLOCK)
     return ENGINES_FILE
 
 
@@ -150,8 +152,7 @@ LAST_ENGINE_FILE = CONFIG_DIR / "last_engine.json"
 
 def save_last_engine(engine: Engine) -> None:
     import json
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    LAST_ENGINE_FILE.write_text(json.dumps({
+    atomic_write_text(LAST_ENGINE_FILE, json.dumps({
         "engine": engine.id,
         "model": engine.model,
     }))
@@ -162,7 +163,7 @@ def _load_last_engine() -> tuple[str, str] | None:
     if not LAST_ENGINE_FILE.exists():
         return None
     try:
-        data = json.loads(LAST_ENGINE_FILE.read_text())
+        data = json.loads(LAST_ENGINE_FILE.read_text(encoding="utf-8"))
         return data["engine"], data["model"]
     except (json.JSONDecodeError, KeyError):
         return None
