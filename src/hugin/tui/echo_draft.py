@@ -157,8 +157,13 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
                 )
                 count = R_N_RECENT + R_N_SIMILAR + R_N_LIKE_ORIGINAL
             yield Label(heading, id="echo-title")
+            refactor_note = (
+                "The post is rewritten in full to replace the original (not a follow-up): "
+                "say what to change or improve. "
+                if self._original is not None else ""
+            )
             yield Static(
-                f"{count} published posts go along as writing samples ({mix}). "
+                f"{refactor_note}{count} published posts go along as writing samples ({mix}). "
                 "Ctrl+S sends, F2 switches writer, Esc cancels.",
                 id="echo-hint",
             )

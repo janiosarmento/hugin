@@ -358,7 +358,7 @@ class TestRefactor:
     def test_message_carries_the_original_block(self, tmp_path):
         posts = self._posts(tmp_path, 3)
         msg = build_message(posts[1:], "tighter", original=posts[0])
-        assert "<original>\n# a.md" in msg and "Rewrite the original post" in msg
+        assert "<original>\n# a.md" in msg and "REFACTOR, not a follow-up" in msg and "REPLACE it" in msg
         assert msg.endswith("tighter")
         assert "<original>" not in build_message(posts, "x")
 

@@ -195,8 +195,16 @@ def build_message(samples: list[Post], request: str, original: Post | None = Non
             f"<original>\n# {title}\n\n{original.content.strip()}\n</original>"
         )
         task = (
-            "Rewrite the original post as a new post in my voice, following "
-            "the request below. "
+            "This is a REFACTOR, not a follow-up. Rewrite the original post "
+            "from top to bottom as a new version that will REPLACE it, so a "
+            "reader who only sees the new version must get everything the "
+            "original gave them. Keep the same subject and scope, and keep "
+            "all of its facts, arguments, examples, links and conclusions "
+            "unless the request below says to change them. Do not write a "
+            "sequel, an update, an addendum or a commentary on the original, "
+            "do not refer to it, and do not assume the reader has seen it. "
+            "The request below says what to improve or change in the "
+            "rewrite; the post must stand on its own. Write it in my voice. "
         )
     return (
         f"Here are {n} of my blog posts:\n\n"
