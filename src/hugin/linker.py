@@ -196,11 +196,15 @@ muito muita muitos muitas pouco pouca mais menos ainda ja sempre nunca depois an
 agora entao tambem apenas so mesmo mesma assim aqui ali la
 esse essa esses essas este esta estes estas isso isto aquele aquela aquilo
 eu tu ele ela eles elas voce voces nos me te se lhe meu minha seu sua nosso nossa
-ser estar ter haver fazer foi era eram tinha tinham sao esta estao ha vai vao pode podem
+ser sendo sido sou somos seja sejam seria sera serao foi fui fomos era eram
+estar estando estou estamos estava estavam esta estao
+ter tendo tido tenho temos tem tenha teve tive tinha tinham haver havendo havia ha
+fazer fazendo feito faz fazem fez ir indo ido vou vamos vai vao vem
+pode podem poder podendo deve devem sao
 when how why where what which who whom whose each every all much many more less
 still always never after before then also only this that these those it its
 he she they we you i me my your our their is are was were be been being have has had
-do does did can will would could should
+do does did doing done having am can will would could should
 """.split())
 
 

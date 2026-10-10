@@ -377,6 +377,8 @@ class TestWeakAnchors:
         assert is_weak_anchor("quando")
         assert is_weak_anchor("Também")
         assert is_weak_anchor("when")
+        assert is_weak_anchor("sendo")
+        assert is_weak_anchor("being")
         assert not is_weak_anchor("bolsonarismo")
 
     def test_filler_word_inside_a_phrase_is_fine(self):
