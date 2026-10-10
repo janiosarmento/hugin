@@ -391,13 +391,32 @@ RULES:
 - Titles must be in the same language as the post content
 - Be specific — not "more about X" but a concrete angle or question
 - Return a JSON array of strings, nothing else
-
+{existing}
 POST TITLE: {title}
 
 POST CONTENT:
 {content}
 
 Return format: ["Post title 1", "Post title 2", ...]"""
+
+SUGGEST_EXISTING_BLOCK = """- The blog already has the posts listed below. Do not suggest topics they already \
+cover; go to angles they leave open
+
+EXISTING POSTS ON THE BLOG:
+{titles}
+"""
+
+SUGGEST_N_SIMILAR = 5  # titles only, so a generous number is cheap
+
+
+def build_suggest_prompt(title: str, content: str, similar_titles: list[str]) -> str:
+    """SUGGEST_PROMPT, telling the LLM which related posts already exist."""
+    existing = ""
+    if similar_titles:
+        existing = SUGGEST_EXISTING_BLOCK.format(
+            titles="\n".join(f"- {t}" for t in similar_titles)
+        )
+    return SUGGEST_PROMPT.format(title=title, content=content, existing=existing)
 
 RERANK_SYSTEM = """\
 You are a blog editor. Given a blog post and a list of candidate posts, select the \

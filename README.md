@@ -83,7 +83,7 @@ Hidden from the footer to keep it uncluttered, but still active — press `?` to
 | `Z` | Edit the affiliate links dictionary |
 | `l` | List existing links (select to remove) |
 | `b` | Check for broken links |
-| `u` | Suggest new post topics (LLM) |
+| `u` | Suggest new post topics (LLM; the 5 most similar existing titles go along so it avoids them) |
 | `w` | News → post ideas (search Google News, generate drafts) |
 | `n` | Select engine and model |
 | `m` | Open tag manager |

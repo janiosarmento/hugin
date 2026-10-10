@@ -125,3 +125,14 @@ class TestBuildPrompt:
         assert "Title: Meu Post" in prompt
         assert "Description: Descrição" in prompt
         assert len(prompt) < len(long_content)
+
+
+def test_suggest_prompt_lists_similar_posts_only_when_given():
+    from hugin.llm import build_suggest_prompt
+
+    with_posts = build_suggest_prompt("T", "body", ["Litter box guide", "Cat food"])
+    assert "EXISTING POSTS ON THE BLOG:\n- Litter box guide\n- Cat food" in with_posts
+    assert "POST TITLE: T" in with_posts and with_posts.rstrip().endswith('...]')
+
+    without = build_suggest_prompt("T", "body", [])
+    assert "EXISTING POSTS" not in without and "{existing}" not in without

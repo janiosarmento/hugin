@@ -522,3 +522,52 @@ def test_copy_body_button_copies_markdown_without_frontmatter(tmp_path):
 
     asyncio.run(go())
     assert copied == ["Hello **body**."]
+
+
+def test_u_key_sends_similar_post_titles_to_the_llm(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+
+    import hugin.tui.review as review
+    from hugin.config import EmbeddingsConfig, FrontmatterConfig, HuginConfig, LinksConfig
+    from hugin.engines import Engine
+    from hugin.tui.review import HuginScreen
+
+    prompts = []
+
+    async def fake_llm(engine, prompt, **kw):
+        prompts.append(prompt)
+        return '["A brand new angle"]'
+
+    monkeypatch.setattr(review, "call_llm", fake_llm)
+
+    posts = _posts(tmp_path)
+    site = MagicMock()
+    site.post_url.return_value = "/x"
+    site.warnings = []
+    index = MagicMock()
+    index.has_no_outgoing.return_value = False
+    index.get_post_url.return_value = "/x"
+    index.get_link_keywords.return_value = ""
+    index.find_similar.return_value = [{"title": "Litter box guide"}, {"title": "Cat food"}]
+    index._cache = {}
+
+    class Host(App):
+        def on_mount(self):
+            self.push_screen(HuginScreen(
+                posts=posts, all_posts=list(posts),
+                engine=Engine("t", "http://localhost/v1", "m", 30, None),
+                pool={}, state={}, directory=tmp_path,
+                config=HuginConfig(LinksConfig(), EmbeddingsConfig(), FrontmatterConfig()),
+                site=site, index=index,
+            ))
+
+    async def go():
+        app = Host()
+        async with app.run_test(size=(140, 50)) as pilot:
+            await pilot.pause()
+            await pilot.press("u")
+            await pilot.pause(0.5)
+
+    asyncio.run(go())
+    assert index.find_similar.call_args.kwargs["n"] == 5
+    assert "- Litter box guide\n- Cat food" in prompts[0]

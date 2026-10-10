@@ -1,5 +1,6 @@
 """Unified Hugin screen — tags, summaries, links, and editing."""
 
+import asyncio
 import json
 import math
 import re
@@ -50,7 +51,8 @@ from hugin.llm import (
     LINK_KEYWORDS_SYSTEM,
     LINK_KEYWORDS_USER_TEMPLATE,
     RETRY_PROMPT,
-    SUGGEST_PROMPT,
+    SUGGEST_N_SIMILAR,
+    build_suggest_prompt,
     call_llm,
     parse_anchor_response,
     parse_rerank_response,
@@ -1833,9 +1835,16 @@ class HuginScreen(Screen):
     @work(exclusive=True)
     async def _run_suggest(self, post: Post) -> None:
         try:
-            prompt = SUGGEST_PROMPT.format(
-                title=post.metadata.get("title", post.filename),
-                content=post.content,
+            try:
+                similar = await asyncio.to_thread(
+                    self.index.find_similar, post, n=SUGGEST_N_SIMILAR
+                )
+            except Exception:
+                similar = []  # embeddings unavailable: ask without the hint
+            prompt = build_suggest_prompt(
+                post.metadata.get("title", post.filename),
+                post.content,
+                [s["title"] for s in similar],
             )
             response = await call_llm(self.engine, prompt)
             suggestions = parse_suggestions(response)
