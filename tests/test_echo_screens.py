@@ -1043,3 +1043,26 @@ def test_wait_screen_shows_the_cancel_hint_and_esc_cancels(tmp_path, monkeypatch
     assert hints == ["Esc to cancel"]
     assert finished == []
     assert len(list(tmp_path.glob("*.md"))) == 7  # no draft was written
+
+
+def test_wait_screen_cancel_hint_is_visible_inside_the_modal(tmp_path, monkeypatch):
+    async def slow_ask(message, persona, key):
+        await asyncio.sleep(30)
+        return "T\n\nB"
+
+    monkeypatch.setattr(echo_mod, "ask_echo", slow_ask)
+    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
+    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
+    geometry = []
+
+    async def keys(app, pilot):
+        await pilot.pause(0.3)
+        modal = app.screen.query_one("#echo-wait-modal").region
+        hint = app.screen.query_one("#echo-wait-hint").region
+        geometry.append((modal, hint))
+        await pilot.press("escape")
+
+    _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None), keys)
+    modal, hint = geometry[0]
+    assert hint.height > 0
+    assert modal.contains_region(hint)

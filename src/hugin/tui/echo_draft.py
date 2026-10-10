@@ -327,6 +327,10 @@ class EchoWaitScreen(ModalScreen[Path | None]):
         padding: 1 2;
     }
 
+    #echo-wait-modal LoadingIndicator {
+        height: 3;
+    }
+
     #echo-wait-status {
         margin-top: 1;
         text-align: center;
