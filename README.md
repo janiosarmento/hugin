@@ -80,6 +80,7 @@ Hidden from the footer to keep it uncluttered, but still active — press `?` to
 |---|---|
 | `d` | Pick a post directly and insert link |
 | `z` | Insert Amazon affiliate link |
+| `Z` | Edit the affiliate links dictionary |
 | `l` | List existing links (select to remove) |
 | `b` | Check for broken links |
 | `u` | Suggest new post topics (LLM) |
@@ -238,7 +239,7 @@ summary_field = "description"  # frontmatter field used in embeddings
 
 ### Affiliate links (`~/.hugin/affiliates.toml`)
 
-Maps keywords to affiliate URLs. Press `z` in the main screen to scan the current post and insert matching links automatically.
+Maps keywords to affiliate URLs. Press `z` in the main screen to scan the current post and insert matching links automatically. Press `Z` (capital, hidden; listed under `?`) to open the editor: `a` adds, `e` or Enter edits, Delete removes (with confirmation), `c` copies the URL. The file keeps its comments; you can still edit it by hand.
 
 ```toml
 "caixa de areia" = "https://amzn.to/abc123"

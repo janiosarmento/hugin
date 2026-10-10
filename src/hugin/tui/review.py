@@ -496,6 +496,7 @@ class HuginScreen(Screen):
         Binding("m", "manage_tags", "Mngr", show=False, tooltip="Open tag manager"),
         Binding("d", "direct_links", "Direct", show=False, tooltip="Pick a post directly and insert a link"),
         Binding("z", "amazon", "Amzn", show=False, tooltip="Insert Amazon affiliate link"),
+        Binding("Z", "affiliates", "Affil", show=False, tooltip="Edit the affiliate links dictionary"),
         Binding("l", "list_links", "List", show=False, tooltip="List existing links (select to remove)"),
         Binding("b", "broken_links", "Broken", show=False, tooltip="Check for broken links"),
         Binding("u", "suggest", "Sugg", show=False, tooltip="Suggest new post topics with LLM"),
@@ -1362,6 +1363,14 @@ class HuginScreen(Screen):
             PostPickerScreen(self.all_posts, post, url_fn),
             on_pick,
         )
+
+    def action_affiliates(self) -> None:
+        """Open the affiliate links editor."""
+        if self._state != STATE_BROWSING:
+            return
+        from hugin.tui.affiliates_screen import AffiliatesScreen
+
+        self.app.push_screen(AffiliatesScreen())
 
     def action_amazon(self) -> None:
         """Insert affiliate links from the keyword dictionary."""
