@@ -16,23 +16,10 @@ DEFAULT_SUMMARY_STYLE = "Write as if telling a friend — direct, with personali
 # Editorial rules sent with every Echo / system-LLM draft request. Per blog,
 # overridable per detected language (see WritingSettings.for_language).
 DEFAULT_EDITORIAL_CONSTRAINTS = """\
-Write a complete first draft using the supplied writing samples as stylistic references, not as sources of invented personal experiences.
-
-Avoid formulaic contrasts such as "it's not X, it's Y", especially when repeated. Avoid motivational conclusions, corporate language, generic metaphors, and rhetorical filler.
-
-Do not invent personal anecdotes, events, achievements, or opinions not supported by the prompt or reference material.
-
-Develop each argument once, thoroughly, rather than repeating it in different words.
-
-Preserve nuance. Avoid absolute claims unless they are justified.
-
-The article must have a natural ending, even if the conclusion is uncertain, understated, or deliberately anticlimactic.
-
-Favor concrete observations, conversational language, dry humor, and occasional self-deprecation. Do not force jokes or metaphors.
-
-Stylistic devices (em-dashes, parallel structures, short punchy sentences, rhetorical questions, contrasts) are fine when they serve a sentence. Abusing any one of them is not. Do not let a device become a habit: no recurring em-dash pattern, no string of short sentences in a row, no repeated "it's not X, it's Y" construction, and no device used again just because it worked earlier in the text.
-
-The goal is a draft that requires minimal editorial correction, not an imitation of superficial stylistic quirks."""
+Write in the voice of the writing samples: their vocabulary, their rhythm, their level of formality.
+Vary sentence length. Use stylistic devices when they help the sentence; repeating one is worse than leaving it out.
+Do not invent experiences, facts or opinions that the request does not contain.
+Stop when the point is made."""
 
 
 @dataclass

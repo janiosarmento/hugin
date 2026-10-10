@@ -42,10 +42,7 @@ R_N_LIKE_ORIGINAL = 2  # closest to the post being rewritten
 R_MIN_SAMPLES = R_N_RECENT + R_N_SIMILAR + R_N_LIKE_ORIGINAL
 
 
-WRITER_SYSTEM_PROMPT = (
-    "You are a blog author writing in the voice of the writing samples you are given. "
-    "The editorial constraints in the request are mandatory."
-)
+WRITER_SYSTEM_PROMPT = "You are a blog author. Write in the voice of the writing samples you are given."
 
 
 # What a failed LLM call can raise: network/HTTP problems, a repetition loop
@@ -255,7 +252,7 @@ def build_message(
             "The request below says what to change. "
         )
     rules = (
-        f"\n\nEditorial constraints (follow them strictly):\n\n{constraints.strip()}"
+        f"\n\nGuidelines:\n\n{constraints.strip()}"
         if constraints and constraints.strip() else ""
     )
     return (

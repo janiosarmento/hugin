@@ -33,9 +33,9 @@ def _save(blog, config, edit):
     asyncio.run(go())
 
 
-def test_default_rules_do_not_ban_em_dashes_outright():
-    assert "Avoid em-dashes" not in DEFAULT_EDITORIAL_CONSTRAINTS
-    assert "Abusing" in DEFAULT_EDITORIAL_CONSTRAINTS
+def test_default_rules_are_short_and_do_not_ban_anything():
+    assert "Avoid" not in DEFAULT_EDITORIAL_CONSTRAINTS
+    assert len(DEFAULT_EDITORIAL_CONSTRAINTS.split()) < 60
 
 
 def test_saving_blog_rules_and_a_language_override(monkeypatch, tmp_path):

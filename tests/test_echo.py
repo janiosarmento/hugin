@@ -140,14 +140,14 @@ class TestSplitTitle:
 def test_build_message_puts_editorial_constraints_before_the_request(tmp_path):
     msg = build_message([make_post(tmp_path, "a.md", 1)], "Write about cats",
                         constraints="Avoid em-dashes.")
-    assert "Editorial constraints (follow them strictly):\n\nAvoid em-dashes." in msg
+    assert "Guidelines:\n\nAvoid em-dashes." in msg
     assert msg.index("Avoid em-dashes.") < msg.index("Request:")
     assert msg.endswith("Write about cats")
 
 
 def test_build_message_without_constraints_has_no_rules_block(tmp_path):
     msg = build_message([make_post(tmp_path, "a.md", 1)], "req", constraints="   ")
-    assert "Editorial constraints" not in msg
+    assert "Guidelines" not in msg
 
 
 def test_build_message_asks_for_title_on_first_line(tmp_path):
