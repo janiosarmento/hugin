@@ -73,10 +73,11 @@ def original_query(original: Post) -> str:
     return f"{original.metadata.get('title', '')}\n\n{original.content}"
 
 
-def inherited_fields(original: Post) -> tuple[str | None, str | None]:
-    """(category, thumbnail) a refactor takes from the post it replaces.
+def inherited_fields(original: Post) -> dict[str, str | None]:
+    """Fields a refactor takes from the post it replaces.
 
-    Placeholders ("TBD") and empty values count as missing (None).
+    Keys are create_draft keyword names. Placeholders ("TBD") and empty
+    values count as missing (None).
     """
     def real(value) -> str | None:
         value = str(value).strip() if value else ""
@@ -84,7 +85,11 @@ def inherited_fields(original: Post) -> tuple[str | None, str | None]:
 
     categories = original.metadata.get("categories")
     first = categories[0] if isinstance(categories, list) and categories else categories
-    return real(first), real(original.metadata.get("thumbnail"))
+    return {
+        "category": real(first),
+        "thumbnail": real(original.metadata.get("thumbnail")),
+        "translation_key": real(original.metadata.get("translationKey")),
+    }
 
 
 def _select_parts(
@@ -424,6 +429,7 @@ def create_draft(
     category: str | None = None,
     refactor_of: str | None = None,
     thumbnail: str | None = None,
+    translation_key: str | None = None,
 ) -> Path:
     from hugin.hugo import slugify
     from hugin.writer import create_post
@@ -436,5 +442,6 @@ def create_draft(
         n += 1
     path = directory / f"{slug}.md"
     create_post(path, title=title, slug=slug, category=category, body=body,
-                prompt=request, refactor_of=refactor_of, thumbnail=thumbnail)
+                prompt=request, refactor_of=refactor_of, thumbnail=thumbnail,
+                translation_key=translation_key)
     return path

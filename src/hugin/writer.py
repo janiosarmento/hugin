@@ -130,6 +130,7 @@ def create_post(
     prompt: str | None = None,
     refactor_of: str | None = None,
     thumbnail: str | None = None,
+    translation_key: str | None = None,
 ) -> frontmatter.Post:
     """Create a new post with a complete frontmatter skeleton.
 
@@ -144,7 +145,7 @@ def create_post(
     metadata = {
         "title": title,
         "slug": slug,
-        "translationKey": "TBD",
+        "translationKey": translation_key or "TBD",
         "date": datetime.now(),
         "thumbnail": thumbnail or "TBD",
         "categories": [category] if category else ["TBD"],

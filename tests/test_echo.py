@@ -375,15 +375,22 @@ class TestInheritedFields:
         p.metadata.update(meta)
         return p
 
-    def test_takes_category_and_thumbnail(self, tmp_path):
-        p = self._post(tmp_path, categories=["journaling"], thumbnail="/images/a.avif")
-        assert echo.inherited_fields(p) == ("journaling", "/images/a.avif")
+    def test_takes_category_thumbnail_and_translation_key(self, tmp_path):
+        p = self._post(tmp_path, categories=["journaling"], thumbnail="/images/a.avif",
+                       translationKey="my-first-pen")
+        assert echo.inherited_fields(p) == {
+            "category": "journaling", "thumbnail": "/images/a.avif",
+            "translation_key": "my-first-pen",
+        }
 
     def test_placeholders_and_missing_are_none(self, tmp_path):
-        assert echo.inherited_fields(self._post(tmp_path, categories=["TBD"], thumbnail="TBD")) == (None, None)
-        assert echo.inherited_fields(self._post(tmp_path)) == (None, None)
+        none = {"category": None, "thumbnail": None, "translation_key": None}
+        tbd = self._post(tmp_path, categories=["TBD"], thumbnail="TBD", translationKey="TBD")
+        assert echo.inherited_fields(tbd) == none
+        assert echo.inherited_fields(self._post(tmp_path)) == none
 
     def test_create_draft_uses_thumbnail(self, tmp_path):
-        path = create_draft(tmp_path, "T\n\nB.", "r", "journaling", thumbnail="/images/a.avif")
+        path = create_draft(tmp_path, "T\n\nB.", "r", "journaling", thumbnail="/images/a.avif",
+                            translation_key="my-first-pen")
         text = path.read_text()
-        assert "thumbnail: /images/a.avif" in text and "- journaling" in text
+        assert "thumbnail: /images/a.avif" in text and "translationKey: my-first-pen" in text and "- journaling" in text
