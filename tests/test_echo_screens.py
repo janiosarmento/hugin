@@ -626,6 +626,21 @@ class TestFindAnchors:
         assert '"/water/"' in prompts[0]
         assert '"/litter-box/"' not in prompts[0]
 
+    def test_near_miss_anchor_is_repaired_without_another_llm_call(self, monkeypatch):
+        calls = []
+
+        async def llm(engine, prompt, **kw):
+            calls.append(prompt)
+            return '[{"target_url": "/feeder/", "anchor_text": "Automatic Feeders"}]'
+
+        result, fake = self._run(
+            monkeypatch, [{"title": "Feeder", "url": "/feeder/"}], llm,
+        )
+        assert result == [{"anchor_text": "automatic feeder", "target_url": "/feeder/"}]
+        assert len(calls) == 1
+        assert fake._anchor_stats["repaired"] == 1
+        assert fake._anchor_stats["retries"] == 0
+
     def test_retries_run_concurrently(self, monkeypatch):
         import time
 
@@ -634,7 +649,7 @@ class TestFindAnchors:
             if "does not appear verbatim" in prompt:
                 return "automatic feeder" if "/feeder/" in prompt else "water fountain"
             return (
-                '[{"target_url": "/feeder/", "anchor_text": "auto feeder"},'
+                '[{"target_url": "/feeder/", "anchor_text": "self feeder"},'
                 ' {"target_url": "/water/", "anchor_text": "drinking fountain"}]'
             )
 

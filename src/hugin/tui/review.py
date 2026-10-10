@@ -39,6 +39,7 @@ from hugin.linker import (
     check_anchor_viable,
     extract_existing_links,
     find_keyword_anchors,
+    repair_anchor,
     find_protected_zones,
     is_in_protected_zone,
     list_links,
@@ -1503,7 +1504,19 @@ class HuginScreen(Screen):
 
         # Anchors the LLM paraphrased: re-ask for all of them at once
         by_url = {c["url"]: c for c in remaining}
-        to_retry = [e for e in entries if _find_whole_word(post.content, e["anchor"]) == -1]
+        to_retry = []
+        repaired = 0
+        for e in entries:
+            if _find_whole_word(post.content, e["anchor"]) != -1:
+                continue
+            # Near-misses (case, accents, a changed ending) are fixed locally
+            fixed = repair_anchor(post.content, e["anchor"])
+            if fixed and len(fixed.split()) <= max_words:
+                e["anchor"] = fixed
+                repaired += 1
+            else:
+                to_retry.append(e)
+        self._anchor_stats["repaired"] = repaired
         self._anchor_stats["retries"] = len(to_retry)
         if to_retry:
             responses = await asyncio.gather(*(

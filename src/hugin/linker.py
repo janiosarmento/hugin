@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from difflib import SequenceMatcher
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -169,6 +170,44 @@ def _find_whole_word(body: str, anchor: str, start: int = 0) -> int:
     if m:
         return start + m.start()
     return -1
+
+
+_WORD_RE = re.compile(r"\w[\w\-]*")
+
+
+def repair_anchor(body: str, anchor: str, min_ratio: float = 0.8) -> str | None:
+    """Find the phrase in `body` that an LLM most likely meant by `anchor`.
+
+    LLMs often return an anchor that differs slightly from the text (case,
+    accents, a changed ending). Looks for a run of adjacent words in the body
+    that matches `anchor` ignoring case and accents, or is nearly identical
+    to it. Returns the phrase exactly as written in the body, or None.
+    """
+    wanted = strip_accents(anchor.lower()).strip()
+    n = len(wanted.split())
+    if not wanted or n == 0:
+        return None
+
+    words = list(_WORD_RE.finditer(body))
+    norm = [strip_accents(w.group().lower()) for w in words]
+    best: tuple[float, str] | None = None
+
+    for size in {max(1, n - 1), n, n + 1}:
+        for i in range(len(words) - size + 1):
+            # Words must be separated by plain whitespace (same sentence)
+            if any(
+                body[words[j].end():words[j + 1].start()].strip() or
+                "\n" in body[words[j].end():words[j + 1].start()]
+                for j in range(i, i + size - 1)
+            ):
+                continue
+            ratio = SequenceMatcher(None, wanted, " ".join(norm[i:i + size])).ratio()
+            if ratio >= min_ratio and (best is None or ratio > best[0]):
+                best = (ratio, body[words[i].start():words[i + size - 1].end()])
+                if ratio == 1.0:
+                    return best[1]
+
+    return best[1] if best else None
 
 
 def find_keyword_anchors(

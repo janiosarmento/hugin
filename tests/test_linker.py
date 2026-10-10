@@ -311,3 +311,27 @@ class TestWritePostWithLinks:
         assert "Modified content with [link](/url/)" in result
         assert "lastmod:" in result
         assert "title: Test" in result
+
+
+class TestRepairAnchor:
+    BODY = "My cat loves the Automatic feeder. Café au lait is nice.\nWater\nfountain."
+
+    def test_ignores_case_and_accents(self):
+        from hugin.linker import repair_anchor
+
+        assert repair_anchor(self.BODY, "cafe AU lait") == "Café au lait"
+
+    def test_close_variant_returns_the_text_as_written(self):
+        from hugin.linker import repair_anchor
+
+        assert repair_anchor(self.BODY, "automatic feeders") == "Automatic feeder"
+
+    def test_unrelated_phrase_is_not_repaired(self):
+        from hugin.linker import repair_anchor
+
+        assert repair_anchor(self.BODY, "drinking fountain") is None
+
+    def test_does_not_join_words_across_lines(self):
+        from hugin.linker import repair_anchor
+
+        assert repair_anchor(self.BODY, "water fountain") is None
