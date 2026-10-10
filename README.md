@@ -229,6 +229,7 @@ max_per_paragraph = 1    # maximum links per paragraph
 words_per_link    = 300  # 1 link per N words (capped by max_per_post)
 candidates        = 10   # embedding candidates to send to LLM
 max_anchor_words  = 5    # max words in an anchor phrase
+rerank_min_posts  = 50   # LLM reranking only on blogs with at least this many posts
 
 [embeddings]
 model = "intfloat/multilingual-e5-large"

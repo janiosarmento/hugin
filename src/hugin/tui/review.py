@@ -1635,9 +1635,12 @@ class HuginScreen(Screen):
                 self.query_one("#section-header", Label).update("")
                 return
 
-            # Reranking only pays off when there are more candidates than
-            # the final list can hold (a small blog has none to discard)
-            if len(candidates) > self.config.links.candidates:
+            # Reranking prunes a big pool; on a small blog the similarity
+            # order is good enough and the extra LLM call is pure latency
+            if (
+                len(self.all_posts) >= self.config.links.rerank_min_posts
+                and len(candidates) > self.config.links.candidates
+            ):
                 self._set_spinner_message(f"Step 3/4 — Reranking {len(candidates)} candidates...")
                 rerank_json = json.dumps([
                     {"title": c["title"], "url": c["url"]} for c in candidates

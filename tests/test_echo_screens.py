@@ -707,3 +707,69 @@ def test_o_key_runs_the_outgoing_pipeline_and_logs_timings(tmp_path, monkeypatch
     text = log.LOG_PATH.read_text()
     assert "INFO outgoing p0.md" in text and "anchors" in text
     assert "NameError" not in text
+
+
+def _count_outgoing_llm_calls(tmp_path, monkeypatch, rerank_min_posts):
+    """LLM calls made by `o` for 7 posts and 14 candidates."""
+    from unittest.mock import MagicMock
+
+    import hugin.tui.review as review
+    from hugin.config import EmbeddingsConfig, FrontmatterConfig, HuginConfig, LinksConfig
+    from hugin.engines import Engine
+    from hugin.tui.review import HuginScreen
+
+    prompts = []
+
+    async def fake_llm(engine, prompt, **kw):
+        prompts.append(prompt)
+        return "[]"
+
+    monkeypatch.setattr(review, "call_llm", fake_llm)
+
+    posts = _posts(tmp_path)
+    posts[0].content = "word " * 700
+    site = MagicMock()
+    site.post_url.return_value = "/x"
+    site.warnings = []
+    index = MagicMock()
+    index.has_no_outgoing.return_value = False
+    index.get_post_url.return_value = "/x"
+    index.get_link_keywords.return_value = ""
+    index.find_similar.return_value = [
+        {"title": f"T{i}", "url": f"/t{i}/", "score": 0.9 - i / 100} for i in range(14)
+    ]
+    index.find_by_shared_tags.return_value = []
+    index._cache = {}
+
+    class Host(App):
+        def on_mount(self):
+            self.push_screen(HuginScreen(
+                posts=posts, all_posts=list(posts),
+                engine=Engine("t", "http://localhost/v1", "m", 30, None),
+                pool={}, state={}, directory=tmp_path,
+                config=HuginConfig(
+                    LinksConfig(rerank_min_posts=rerank_min_posts),
+                    EmbeddingsConfig(), FrontmatterConfig(),
+                ),
+                site=site, index=index,
+            ))
+
+    async def go():
+        app = Host()
+        async with app.run_test(size=(140, 50)) as pilot:
+            await pilot.pause()
+            await pilot.press("o")
+            await pilot.pause(1.0)
+
+    asyncio.run(go())
+    return prompts
+
+
+def test_small_blog_skips_the_llm_rerank(tmp_path, monkeypatch):
+    prompts = _count_outgoing_llm_calls(tmp_path, monkeypatch, rerank_min_posts=50)
+    assert len(prompts) == 2  # profile + anchors
+
+
+def test_big_blog_still_reranks(tmp_path, monkeypatch):
+    prompts = _count_outgoing_llm_calls(tmp_path, monkeypatch, rerank_min_posts=5)
+    assert len(prompts) == 3  # profile + rerank + anchors

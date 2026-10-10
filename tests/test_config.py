@@ -65,4 +65,5 @@ class TestLoadConfig:
         assert cfg.links.words_per_link == 300
         assert cfg.links.candidates == 10
         assert cfg.links.max_anchor_words == 5
+        assert cfg.links.rerank_min_posts == 50
         assert cfg.frontmatter.summary_field == "description"

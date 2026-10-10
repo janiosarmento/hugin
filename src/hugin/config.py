@@ -14,6 +14,7 @@ max_per_paragraph = 1    # maximum links inserted into any single paragraph
 words_per_link    = 300  # 1 link suggested per N words; result capped by max_per_post
 candidates        = 10   # how many posts the embedding step returns as candidates
 max_anchor_words  = 5    # maximum words in an anchor phrase (longer anchors are discarded)
+rerank_min_posts  = 50   # LLM reranking of candidates only on blogs with at least this many posts
 
 [embeddings]
 model = "intfloat/multilingual-e5-large"
@@ -30,6 +31,7 @@ class LinksConfig:
     words_per_link: int = 300
     candidates: int = 10
     max_anchor_words: int = 5
+    rerank_min_posts: int = 50
 
 
 @dataclass
@@ -89,6 +91,7 @@ def load_config() -> HuginConfig:
             words_per_link=links_data.get("words_per_link", 300),
             candidates=links_data.get("candidates", 10),
             max_anchor_words=links_data.get("max_anchor_words", 5),
+            rerank_min_posts=links_data.get("rerank_min_posts", 50),
         ),
         embeddings=EmbeddingsConfig(
             model=embed_data.get("model", "intfloat/multilingual-e5-large"),
