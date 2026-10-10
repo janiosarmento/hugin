@@ -23,6 +23,7 @@ from hugin.echo import (
     parse_answer,
     _select_parts,
     draw_random,
+    inherited_fields,
     original_query,
     pick_category,
     pick_similar,
@@ -390,12 +391,18 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                         timeout=12,
                     )
             title, body = parse_answer(text, self._request)
-            self.query_one("#echo-wait-status", Label).update("Picking a category…")
-            categories = await asyncio.to_thread(load_categories, self._directory)
-            category = await pick_category(self._engine, title, body, categories)
+            # A refactor replaces the original, so it inherits its category and thumbnail
+            category = thumbnail = None
+            if self._original is not None:
+                category, thumbnail = inherited_fields(self._original)
+            if category is None:
+                self.query_one("#echo-wait-status", Label).update("Picking a category…")
+                categories = await asyncio.to_thread(load_categories, self._directory)
+                category = await pick_category(self._engine, title, body, categories)
             path = create_draft(
                 self._directory, text, self._request, category,
                 refactor_of=self._original.filename if self._original else None,
+                thumbnail=thumbnail,
             )
             self.notify(f"Written by {who}")
         except EchoError as e:

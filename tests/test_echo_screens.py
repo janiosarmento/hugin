@@ -428,6 +428,7 @@ def test_R_key_refactors_post_and_goto_original(tmp_path, monkeypatch):
     monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "Jane Doe")
 
     posts = _posts(tmp_path)
+    posts[0].metadata.update(categories=["journaling"], thumbnail="/images/cover.avif")
     site = MagicMock()
     site.post_url.return_value = "/x"
     site.warnings = []
@@ -460,6 +461,7 @@ def test_R_key_refactors_post_and_goto_original(tmp_path, monkeypatch):
             assert isinstance(app.screen, HuginScreen)
             draft = (tmp_path / "rewritten.md").read_text()
             assert "refactor_of: p0.md" in draft and "prompt: tighter" in draft
+            assert "thumbnail: /images/cover.avif" in draft and "- journaling" in draft
             assert seen["message"].count("<post>") == 6 and "<original>" in seen["message"]
             assert screen.query_one("#post-table", DataTable).row_count == 8
             assert screen.current_index == 0

@@ -367,3 +367,23 @@ class TestRefactor:
         path = create_draft(tmp_path, "Better\n\nBody.", "tighter", refactor_of="old.md")
         assert "refactor_of: old.md" in path.read_text()
         assert "refactor_of" not in create_draft(tmp_path, "Other\n\nBody.", "x").read_text()
+
+
+class TestInheritedFields:
+    def _post(self, tmp_path, **meta):
+        p = make_post(tmp_path, "o.md", 1)
+        p.metadata.update(meta)
+        return p
+
+    def test_takes_category_and_thumbnail(self, tmp_path):
+        p = self._post(tmp_path, categories=["journaling"], thumbnail="/images/a.avif")
+        assert echo.inherited_fields(p) == ("journaling", "/images/a.avif")
+
+    def test_placeholders_and_missing_are_none(self, tmp_path):
+        assert echo.inherited_fields(self._post(tmp_path, categories=["TBD"], thumbnail="TBD")) == (None, None)
+        assert echo.inherited_fields(self._post(tmp_path)) == (None, None)
+
+    def test_create_draft_uses_thumbnail(self, tmp_path):
+        path = create_draft(tmp_path, "T\n\nB.", "r", "journaling", thumbnail="/images/a.avif")
+        text = path.read_text()
+        assert "thumbnail: /images/a.avif" in text and "- journaling" in text
