@@ -44,8 +44,10 @@ class HuginApp(App):
         config: HuginConfig,
         site: HugoSite,
         index: EmbeddingIndex,
+        startup_warnings: list[str] | None = None,
     ) -> None:
         super().__init__()
+        self.startup_warnings = startup_warnings or []
         self.posts = posts
         self.all_posts = all_posts
         self.engine = engine
@@ -75,3 +77,13 @@ class HuginApp(App):
             site=self.site,
             index=self.index,
         ))
+        if self.startup_warnings:
+            shown = "\n".join(self.startup_warnings[:5])
+            more = len(self.startup_warnings) - 5
+            if more > 0:
+                shown += f"\n…and {more} more"
+            self.notify(
+                f"{len(self.startup_warnings)} file(s) left out of the list:\n{shown}",
+                severity="warning",
+                timeout=20,
+            )

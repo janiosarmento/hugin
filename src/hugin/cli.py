@@ -59,9 +59,12 @@ def main(
 
     _git_sync_startup(directory)
 
-    posts = load_posts(directory)
+    load_problems: list[str] = []
+    posts = load_posts(directory, load_problems)
     if not posts:
-        click.echo("Nenhum post .md encontrado no diretorio.")
+        for problem in load_problems:
+            click.echo(f"Warning: {problem}")
+        click.echo("No .md posts found in the directory.")
         raise SystemExit(1)
 
     # Hugo URL resolution
@@ -120,13 +123,15 @@ def main(
             config=config,
             site=site,
             index=index,
+            startup_warnings=load_problems,
         )
         app.run()
 
         if app.return_code == 42:
             # Restart: rebuild everything
             click.echo("Restarting...")
-            posts = load_posts(directory)
+            load_problems = []
+            posts = load_posts(directory, load_problems)
             all_sorted = sorted(posts, key=lambda p: (p.metadata.get("draft", False), p.date or datetime.min), reverse=True)
             batch_posts = all_sorted if batch == 0 else all_sorted[:batch]
             pool = collect_tag_pool(posts)

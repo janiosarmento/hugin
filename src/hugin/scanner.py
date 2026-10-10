@@ -1,5 +1,6 @@
 """Leitura de posts, filtragem e priorização."""
 
+import json
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -51,6 +52,11 @@ def _is_toml_frontmatter(path: Path) -> bool:
 AGENT_FILES = frozenset({"CLAUDE.md", "AGENTS.md"})
 
 
+def _short(error: Exception) -> str:
+    """First line of an error message, for one-line reports."""
+    return (str(error).strip().splitlines() or [type(error).__name__])[0][:120]
+
+
 def _maybe_repair_yaml(text: str) -> str | None:
     """Attempt to fix common YAML frontmatter issues (unquoted multi-line values).
     Returns repaired full text or None if not fixable."""
@@ -63,11 +69,16 @@ def _maybe_repair_yaml(text: str) -> str | None:
     body = text[end:]
 
     def _quote_val(val: str) -> str:
-        val = val.strip()
+        # Continuation lines fold into one line, as YAML does for plain scalars
+        val = " ".join(val.split())
+        # A value wrapped in one pair of quotes that failed to parse: unwrap it
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in "'\"":
+            val = val[1:-1]
         if not val:
             return ""
-        val = val.replace('"', '\\"').replace("'", '"')
-        return f'"{val}"\n'
+        # A JSON string is a valid YAML double-quoted scalar; apostrophes,
+        # double quotes, colons and accents all survive unchanged
+        return json.dumps(val, ensure_ascii=False) + "\n"
 
     lines = fm_text.splitlines(keepends=True)
     out = []
@@ -105,29 +116,40 @@ def _maybe_repair_yaml(text: str) -> str | None:
     return f"---{''.join(out)}{body}"
 
 
-def load_posts(directory: Path) -> list[Post]:
+def load_posts(directory: Path, problems: list[str] | None = None) -> list[Post]:
+    """Read every post in `directory`.
+
+    Posts that cannot be read are left out. Each one is described in
+    `problems` ("<file>: <reason>") when a list is given, else printed.
+    """
     posts = []
+
+    def report(message: str) -> None:
+        if problems is None:
+            print(f"Warning: {message}")
+        else:
+            problems.append(message)
+
     for path in sorted(directory.glob("*.md")):
         if path.name in AGENT_FILES:
             continue
         if _is_toml_frontmatter(path):
-            print(f"Aviso: {path.name} usa TOML frontmatter, ignorado.")
+            report(f"{path.name}: TOML frontmatter is not supported, skipped")
             continue
 
         try:
-            post = frontmatter.load(str(path))
+            post = frontmatter.load(str(path), encoding="utf-8")
         except Exception as e:
             # Auto-repair: try quoting title/description and re-parse
-            raw = path.read_text()
+            raw = path.read_text(encoding="utf-8")
             repaired = _maybe_repair_yaml(raw)
-            if repaired is not None:
-                try:
-                    post = frontmatter.loads(repaired)
-                except Exception:
-                    print(f"Aviso: erro ao ler {path.name}: {e}")
-                    continue
-            else:
-                print(f"Aviso: erro ao ler {path.name}: {e}")
+            if repaired is None:
+                report(f"{path.name}: unreadable, skipped ({_short(e)})")
+                continue
+            try:
+                post = frontmatter.loads(repaired)
+            except Exception:
+                report(f"{path.name}: unreadable, skipped ({_short(e)})")
                 continue
 
         tags = post.metadata.get("tags", []) or []

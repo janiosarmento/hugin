@@ -111,3 +111,36 @@ class TestFindDuplicateTags:
         pool = {"linux": 5, "docker": 3, "hugo": 2}
         dupes = find_duplicate_tags(pool)
         assert dupes == []
+
+
+class TestYamlRepair:
+    def _write(self, tmp_path, name, title):
+        (tmp_path / name).write_text(f"---\ntitle: {title}\n---\nbody\n", encoding="utf-8")
+
+    def test_repairs_apostrophes_and_colons_without_changing_the_text(self, tmp_path):
+        self._write(tmp_path, "a.md", "Tom's guide: part 1")
+        self._write(tmp_path, "b.md", 'Say "hi": now')
+        self._write(tmp_path, "c.md", "Água: o guia")
+        titles = {p.filename: p.metadata["title"] for p in load_posts(tmp_path)}
+        assert titles == {
+            "a.md": "Tom's guide: part 1",
+            "b.md": 'Say "hi": now',
+            "c.md": "Água: o guia",
+        }
+
+    def test_repairs_multiline_plain_value(self, tmp_path):
+        (tmp_path / "m.md").write_text(
+            "---\ntitle: Part one: the\n  long title\n---\nbody\n", encoding="utf-8"
+        )
+        assert load_posts(tmp_path)[0].metadata["title"] == "Part one: the long title"
+
+    def test_unfixable_posts_are_reported_not_silently_dropped(self, tmp_path):
+        (tmp_path / "ok.md").write_text("---\ntitle: Fine\n---\nbody\n")
+        (tmp_path / "bad.md").write_text("---\ntags: [unclosed\n---\nbody\n")
+        (tmp_path / "toml.md").write_text("+++\ntitle = 'x'\n+++\nbody\n")
+        problems: list[str] = []
+        posts = load_posts(tmp_path, problems)
+        assert [p.filename for p in posts] == ["ok.md"]
+        assert len(problems) == 2
+        assert any(m.startswith("bad.md: unreadable") for m in problems)
+        assert any(m.startswith("toml.md: TOML") for m in problems)
