@@ -28,6 +28,7 @@ from textual.widgets import (
 )
 
 from hugin.affiliates import load_affiliates
+from hugin.authors import pick_author
 from hugin.config import HuginConfig
 from hugin.embeddings import EmbeddingIndex
 from hugin.tui.post_picker import PostPickerScreen
@@ -338,7 +339,7 @@ class NewPostScreen(ModalScreen[tuple[str, str | None] | None]):
     def __init__(self, authors: list[str] | None = None, default_author: str | None = None) -> None:
         super().__init__()
         self._authors = authors or []
-        self._author = default_author if default_author in self._authors else next(iter(self._authors), None)
+        self._author = pick_author(default_author, self._authors)
 
     def compose(self) -> ComposeResult:
         with Vertical(id="newpost-modal"):

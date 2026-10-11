@@ -39,7 +39,7 @@ from hugin.echo import (
     write_with_fallback,
     write_with_system_llm,
 )
-from hugin.authors import post_author
+from hugin.authors import pick_author, post_author
 from hugin.engines import load_fulcrum_echo_persona
 from hugin.log import log_exception
 from hugin.hugo import load_categories
@@ -169,7 +169,7 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         self._profiles = profiles or {}
         # Refactors keep the original's author unless the operator changes it
         preferred = post_author(original) if original is not None else default_author
-        self.author = preferred if preferred in self._authors else next(iter(self._authors), None)
+        self.author = pick_author(preferred, self._authors)
         self._recompute_pool()
         self._similar_note = R_SIMILAR_PENDING if original else SIMILAR_PENDING
         self._similar: list[Post] = []

@@ -16,6 +16,7 @@ from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, LoadingIndicator, Select, Static
 
+from hugin.authors import pick_author
 from hugin.hugo import slugify as _slugify
 
 
@@ -115,7 +116,7 @@ class NewsIdeasScreen(Screen):
         self.directory = directory
         self._authors = authors or []
         # Author of the drafts, asked before they are written; None on a blog without authors
-        self._author = default_author if default_author in self._authors else next(iter(self._authors), None)
+        self._author = pick_author(default_author, self._authors)
         self._idea_checkboxes: list[tuple[Checkbox, dict]] = []
         self._last_query: str = ""
         self._last_items: list = []

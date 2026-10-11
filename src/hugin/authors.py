@@ -44,9 +44,9 @@ def ordered_authors(settings: AuthorsSettings, posts: list[Post]) -> list[str]:
     return list(dict.fromkeys([*settings.names, *authors_of(posts)]))
 
 
-def default_author(settings: AuthorsSettings, posts: list[Post]) -> str | None:
-    """The first author of the list: the author of posts that have none."""
-    return next(iter(ordered_authors(settings, posts)), None)
+def pick_author(preferred: str | None, options: list[str]) -> str | None:
+    """`preferred` when it is one of `options`, else the first of them."""
+    return preferred if preferred in options else next(iter(options), None)
 
 
 def import_authors(settings: AuthorsSettings, posts: list[Post]) -> list[str]:

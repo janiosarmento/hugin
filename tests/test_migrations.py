@@ -58,9 +58,9 @@ def test_copy_legacy_settings_runs_once(monkeypatch, tmp_path):
     legacy.parent.mkdir(parents=True)
     legacy.write_text('[summary]\nwords = 33\n', encoding="utf-8")
 
-    assert copy_legacy_settings(posts_dir, []).changed is True
+    assert copy_legacy_settings(posts_dir, []) is not None
     assert load_project(posts_dir).summary.words == 33
-    assert copy_legacy_settings(posts_dir, []).changed is False
+    assert copy_legacy_settings(posts_dir, []) is None
 
 
 def test_move_author_list_alone_on_a_config_with_names(monkeypatch, tmp_path):
@@ -68,10 +68,10 @@ def test_move_author_list_alone_on_a_config_with_names(monkeypatch, tmp_path):
     (site / "hugin").mkdir()
     (site / "hugin" / "config.toml").write_text('[authors]\nnames = ["Ana", "Bia"]\n', encoding="utf-8")
 
-    assert move_author_list_to_hugo_data(posts_dir, []).changed is True
+    assert move_author_list_to_hugo_data(posts_dir, []) is not None
     assert _names(site) == ["Ana", "Bia"]
     assert "names" not in _config_text(site)
-    assert move_author_list_to_hugo_data(posts_dir, []).changed is False
+    assert move_author_list_to_hugo_data(posts_dir, []) is None
 
 
 def test_add_post_authors_alone_appends_only_new_names(monkeypatch, tmp_path):
@@ -79,9 +79,9 @@ def test_add_post_authors_alone_appends_only_new_names(monkeypatch, tmp_path):
     save_project(posts_dir, ProjectConfig(authors=AuthorsSettings(names=["Ana"])))
     posts = load_posts(posts_dir, [])
 
-    assert add_post_authors_to_list(posts_dir, posts).changed is True
+    assert add_post_authors_to_list(posts_dir, posts) is not None
     assert _names(site) == ["Ana", "Bia"]
-    assert add_post_authors_to_list(posts_dir, posts).changed is False
+    assert add_post_authors_to_list(posts_dir, posts) is None
 
 
 def test_default_author_alone_only_touches_posts_without_one(monkeypatch, tmp_path):
@@ -89,10 +89,10 @@ def test_default_author_alone_only_touches_posts_without_one(monkeypatch, tmp_pa
     save_project(posts_dir, ProjectConfig(authors=AuthorsSettings(names=["Ana", "Bia"])))
     posts = load_posts(posts_dir, [])
 
-    assert default_author_for_posts(posts_dir, posts).changed is True
+    assert default_author_for_posts(posts_dir, posts) is not None
     assert frontmatter.load(str(posts_dir / "gatos.md")).metadata["author"] == "Ana"
     assert frontmatter.load(str(posts_dir / "bia.md")).metadata["author"] == "Bia"
-    assert default_author_for_posts(posts_dir, load_posts(posts_dir, [])).changed is False
+    assert default_author_for_posts(posts_dir, load_posts(posts_dir, [])) is None
 
 
 # --- the whole sequence
@@ -104,14 +104,13 @@ def test_full_run_on_an_old_blog_then_nothing_on_the_second_run(monkeypatch, tmp
     legacy.write_text('[authors]\nnames = ["Ana"]\n\n[authors.profiles]\n"Ana" = "Warm."\n', encoding="utf-8")
 
     first = run_migrations(posts_dir, load_posts(posts_dir, []))
-    assert first.changed is True
+    assert first
     assert _names(legacy_site) == ["Ana", "Bia"]  # the list, then the author found on the posts
     assert frontmatter.load(str(posts_dir / "gatos.md")).metadata["author"] == "Ana"
     assert load_project(posts_dir).authors.profiles == {"Ana": "Warm."}
 
     snapshot = {p: p.read_bytes() for p in legacy_site.rglob("*") if p.is_file() and ".git" not in p.parts}
-    second = run_migrations(posts_dir, load_posts(posts_dir, []))
-    assert second.changed is False and second.messages == []
+    assert run_migrations(posts_dir, load_posts(posts_dir, [])) == []
     assert {p: p.read_bytes() for p in snapshot} == snapshot  # not a byte changed
 
 
@@ -120,16 +119,13 @@ def test_a_blog_that_is_already_migrated_is_left_alone(monkeypatch, tmp_path):
     save_project(posts_dir, ProjectConfig(authors=AuthorsSettings(names=["Bia"])))
     before = settings_path(posts_dir).read_bytes(), authors_path(posts_dir).read_bytes()
 
-    result = run_migrations(posts_dir, load_posts(posts_dir, []))
-    assert result.changed is False
+    assert run_migrations(posts_dir, load_posts(posts_dir, [])) == []
     assert (settings_path(posts_dir).read_bytes(), authors_path(posts_dir).read_bytes()) == before
 
 
-def test_no_author_list_anywhere_warns_and_changes_nothing(monkeypatch, tmp_path):
+def test_no_author_list_anywhere_changes_nothing(monkeypatch, tmp_path):
     site, posts_dir = _site(monkeypatch, tmp_path, {"gatos.md": POST})
-    result = run_migrations(posts_dir, load_posts(posts_dir, []))
-    assert result.changed is False
-    assert any(m.startswith("Warning:") for m in result.messages)
+    assert run_migrations(posts_dir, load_posts(posts_dir, [])) == []
     assert (posts_dir / "gatos.md").read_text(encoding="utf-8") == POST
 
 

@@ -50,6 +50,20 @@ def _git_sync_startup(directory: Path) -> None:
         raise SystemExit(1)
 
 
+def _missing_author_warning(directory: Path, posts: list[Post]) -> str | None:
+    """Posts without an author, and no author list to give them a default from."""
+    from hugin.authors import ordered_authors, post_authors
+    from hugin.project import load_project
+
+    missing = sum(1 for p in posts if not post_authors(p))
+    if not missing or ordered_authors(load_project(directory).authors, posts):
+        return None
+    return (
+        f"Warning: {missing} post(s) have no author and there is no author list "
+        "to take a default from. Add authors in the project settings."
+    )
+
+
 @click.command()
 @click.argument(
     "directory",
@@ -85,12 +99,15 @@ def main(
         raise SystemExit(1)
 
     # Before the embedding index, so the index reads the posts as they now are
-    migrated = run_migrations(directory, posts)
-    for message in migrated.messages:
+    messages = run_migrations(directory, posts)
+    for message in messages:
         click.echo(message)
-    if migrated.changed:
+    if messages:
         _git_sync_startup(directory)  # commit and push the settings and migrated posts
         posts = load_posts(directory, [])
+    warning = _missing_author_warning(directory, posts)
+    if warning:
+        click.echo(warning)
 
     # Hugo URL resolution
     site = HugoSite(directory)
