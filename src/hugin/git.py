@@ -46,6 +46,25 @@ def pending_changes(directory: Path) -> list[str]:
     return out.splitlines() if ok and out else []
 
 
+def is_repository(directory: Path) -> bool:
+    ok, _ = _run(directory, ["git", "rev-parse", "--is-inside-work-tree"])
+    return ok
+
+
+def has_tracked_changes(directory: Path) -> bool:
+    """True when a tracked file is modified or staged. Untracked files do not count."""
+    ok, out = _run(directory, ["git", "status", "--porcelain", "--untracked-files=no"])
+    return bool(ok and out)
+
+
+def commit_only(directory: Path, paths: list[str], message: str) -> tuple[bool, str]:
+    """Commit just `paths`, with no pull and no push."""
+    ok, out = _run(directory, ["git", "add", "--", *paths])
+    if not ok:
+        return False, out
+    return _run(directory, ["git", "commit", "-m", message, "--", *paths])
+
+
 def secret_files(status_lines: list[str]) -> list[str]:
     """New (untracked or added) files in `status_lines` that look like secrets."""
     found = []

@@ -11,7 +11,7 @@ from hugin.config import load_config
 from hugin.embeddings import EmbeddingIndex
 from hugin.engines import get_engine
 from hugin.log import log_exception
-from hugin.migrations import run_migrations
+from hugin.migrations import fill_keywords_from_profiles, run_migrations
 from hugin.hugo import HugoSite, ensure_ignored_in_hugo
 from hugin.scanner import AGENT_FILES, Post
 from hugin.scanner import (
@@ -129,6 +129,10 @@ def main(
         model_name=config.embeddings.model,
         summary_field=config.frontmatter.summary_field,
     )
+    keywords_message = fill_keywords_from_profiles(directory, posts, index)
+    if keywords_message:
+        click.echo(keywords_message)
+        posts = load_posts(directory, [])
     if clear_cache:
         index.clear_cache()
         click.echo("Embedding cache cleared.")

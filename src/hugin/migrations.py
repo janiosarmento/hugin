@@ -7,12 +7,18 @@ The order matters only where a step needs what an earlier one set up (the
 author list before the default author for posts).
 """
 
+import re
 import tomllib
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
+import yaml
+
 from hugin.authors import add_author_to_posts, import_authors, ordered_authors, post_authors
+from hugin.embeddings import EmbeddingIndex
 from hugin.fsutil import atomic_write_text
+from hugin.git import commit_only, has_tracked_changes, is_repository
 from hugin.project import (
     legacy_settings_path,
     load_project,
@@ -20,6 +26,7 @@ from hugin.project import (
     settings_path,
 )
 from hugin.scanner import Post
+from hugin.state import load_state, save_state
 
 # A step returns the message describing what it changed, or None if it changed nothing
 Step = Callable[[Path, list[Post]], str | None]
@@ -90,3 +97,82 @@ def run_migrations(directory: Path, posts: list[Post]) -> list[str]:
         if message:
             messages.append(message)
     return messages
+
+
+KEYWORDS_FROM_PROFILES = "keywords_from_link_profiles"
+_FRONTMATTER_END = re.compile(r"^-{3,}\s*$")
+
+
+def _append_keywords(path: Path, terms: list[str]) -> None:
+    """Add a `keywords` block at the end of the frontmatter; the rest of the file is kept as it is.
+
+    Not a full re-save: that would also re-quote and re-wrap the other fields.
+    """
+    lines = path.read_text(encoding="utf-8").split("\n")
+    end = next(i for i in range(1, len(lines)) if _FRONTMATTER_END.match(lines[i]))
+    block = yaml.safe_dump({"keywords": terms}, allow_unicode=True, sort_keys=False, width=float("inf"))
+    lines[end:end] = block.splitlines()
+    atomic_write_text(path, "\n".join(lines))
+
+
+def parse_profile(text: str) -> list[str]:
+    """A link profile's comma-separated terms, without blanks or repeats (case-insensitive)."""
+    seen: set[str] = set()
+    terms: list[str] = []
+    for term in text.split(","):
+        term = term.strip()
+        if term and term.lower() not in seen:
+            seen.add(term.lower())
+            terms.append(term)
+    return terms
+
+
+def fill_keywords_from_profiles(directory: Path, posts: list[Post], index: EmbeddingIndex) -> str | None:
+    """Posts without `keywords` get their cached link profile, as one commit (not pushed).
+
+    Runs once per blog: the state file records it, so a post whose keywords were
+    removed on purpose is not filled again. Does nothing while the blog has
+    tracked changes, so the commit never picks up edits in progress.
+    """
+    state = load_state(directory)
+    if KEYWORDS_FROM_PROFILES in state.get("migrations", {}):
+        return None
+
+    index._load_cache()
+    todo: list[tuple[Post, list[str]]] = []
+    without_profile = 0
+    for post in posts:
+        if "keywords" in post.metadata:  # present, even if empty: left alone
+            continue
+        terms = parse_profile(index.get_link_keywords(post))
+        if terms:
+            todo.append((post, terms))
+        else:
+            without_profile += 1
+    if not todo:
+        return None
+
+    if not is_repository(directory):
+        return f"Keywords not filled for {len(todo)} post(s): the blog is not a Git repository."
+    if has_tracked_changes(directory):
+        return (
+            f"Keywords not filled for {len(todo)} post(s): the blog has uncommitted changes. "
+            "Commit or stash them, then restart Hugin."
+        )
+
+    for post, terms in todo:
+        _append_keywords(post.path, terms)
+    paths = [str(post.path.resolve().relative_to(directory.resolve())) for post, _ in todo]
+    ok, out = commit_only(directory, paths, f"Fill keywords from link profiles for {len(todo)} post(s)")
+    if not ok:
+        return f"Keywords written for {len(todo)} post(s), but the commit failed:\n{out}"
+
+    state.setdefault("migrations", {})[KEYWORDS_FROM_PROFILES] = datetime.now().isoformat(timespec="seconds")
+    save_state(directory, state)
+    message = f"Keywords filled from link profiles for {len(todo)} post(s), committed (not pushed)."
+    if without_profile:
+        message += (
+            f" {without_profile} post(s) have no keywords and no link profile yet; "
+            "run hugin-profiles to generate them."
+        )
+    return message
