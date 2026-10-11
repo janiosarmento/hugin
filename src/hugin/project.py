@@ -66,7 +66,7 @@ class ProjectConfig:
     authors: AuthorsSettings = field(default_factory=AuthorsSettings)
 
 
-def _project_path(directory: Path) -> Path:
+def settings_path(directory: Path) -> Path:
     """The site's settings file, at the Hugo site root (the file saves write).
 
     `directory` is the posts folder; the settings are shared by all of the
@@ -75,7 +75,7 @@ def _project_path(directory: Path) -> Path:
     return find_site_root(directory) / SETTINGS_DIR / SETTINGS_FILE
 
 
-def _legacy_path(directory: Path) -> Path:
+def legacy_settings_path(directory: Path) -> Path:
     """Where settings lived before they moved into the blog; read as a fallback."""
     dir_hash = hashlib.sha256(str(directory.resolve()).encode()).hexdigest()[:16]
     return PROJECTS_DIR / f"{dir_hash}.toml"
@@ -92,9 +92,9 @@ def _read_toml(path: Path) -> dict:
 
 
 def load_project(directory: Path) -> ProjectConfig:
-    path = _project_path(directory)
+    path = settings_path(directory)
     if not path.exists():
-        path = _legacy_path(directory)
+        path = legacy_settings_path(directory)
     authors_file = authors_path(directory)
     if not path.exists() and not authors_file.exists():
         return ProjectConfig()
@@ -126,7 +126,7 @@ def load_project(directory: Path) -> ProjectConfig:
 
 
 def save_project(directory: Path, config: ProjectConfig) -> None:
-    path = _project_path(directory)
+    path = settings_path(directory)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     lines = [

@@ -25,7 +25,7 @@ def test_missing_file_gives_default_constraints(monkeypatch, tmp_path):
 def test_default_constraints_are_not_written_to_disk(monkeypatch, tmp_path):
     blog = _isolate(monkeypatch, tmp_path)
     save_project(blog, ProjectConfig())
-    assert "[writing]" not in project._project_path(blog).read_text()
+    assert "[writing]" not in project.settings_path(blog).read_text()
 
 
 def test_custom_constraints_and_per_language_voices_round_trip(monkeypatch, tmp_path):
@@ -89,7 +89,7 @@ def test_profiles_missing_from_the_list_are_added_to_it(monkeypatch, tmp_path):
 def test_no_author_profiles_are_not_written_to_disk(monkeypatch, tmp_path):
     blog = _isolate(monkeypatch, tmp_path)
     save_project(blog, ProjectConfig())
-    assert "[authors" not in project._project_path(blog).read_text()
+    assert "[authors" not in project.settings_path(blog).read_text()
 
 
 def test_settings_are_saved_inside_the_blog(monkeypatch, tmp_path):
@@ -101,7 +101,7 @@ def test_settings_are_saved_inside_the_blog(monkeypatch, tmp_path):
 
 def test_legacy_settings_are_read_until_the_blog_has_its_own(monkeypatch, tmp_path):
     blog = _isolate(monkeypatch, tmp_path)
-    legacy = project._legacy_path(blog)
+    legacy = project.legacy_settings_path(blog)
     legacy.parent.mkdir(parents=True)
     legacy.write_text('[summary]\nwords = 33\n')
     assert load_project(blog).summary.words == 33

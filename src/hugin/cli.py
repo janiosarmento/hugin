@@ -11,6 +11,7 @@ from hugin.config import load_config
 from hugin.embeddings import EmbeddingIndex
 from hugin.engines import get_engine
 from hugin.log import log_exception
+from hugin.migrations import run_migrations
 from hugin.hugo import HugoSite, ensure_ignored_in_hugo
 from hugin.scanner import AGENT_FILES, Post
 from hugin.scanner import (
@@ -49,36 +50,6 @@ def _git_sync_startup(directory: Path) -> None:
         raise SystemExit(1)
 
 
-def _normalize_authors(directory: Path, posts: list[Post]) -> bool:
-    """Complete the blog's author list from its posts, then give posts without an author
-    the default (the first of the list). True when files changed and must be synced.
-    """
-    from hugin.authors import add_author_to_posts, default_author, import_authors, post_author
-    from hugin.project import authors_path, load_project, save_project
-
-    settings = load_project(directory)
-    added = import_authors(settings.authors, posts)
-    # The list moves to Hugo data (data/authors.toml) the first time it is saved there
-    moved = bool(settings.authors.names) and not authors_path(directory).exists()
-    if added or moved:
-        save_project(directory, settings)
-    if added:
-        click.echo(f"Authors found on the posts added to the list: {', '.join(added)}")
-
-    missing = [p for p in posts if not post_author(p)]
-    author = default_author(settings.authors, posts)
-    if missing and author is None:
-        click.echo(
-            f"Warning: {len(missing)} post(s) have no author and there is no author list "
-            "to take a default from. Add authors in the project settings."
-        )
-        return bool(added or moved)
-    changed = add_author_to_posts(missing, author) if missing else []
-    if changed:
-        click.echo(f"Default author {author!r} set on {len(changed)} post(s) without one.")
-    return bool(added or moved or changed)
-
-
 @click.command()
 @click.argument(
     "directory",
@@ -114,7 +85,10 @@ def main(
         raise SystemExit(1)
 
     # Before the embedding index, so the index reads the posts as they now are
-    if _normalize_authors(directory, posts):
+    migrated = run_migrations(directory, posts)
+    for message in migrated.messages:
+        click.echo(message)
+    if migrated.changed:
         _git_sync_startup(directory)  # commit and push the settings and migrated posts
         posts = load_posts(directory, [])
 

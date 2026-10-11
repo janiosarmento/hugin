@@ -11,7 +11,7 @@ from hugin.authors import (
     import_authors,
     ordered_authors,
 )
-from hugin.cli import _normalize_authors
+from hugin.migrations import run_migrations
 from hugin.project import AuthorsSettings
 from hugin.scanner import Post, load_posts
 
@@ -79,12 +79,12 @@ def test_startup_imports_authors_from_posts_and_defaults_to_the_first(tmp_path):
     (tmp_path / "bia.md").write_text('---\ntitle: B\nauthor: "Bia"\n---\nBody\n', encoding="utf-8")
     posts = load_posts(tmp_path, [])
 
-    assert _normalize_authors(tmp_path, posts) is True
+    assert run_migrations(tmp_path, posts).changed is True
     migrated = load_posts(tmp_path, [])
     assert migrated[0].metadata["author"] == "Bia"  # the only author on the posts
     from hugin.project import load_project
     assert load_project(tmp_path).authors.names == ["Bia"]  # written to the blog
-    assert _normalize_authors(tmp_path, migrated) is False
+    assert run_migrations(tmp_path, migrated).changed is False
 
 
 def test_startup_step_sets_default_from_the_config_list(tmp_path):
@@ -95,15 +95,15 @@ def test_startup_step_sets_default_from_the_config_list(tmp_path):
     (tmp_path / "gatos.md").write_text(POST, encoding="utf-8")
     posts = load_posts(tmp_path, [])
 
-    assert _normalize_authors(tmp_path, posts) is True
+    assert run_migrations(tmp_path, posts).changed is True
     migrated = load_posts(tmp_path, [])
     assert migrated[0].metadata["author"] == "Ana Lima"
     # Second startup: nothing left to do
-    assert _normalize_authors(tmp_path, migrated) is False
+    assert run_migrations(tmp_path, migrated).changed is False
 
 
 def test_startup_step_without_any_author_list_changes_nothing(tmp_path):
     (tmp_path / "gatos.md").write_text(POST, encoding="utf-8")
     posts = load_posts(tmp_path, [])
-    assert _normalize_authors(tmp_path, posts) is False
+    assert run_migrations(tmp_path, posts).changed is False
     assert (tmp_path / "gatos.md").read_text(encoding="utf-8") == POST
