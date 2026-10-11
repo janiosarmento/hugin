@@ -1661,7 +1661,7 @@ class HuginScreen(Screen):
             log_exception("incoming links")
             self._stop_spinner()
             self._state = STATE_BROWSING
-            self.notify(f"Error: {e}", severity="error")
+            self.notify(f"Error: {self._format_error(e)}", severity="error")
 
     @work(exclusive=True)
     async def _run_outgoing(self, post: Post, budget: int) -> None:
@@ -1805,7 +1805,7 @@ class HuginScreen(Screen):
             log_exception("outgoing links")
             self._stop_spinner()
             self._state = STATE_BROWSING
-            self.notify(f"Error: {e}", severity="error")
+            self.notify(f"Error: {self._format_error(e)}", severity="error")
             self.query_one("#section-header", Label).update("")
 
     def _show_outgoing(self, suggestions: list[dict]) -> None:
@@ -2019,7 +2019,7 @@ class HuginScreen(Screen):
             log_exception("suggest topics")
             self._stop_spinner()
             self._state = STATE_BROWSING
-            self.notify(f"Error: {e}", severity="error")
+            self.notify(f"Error: {self._format_error(e)}", severity="error")
 
     def _topic_exists(self, suggested_title: str, threshold: float = 0.75) -> bool:
         cached = self.index._cache.get("posts", {})
@@ -2491,7 +2491,7 @@ class HuginScreen(Screen):
             return f"HTTP {code}: {body}"
         if isinstance(e, ValueError):
             return f"Bad LLM response: {e}"
-        return f"{type(e).__name__}: {e}"
+        return f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
 
     def _display_error(self, error: str) -> None:
         self._state = STATE_BROWSING
