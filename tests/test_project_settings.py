@@ -181,3 +181,18 @@ def test_profile_screen_renames_and_blank_removes(monkeypatch, tmp_path):
 
     _edit_profiles(blog, load_project(blog), ["New Name", "Gone"], blank)
     assert load_project(blog).authors.profiles == {"Gone": "Bye."}
+
+
+def test_profile_screen_opens_with_no_authors_yet(monkeypatch, tmp_path):
+    from hugin.tui.project_settings import AuthorProfilesScreen
+
+    blog, config = _setup(monkeypatch, tmp_path)
+
+    async def go():
+        app = App()
+        async with app.run_test(size=(100, 40)) as pilot:
+            app.push_screen(AuthorProfilesScreen(config, blog, []))
+            await pilot.pause()
+            return type(app.screen).__name__
+
+    assert asyncio.run(go()) == "AuthorProfilesScreen"

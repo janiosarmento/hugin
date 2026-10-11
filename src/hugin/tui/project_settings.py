@@ -255,7 +255,7 @@ class AuthorProfilesScreen(ModalScreen[bool]):
             )
             yield Select(
                 [(a, a) for a in self._authors],
-                value=self._loaded or Select.BLANK,
+                value=self._loaded or Select.NULL,
                 allow_blank=True,
                 id="select-profile-author",
             )
@@ -274,7 +274,7 @@ class AuthorProfilesScreen(ModalScreen[bool]):
                 yield Button("Cancel", id="btn-cancel-profile")
 
     def on_select_changed(self, event: Select.Changed) -> None:
-        if event.select.id != "select-profile-author" or event.value in (Select.BLANK, self._loaded):
+        if event.select.id != "select-profile-author" or event.value in (Select.NULL, self._loaded):
             return
         self._loaded = event.value
         self.query_one("#input-profile-name", Input).value = self._loaded
