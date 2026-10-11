@@ -73,13 +73,14 @@ def default_author_for_posts(directory: Path, posts: list[Post]) -> Outcome:
     missing = [p for p in posts if not post_authors(p)]
     if not missing:
         return Outcome()
-    author = default_author(load_project(directory).authors, posts)
+    settings = load_project(directory).authors
+    author = default_author(settings, posts)
     if author is None:
         return Outcome(False, [
             f"Warning: {len(missing)} post(s) have no author and there is no author list "
             "to take a default from. Add authors in the project settings.",
         ])
-    changed = add_author_to_posts(missing, author)
+    changed = add_author_to_posts(missing, author, settings.author_field)
     if not changed:
         return Outcome()
     return Outcome(True, [f"Default author {author!r} set on {len(changed)} post(s) without one."])

@@ -467,6 +467,7 @@ def create_draft(
     thumbnail: str | None = None,
     translation_key: str | None = None,
     author: str | None = None,
+    author_field: str = "author",
 ) -> Path:
     from hugin.hugo import slugify
     from hugin.writer import create_post
@@ -480,5 +481,5 @@ def create_draft(
     path = directory / f"{slug}.md"
     create_post(path, title=title, slug=slug, category=category, body=body,
                 prompt=request, refactor_of=refactor_of, thumbnail=thumbnail,
-                translation_key=translation_key, author=author)
+                translation_key=translation_key, author=author, author_field=author_field)
     return path

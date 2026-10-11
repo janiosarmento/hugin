@@ -282,7 +282,10 @@ class NewsIdeasScreen(Screen):
 
         from hugin.writer import create_post
 
+        from hugin.project import load_project
+
         author = self.query_one("#ideas-author", Select).value if self._authors else None
+        author_field = load_project(self.directory).authors.author_field
         created: list[Path] = []
         for idea in selected:
             slug = _slugify(idea["title"])
@@ -302,7 +305,7 @@ class NewsIdeasScreen(Screen):
             if self._categories and category not in self._categories:
                 category = self._categories[0]
             create_post(path, title=title, slug=slug, category=category or None, body=body,
-                        author=author)
+                        author=author, author_field=author_field)
             created.append(path)
 
         self.dismiss(created)

@@ -56,7 +56,7 @@ def import_authors(settings: AuthorsSettings, posts: list[Post]) -> list[str]:
     return added
 
 
-def _with_author(text: str, author: str) -> str | None:
+def _with_author(text: str, author: str, author_field: str = "author") -> str | None:
     """`text` with `author` set in its front matter; None when it has no front matter.
 
     Only the `author:` line is touched (an empty one is filled in), so the rest
@@ -70,9 +70,12 @@ def _with_author(text: str, author: str) -> str | None:
     if close is None:
         return None
     eol = "\r\n" if lines[0].endswith("\r\n") else "\n"
-    line = f"author: {json.dumps(author, ensure_ascii=False)}{eol}"
+    value = json.dumps(author, ensure_ascii=False)
+    if author_field == "authors":
+        value = f"[{value}]"
+    line = f"{author_field}: {value}{eol}"
     for i in range(1, close):
-        if lines[i].startswith("author:"):
+        if lines[i].startswith(f"{author_field}:"):
             lines[i] = line
             return "".join(lines)
     insert_at = next((i + 1 for i in range(1, close) if lines[i].startswith("title:")), close)
@@ -80,14 +83,14 @@ def _with_author(text: str, author: str) -> str | None:
     return "".join(lines)
 
 
-def add_author_to_posts(posts: list[Post], author: str) -> list[Path]:
-    """Give `author` to every post that has none; returns the files changed."""
+def add_author_to_posts(posts: list[Post], author: str, author_field: str = "author") -> list[Path]:
+    """Give `author` to every post that has none, under `author_field`; returns the files changed."""
     changed = []
     for post in posts:
         if post_authors(post):
             continue
         text = post.path.read_text(encoding="utf-8")
-        new_text = _with_author(text, author)
+        new_text = _with_author(text, author, author_field)
         if new_text is None:
             continue
         atomic_write_text(post.path, new_text)

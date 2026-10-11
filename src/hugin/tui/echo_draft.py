@@ -497,7 +497,8 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                 )
             if not samples and not self._profile:
                 raise EchoError("No published posts to use as writing samples")
-            writing = (await asyncio.to_thread(load_project, self._directory)).writing
+            project = await asyncio.to_thread(load_project, self._directory)
+            writing = project.writing
             language = detect_language(" ".join(p.content for p in samples) or self._request)
             message = build_message(
                 samples, self._request, self._original,
@@ -538,6 +539,7 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                 thumbnail=inherited.get("thumbnail"),
                 translation_key=inherited.get("translation_key"),
                 author=self._author,
+                author_field=project.authors.author_field,
             )
             self.notify(f"Written by {who}")
         except EchoError as e:
@@ -559,6 +561,7 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                 thumbnail=inherited.get("thumbnail"),
                 translation_key=inherited.get("translation_key"),
                 author=self._author,
+                author_field=load_project(self._directory).authors.author_field,
             )
         except (OSError, ValueError):
             log_exception("echo: empty draft after failure")

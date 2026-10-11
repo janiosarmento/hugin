@@ -123,3 +123,36 @@ def test_default_author_never_writes_next_to_an_authors_list(tmp_path):
     listed = _post(tmp_path, "a.md", "---\ntitle: A\nauthors:\n- mariana\n---\nBody\n")
     assert add_author_to_posts([listed], "Ana") == []
     assert "author:" not in listed.path.read_text(encoding="utf-8")
+
+
+def test_default_author_writes_the_blogs_field_form(tmp_path):
+    post = _post(tmp_path, "a.md", POST)
+    add_author_to_posts([post], "mariana", "authors")
+    assert frontmatter.load(str(post.path)).metadata["authors"] == ["mariana"]
+    assert "author:" not in post.path.read_text(encoding="utf-8")
+
+
+def test_new_post_uses_the_configured_field(tmp_path):
+    from hugin.writer import create_post
+
+    create_post(tmp_path / "n.md", title="N", slug="n", author="mariana", author_field="authors")
+    assert frontmatter.load(str(tmp_path / "n.md")).metadata["authors"] == ["mariana"]
+    create_post(tmp_path / "s.md", title="S", slug="s", author="Ana")
+    assert frontmatter.load(str(tmp_path / "s.md")).metadata["author"] == "Ana"
+
+
+def test_author_field_setting_round_trips(monkeypatch, tmp_path):
+    import hugin.project as project
+    from hugin.project import ProjectConfig, load_project, save_project
+
+    monkeypatch.setattr(project, "PROJECTS_DIR", tmp_path / "projects")
+    site = tmp_path / "site"
+    (site / "config" / "_default").mkdir(parents=True)
+    (site / "config" / "_default" / "hugo.toml").write_text('baseURL = "https://x/"\n')
+    posts = site / "content" / "posts"
+    posts.mkdir(parents=True)
+    config = ProjectConfig()
+    config.authors.author_field = "authors"
+    save_project(posts, config)
+    assert load_project(posts).authors.author_field == "authors"
+    assert load_project(posts).authors.names == []

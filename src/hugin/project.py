@@ -16,6 +16,7 @@ SETTINGS_FILE = "config.toml"
 AUTHORS_DATA_FILE = Path("data") / "authors.toml"  # Hugo data, at the site root
 
 DEFAULT_SUMMARY_STYLE = "Write as if telling a friend — direct, with personality"
+DEFAULT_AUTHOR_FIELD = "author"
 
 # Editorial rules sent with every Echo / system-LLM draft request. Per blog,
 # overridable per detected language (see WritingSettings.for_language).
@@ -51,6 +52,8 @@ class WritingSettings:
 class AuthorsSettings:
     # The author list, in order: the first one is the default for posts without an author
     names: list[str] = field(default_factory=list)
+    # Front matter key the blog uses: "author" (one name) or "authors" (a list, Hugo's taxonomy)
+    author_field: str = DEFAULT_AUTHOR_FIELD
     # Voice per author, keyed by the `author` front matter value
     profiles: dict[str, str] = field(default_factory=dict)
 
@@ -107,7 +110,7 @@ def load_project(directory: Path) -> ProjectConfig:
     else:
         names = authors_data.get("names", [])
     return ProjectConfig(
-        authors=_authors_settings(names, authors_data.get("profiles", {})),
+        authors=_authors_settings(names, authors_data.get("profiles", {}), authors_data.get("field", DEFAULT_AUTHOR_FIELD)),
         summary=SummarySettings(
             words=summary_data.get("words", 25),
             style=summary_data.get("style", DEFAULT_SUMMARY_STYLE),
@@ -147,12 +150,16 @@ def save_project(directory: Path, config: ProjectConfig) -> None:
             ]
         lines.append("")
     authors = config.authors
-    if authors.profiles:
-        lines += ["[authors.profiles]"]
-        lines += [
-            f"{_toml_string(author)} = {_toml_string(text)}"
-            for author, text in authors.profiles.items()
-        ]
+    if authors.author_field != DEFAULT_AUTHOR_FIELD or authors.profiles:
+        lines += ["[authors]"]
+        if authors.author_field != DEFAULT_AUTHOR_FIELD:
+            lines.append(f"field = {_toml_string(authors.author_field)}")
+        if authors.profiles:
+            lines += ["", "[authors.profiles]"]
+            lines += [
+                f"{_toml_string(author)} = {_toml_string(text)}"
+                for author, text in authors.profiles.items()
+            ]
         lines.append("")
     atomic_write_text(path, "\n".join(lines))
 
@@ -167,10 +174,12 @@ def save_project(directory: Path, config: ProjectConfig) -> None:
         )
 
 
-def _authors_settings(names: list[str], profiles: dict[str, str]) -> AuthorsSettings:
+def _authors_settings(names: list[str], profiles: dict[str, str], author_field: str) -> AuthorsSettings:
     """The list, then any profiled author missing from it."""
     profiles = dict(profiles)
-    return AuthorsSettings(names=list(dict.fromkeys([*names, *profiles])), profiles=profiles)
+    return AuthorsSettings(
+        names=list(dict.fromkeys([*names, *profiles])), profiles=profiles, author_field=author_field,
+    )
 
 
 def _toml_string(text: str) -> str:

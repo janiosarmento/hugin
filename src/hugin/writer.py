@@ -107,6 +107,7 @@ def create_post(
     thumbnail: str | None = None,
     translation_key: str | None = None,
     author: str | None = None,
+    author_field: str = "author",
 ) -> frontmatter.Post:
     """Create a new post with a complete frontmatter skeleton.
 
@@ -132,7 +133,7 @@ def create_post(
         "tags": ["TBD"],
     }
     if author:
-        metadata["author"] = author
+        metadata[author_field] = [author] if author_field == "authors" else author
     if prompt:
         metadata["prompt"] = prompt
     if refactor_of:

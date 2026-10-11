@@ -2099,7 +2099,10 @@ class HuginScreen(Screen):
             from hugin.hugo import slugify
             from hugin.writer import create_post
 
-            fm_post = create_post(path, title=title, slug=slugify(title), author=author)
+            fm_post = create_post(
+                path, title=title, slug=slugify(title), author=author,
+                author_field=self._project.authors.author_field,
+            )
             post = Post(
                 path=path,
                 metadata=fm_post.metadata,
