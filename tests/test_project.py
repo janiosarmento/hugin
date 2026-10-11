@@ -71,3 +71,22 @@ def test_no_author_profiles_are_not_written_to_disk(monkeypatch, tmp_path):
     blog = _isolate(monkeypatch, tmp_path)
     save_project(blog, ProjectConfig())
     assert "[authors" not in project._project_path(blog).read_text()
+
+
+def test_settings_are_saved_inside_the_blog(monkeypatch, tmp_path):
+    blog = _isolate(monkeypatch, tmp_path)
+    save_project(blog, ProjectConfig(writing=WritingSettings(constraints="custom")))
+    assert (blog / "hugin" / "config.toml").exists()
+    assert not any((tmp_path / "projects").glob("*.toml"))
+
+
+def test_legacy_settings_are_read_until_the_blog_has_its_own(monkeypatch, tmp_path):
+    blog = _isolate(monkeypatch, tmp_path)
+    legacy = project._legacy_path(blog)
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text('[summary]\nwords = 33\n')
+    assert load_project(blog).summary.words == 33
+
+    save_project(blog, load_project(blog))
+    legacy.write_text('[summary]\nwords = 99\n')  # stale copy must no longer win
+    assert load_project(blog).summary.words == 33

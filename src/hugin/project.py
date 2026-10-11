@@ -1,4 +1,4 @@
-"""Per-project configuration stored in ~/.hugin/projects/<hash>.toml."""
+"""Per-blog configuration, stored in the blog at hugin/config.toml."""
 
 import hashlib
 import json
@@ -9,7 +9,9 @@ from pathlib import Path
 from hugin.engines import CONFIG_DIR
 from hugin.fsutil import atomic_write_text
 
-PROJECTS_DIR = CONFIG_DIR / "projects"
+PROJECTS_DIR = CONFIG_DIR / "projects"  # legacy location, read as a fallback
+SETTINGS_DIR = "hugin"  # inside the blog repository
+SETTINGS_FILE = "config.toml"
 
 DEFAULT_SUMMARY_STYLE = "Write as if telling a friend — direct, with personality"
 
@@ -61,12 +63,20 @@ class ProjectConfig:
 
 
 def _project_path(directory: Path) -> Path:
+    """The blog's own settings file, inside its Git repository (the file saves write)."""
+    return directory / SETTINGS_DIR / SETTINGS_FILE
+
+
+def _legacy_path(directory: Path) -> Path:
+    """Where settings lived before they moved into the blog; read as a fallback."""
     dir_hash = hashlib.sha256(str(directory.resolve()).encode()).hexdigest()[:16]
     return PROJECTS_DIR / f"{dir_hash}.toml"
 
 
 def load_project(directory: Path) -> ProjectConfig:
     path = _project_path(directory)
+    if not path.exists():
+        path = _legacy_path(directory)
     if not path.exists():
         return ProjectConfig()
 
@@ -94,8 +104,8 @@ def load_project(directory: Path) -> ProjectConfig:
 
 
 def save_project(directory: Path, config: ProjectConfig) -> None:
-    PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
     path = _project_path(directory)
+    path.parent.mkdir(parents=True, exist_ok=True)
 
     lines = [
         "[summary]",

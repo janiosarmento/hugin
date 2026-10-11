@@ -153,3 +153,38 @@ def git_sync(directory: Path) -> SyncResult:
         result.success = False
 
     return result
+
+
+SETTINGS_PATH = "hugin/config.toml"
+SETTINGS_PUSHED = "Settings committed and pushed."
+
+
+def commit_settings(directory: Path, message: str) -> str | None:
+    """Commit and push the Hugin settings file on its own.
+
+    Only that file is staged or committed, so posts being edited are left
+    alone. Returns a line for the user, or None when there is nothing to say
+    (not a Git repository, or the settings did not change).
+    """
+    ok, _ = _run(directory, ["git", "rev-parse", "--is-inside-work-tree"])
+    if not ok:
+        return None
+    ok, out = _run(directory, ["git", "add", "--", SETTINGS_PATH])
+    if not ok:
+        return f"Settings not committed:\n{out}"
+    ok, staged = _run(directory, ["git", "status", "--porcelain", "--", SETTINGS_PATH])
+    if not staged:
+        return None
+    ok, out = _run(directory, ["git", "commit", "-m", message, "--", SETTINGS_PATH])
+    if not ok:
+        return f"Settings not committed:\n{out}"
+    # Autostash: the blog usually has post edits in progress that must not block the pull
+    ok, out = _run(directory, ["git", "pull", "--rebase", "--autostash"], NETWORK_TIMEOUT)
+    if not ok:
+        if _operation_in_progress(directory) == "rebase":
+            _run(directory, ["git", "rebase", "--abort"])
+        return f"Settings committed locally, but the pull failed:\n{out}"
+    ok, out = _run(directory, ["git", "push"], NETWORK_TIMEOUT)
+    if not ok:
+        return f"Settings committed locally, but the push failed:\n{out}"
+    return SETTINGS_PUSHED

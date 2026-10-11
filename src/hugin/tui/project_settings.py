@@ -7,7 +7,24 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, Static, TextArea
 
+from hugin.git import SETTINGS_PUSHED, commit_settings
 from hugin.project import DEFAULT_EDITORIAL_CONSTRAINTS, ProjectConfig, save_project
+
+
+def save_and_sync(app, directory: Path, config: ProjectConfig, what: str) -> None:
+    """Save the settings file, then commit and push it on a worker thread.
+
+    The commit is for the settings file alone, so a sync is never blocked on posts.
+    """
+    save_project(directory, config)
+
+    def sync() -> None:
+        line = commit_settings(directory, f"Hugin settings: update {what}")
+        if line:
+            severity = "information" if line == SETTINGS_PUSHED else "warning"
+            app.call_from_thread(app.notify, line, severity=severity, timeout=10)
+
+    app.run_worker(sync, thread=True)
 
 
 class ProjectSettingsScreen(ModalScreen[bool]):
@@ -148,7 +165,7 @@ class ProjectSettingsScreen(ModalScreen[bool]):
         self._config.summary.style = style or self._config.summary.style
         self._config.links.words_per_link = wpl
 
-        save_project(self._directory, self._config)
+        save_and_sync(self.app, self._directory, self._config, "summary and links")
         self.dismiss(True)
 
     def action_cancel(self) -> None:
@@ -287,7 +304,7 @@ class AuthorProfilesScreen(ModalScreen[bool]):
         else:
             self._profiles.pop(name, None)
 
-        save_project(self._directory, self._config)
+        save_and_sync(self.app, self._directory, self._config, "author profiles")
         self.dismiss(True)
 
     def action_cancel(self) -> None:
@@ -415,7 +432,7 @@ class EditorialRulesScreen(ModalScreen[bool]):
         elif language:
             writing.by_language.pop(language, None)
 
-        save_project(self._directory, self._config)
+        save_and_sync(self.app, self._directory, self._config, "editorial rules")
         self.dismiss(True)
 
     def action_cancel(self) -> None:
