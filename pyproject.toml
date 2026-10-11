@@ -15,7 +15,7 @@ dependencies = [
     "sentence-transformers[onnx]>=3.0",
     "markdown-it-py>=3.0",
     "tomlkit>=0.13.0",
-    "secrets-resolver>=0.5.0",
+    "secrets-resolver @ git+https://gitlab.com/sarmento1/jano.git@v0.7.0",
 ]
 
 [project.optional-dependencies]
