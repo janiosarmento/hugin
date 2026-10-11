@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from hugin.fsutil import atomic_write_text
+from hugin.project import AuthorsSettings
 from hugin.scanner import Post
 
 
@@ -23,14 +24,21 @@ def authors_of(posts: list[Post]) -> list[str]:
     return list(dict.fromkeys(a for a in (post_author(p) for p in posts) if a))
 
 
-def ordered_authors(profiles: dict[str, str], posts: list[Post]) -> list[str]:
-    """Profiled authors in config order, then the rest found on the posts."""
-    return list(profiles) + [a for a in authors_of(posts) if a not in profiles]
+def ordered_authors(settings: AuthorsSettings, posts: list[Post]) -> list[str]:
+    """The configured list, then any author that only appears on the posts."""
+    return list(dict.fromkeys([*settings.names, *authors_of(posts)]))
 
 
-def default_author(profiles: dict[str, str], posts: list[Post]) -> str | None:
+def default_author(settings: AuthorsSettings, posts: list[Post]) -> str | None:
     """The first author of the list: the author of posts that have none."""
-    return next(iter(ordered_authors(profiles, posts)), None)
+    return next(iter(ordered_authors(settings, posts)), None)
+
+
+def import_authors(settings: AuthorsSettings, posts: list[Post]) -> list[str]:
+    """Add the authors found on the posts to the end of the list; returns the ones added."""
+    added = [a for a in authors_of(posts) if a not in settings.names]
+    settings.names.extend(added)
+    return added
 
 
 def _with_author(text: str, author: str) -> str | None:

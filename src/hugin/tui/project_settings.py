@@ -238,8 +238,8 @@ class AuthorProfilesScreen(ModalScreen[bool]):
         self._config = config
         self._directory = directory
         self._profiles = config.authors.profiles
-        # Same order as the author list elsewhere: profiles in config order, then the rest
-        self._authors = list(dict.fromkeys([*self._profiles, *authors]))
+        # The configured order, then authors found only on the posts
+        self._authors = list(dict.fromkeys([*config.authors.names, *authors]))
         # The author loaded in the form; renaming it in the form moves the profile
         self._loaded = self._authors[0] if self._authors else ""
 
@@ -293,15 +293,21 @@ class AuthorProfilesScreen(ModalScreen[bool]):
         if not name:
             self.notify("Name the author before saving the profile.", severity="warning")
             return
-        if name != self._loaded and name in self._profiles:
-            self.notify(f"{name} already has a profile; pick it from the list.", severity="warning")
+        if name != self._loaded and name in self._config.authors.names:
+            self.notify(f"{name} is already in the list; pick it from there.", severity="warning")
             return
 
-        if self._loaded and self._loaded != name and self._loaded in self._profiles:
+        names = self._config.authors.names
+        if self._loaded and self._loaded != name:
             # Renamed in place: the order of the list (its first author is the default) is kept
-            renamed = [(name if a == self._loaded else a, t) for a, t in self._profiles.items()]
-            self._profiles.clear()
-            self._profiles.update(renamed)
+            if self._loaded in names:
+                names[names.index(self._loaded)] = name
+            if self._loaded in self._profiles:
+                renamed = [(name if a == self._loaded else a, t) for a, t in self._profiles.items()]
+                self._profiles.clear()
+                self._profiles.update(renamed)
+        if name not in names:
+            names.append(name)
         if text:
             self._profiles[name] = text
         else:

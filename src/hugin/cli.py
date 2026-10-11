@@ -49,24 +49,31 @@ def _git_sync_startup(directory: Path) -> None:
         raise SystemExit(1)
 
 
-def _give_default_author(directory: Path, posts: list[Post]) -> bool:
-    """Set the default author on posts that have none. True when files changed."""
-    from hugin.authors import add_author_to_posts, default_author, post_author
-    from hugin.project import load_project
+def _normalize_authors(directory: Path, posts: list[Post]) -> bool:
+    """Complete the blog's author list from its posts, then give posts without an author
+    the default (the first of the list). True when files changed and must be synced.
+    """
+    from hugin.authors import add_author_to_posts, default_author, import_authors, post_author
+    from hugin.project import load_project, save_project
+
+    settings = load_project(directory)
+    added = import_authors(settings.authors, posts)
+    if added:
+        save_project(directory, settings)
+        click.echo(f"Authors found on the posts added to the list: {', '.join(added)}")
 
     missing = [p for p in posts if not post_author(p)]
-    if not missing:
-        return False
-    author = default_author(load_project(directory).authors.profiles, posts)
-    if author is None:
+    author = default_author(settings.authors, posts)
+    if missing and author is None:
         click.echo(
             f"Warning: {len(missing)} post(s) have no author and there is no author list "
             "to take a default from. Add authors in the project settings."
         )
-        return False
-    changed = add_author_to_posts(missing, author)
-    click.echo(f"Default author {author!r} set on {len(changed)} post(s) without one.")
-    return bool(changed)
+        return bool(added)
+    changed = add_author_to_posts(missing, author) if missing else []
+    if changed:
+        click.echo(f"Default author {author!r} set on {len(changed)} post(s) without one.")
+    return bool(added or changed)
 
 
 @click.command()
@@ -104,8 +111,8 @@ def main(
         raise SystemExit(1)
 
     # Before the embedding index, so the index reads the posts as they now are
-    if _give_default_author(directory, posts):
-        _git_sync_startup(directory)  # commit and push the migrated posts
+    if _normalize_authors(directory, posts):
+        _git_sync_startup(directory)  # commit and push the settings and migrated posts
         posts = load_posts(directory, [])
 
     # Hugo URL resolution

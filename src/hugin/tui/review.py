@@ -2122,7 +2122,7 @@ class HuginScreen(Screen):
         """Authors with posts first, then those that only have a profile."""
         from hugin.authors import ordered_authors
 
-        return ordered_authors(self._project.authors.profiles, self.all_posts)
+        return ordered_authors(self._project.authors, self.all_posts)
 
     def _current_author(self) -> str | None:
         """Author of the post under the cursor, the default for a new post."""
@@ -2410,7 +2410,7 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
-        from hugin.authors import authors_of
+        from hugin.authors import ordered_authors
         from hugin.tui.project_settings import ProjectSettingsScreen
 
         def on_return(saved: bool) -> None:
@@ -2420,7 +2420,7 @@ class HuginScreen(Screen):
         self.app.push_screen(
             ProjectSettingsScreen(
                 self._project, self.directory, self.config.links.words_per_link,
-                authors=authors_of(self.all_posts),
+                authors=ordered_authors(self._project.authors, self.all_posts),
             ),
             on_return,
         )

@@ -166,6 +166,7 @@ def test_profile_screen_renames_and_blank_removes(monkeypatch, tmp_path):
     from textual.widgets import Input
 
     config = ProjectConfig()
+    config.authors.names = ["Old Name", "Gone"]
     config.authors.profiles = {"Old Name": "Formal.", "Gone": "Bye."}
     blog, config = _setup(monkeypatch, tmp_path, config)
 
@@ -174,13 +175,14 @@ def test_profile_screen_renames_and_blank_removes(monkeypatch, tmp_path):
 
     _edit_profiles(blog, config, ["Old Name", "Gone"], rename)
     assert load_project(blog).authors.profiles == {"New Name": "Formal.", "Gone": "Bye."}
-    assert list(load_project(blog).authors.profiles) == ["New Name", "Gone"]  # order kept
+    assert load_project(blog).authors.names == ["New Name", "Gone"]  # order kept
 
     def blank(screen):
         screen.query_one("#input-profile-text", TextArea).load_text("")
 
     _edit_profiles(blog, load_project(blog), ["New Name", "Gone"], blank)
     assert load_project(blog).authors.profiles == {"Gone": "Bye."}
+    assert load_project(blog).authors.names == ["New Name", "Gone"]  # blank keeps the author in the list
 
 
 def test_profile_screen_opens_with_no_authors_yet(monkeypatch, tmp_path):

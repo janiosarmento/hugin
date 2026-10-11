@@ -67,6 +67,25 @@ def test_author_profiles_round_trip(monkeypatch, tmp_path):
     assert load_project(blog).authors.profiles == config.authors.profiles
 
 
+def test_author_list_order_round_trips(monkeypatch, tmp_path):
+    blog = _isolate(monkeypatch, tmp_path)
+    config = ProjectConfig()
+    config.authors.names = ["Zé", "Ana"]
+    config.authors.profiles = {"Ana": "Warm."}
+    save_project(blog, config)
+
+    loaded = load_project(blog).authors
+    assert loaded.names == ["Zé", "Ana"]
+    assert loaded.profiles == {"Ana": "Warm."}
+
+
+def test_profiles_missing_from_the_list_are_added_to_it(monkeypatch, tmp_path):
+    blog = _isolate(monkeypatch, tmp_path)
+    (blog / "hugin").mkdir()
+    (blog / "hugin" / "config.toml").write_text('[authors.profiles]\n"Ana" = "Warm."\n', encoding="utf-8")
+    assert load_project(blog).authors.names == ["Ana"]
+
+
 def test_no_author_profiles_are_not_written_to_disk(monkeypatch, tmp_path):
     blog = _isolate(monkeypatch, tmp_path)
     save_project(blog, ProjectConfig())
