@@ -22,6 +22,7 @@ from textual.widgets import (
     Footer,
     Input,
     Label,
+    Select,
     Static,
     TextArea,
 )
@@ -286,8 +287,11 @@ class GitSyncResultScreen(ModalScreen):
         self.dismiss(self._needs_reload)
 
 
-class NewPostScreen(ModalScreen[str | None]):
-    """Ask for a filename and create a new blank post."""
+class NewPostScreen(ModalScreen[tuple[str, str | None] | None]):
+    """Ask for a filename and the post's author, then create a new blank post.
+
+    Dismisses with (filename, author); author is None on a blog without authors.
+    """
 
     BINDINGS = [
         ("escape", "cancel", "Cancel"),
@@ -316,6 +320,11 @@ class NewPostScreen(ModalScreen[str | None]):
         margin-bottom: 1;
     }
 
+    #newpost-author {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
     #newpost-buttons {
         height: auto;
         margin-top: 1;
@@ -326,10 +335,21 @@ class NewPostScreen(ModalScreen[str | None]):
     }
     """
 
+    def __init__(self, authors: list[str] | None = None, default_author: str | None = None) -> None:
+        super().__init__()
+        self._authors = authors or []
+        self._author = default_author if default_author in self._authors else next(iter(self._authors), None)
+
     def compose(self) -> ComposeResult:
         with Vertical(id="newpost-modal"):
             yield Label("New post — enter filename:")
             yield Input(placeholder="my-new-post.md", id="newpost-input")
+            if self._authors:
+                yield Label("Author:")
+                yield Select(
+                    [(a, a) for a in self._authors], value=self._author,
+                    allow_blank=False, id="newpost-author",
+                )
             with Horizontal(id="newpost-buttons"):
                 yield Button("Create", id="btn-create", variant="primary")
                 yield Button("Cancel", id="btn-cancel-new")
@@ -352,7 +372,8 @@ class NewPostScreen(ModalScreen[str | None]):
     def action_confirm(self) -> None:
         name = self._get_filename()
         if name:
-            self.dismiss(name)
+            author = self.query_one("#newpost-author", Select).value if self._authors else None
+            self.dismiss((name, author))
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -2066,9 +2087,10 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
-        def on_filename(filename: str | None) -> None:
-            if not filename:
+        def on_filename(result: tuple[str, str | None] | None) -> None:
+            if not result:
                 return
+            filename, author = result
             path = self.directory / filename
             if path.exists():
                 self.notify(f"{filename} already exists", severity="error")
@@ -2077,7 +2099,7 @@ class HuginScreen(Screen):
             from hugin.hugo import slugify
             from hugin.writer import create_post
 
-            fm_post = create_post(path, title=title, slug=slugify(title))
+            fm_post = create_post(path, title=title, slug=slugify(title), author=author)
             post = Post(
                 path=path,
                 metadata=fm_post.metadata,
@@ -2092,7 +2114,23 @@ class HuginScreen(Screen):
             self._rebuild_post_table()   # sets current_index=0, moves cursor, updates panel
             self._open_editor_for_post(post, index=0)
 
-        self.app.push_screen(NewPostScreen(), on_filename)
+        self.app.push_screen(
+            NewPostScreen(self._author_choices(), self._current_author()), on_filename
+        )
+
+    def _author_choices(self) -> list[str]:
+        """Authors with posts first, then those that only have a profile."""
+        from hugin.echo import authors_of
+
+        profiles = self._project.authors.profiles
+        authors = authors_of(self.all_posts)
+        return authors + [a for a in profiles if a not in authors]
+
+    def _current_author(self) -> str | None:
+        """Author of the post under the cursor, the default for a new post."""
+        from hugin.echo import post_author
+
+        return post_author(self.posts[self.current_index]) if self.posts else None
 
     # === ECHO DRAFT ===
 
@@ -2126,13 +2164,11 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
-        from hugin.echo import authors_of, has_enough_samples, post_author
+        from hugin.echo import has_enough_samples, post_author
         from hugin.tui.echo_draft import EchoPromptScreen, EchoWaitScreen
 
-        # Authors with posts first, then those that only have a profile
         profiles = self._project.authors.profiles
-        authors = authors_of(self.all_posts)
-        authors += [a for a in profiles if a not in authors]
+        authors = self._author_choices()
         # Coarse check; the prompt screen checks the author actually picked
         if not profiles and not any(
             has_enough_samples(self.all_posts, original, a) for a in authors or [None]
@@ -2219,7 +2255,10 @@ class HuginScreen(Screen):
             self.notify(f"{len(paths)} draft(s) created")
 
         self.app.push_screen(
-            NewsIdeasScreen(engine=self.engine, directory=self.directory),
+            NewsIdeasScreen(
+                engine=self.engine, directory=self.directory,
+                authors=self._author_choices(), default_author=self._current_author(),
+            ),
             on_created,
         )
 

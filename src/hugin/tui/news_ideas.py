@@ -14,7 +14,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, LoadingIndicator, Static
+from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, LoadingIndicator, Select, Static
 
 from hugin.hugo import slugify as _slugify
 
@@ -68,6 +68,14 @@ class NewsIdeasScreen(Screen):
         display: none;
     }
 
+    #ideas-author-row {
+        height: auto;
+    }
+
+    #ideas-author {
+        width: 40;
+    }
+
     #results-header {
         padding: 1 2;
         background: $panel;
@@ -98,10 +106,16 @@ class NewsIdeasScreen(Screen):
     }
     """
 
-    def __init__(self, engine, directory: Path) -> None:
+    def __init__(
+        self, engine, directory: Path, authors: list[str] | None = None,
+        default_author: str | None = None,
+    ) -> None:
         super().__init__()
         self.engine = engine
         self.directory = directory
+        self._authors = authors or []
+        # Author of the drafts, asked before they are written; None on a blog without authors
+        self._author = default_author if default_author in self._authors else next(iter(self._authors), None)
         self._idea_checkboxes: list[tuple[Checkbox, dict]] = []
         self._last_query: str = ""
         self._last_items: list = []
@@ -125,6 +139,13 @@ class NewsIdeasScreen(Screen):
         # Phase 3: results
         with Vertical(id="results-phase"):
             yield Label("", id="results-header")
+            if self._authors:
+                with Horizontal(id="ideas-author-row"):
+                    yield Label("Author of the drafts: ")
+                    yield Select(
+                        [(a, a) for a in self._authors], value=self._author,
+                        allow_blank=False, id="ideas-author",
+                    )
             yield ScrollableContainer(id="ideas-container")
             with Horizontal(id="results-footer"):
                 yield Button("Create drafts (Ctrl+S)", id="btn-create", variant="primary")
@@ -261,6 +282,7 @@ class NewsIdeasScreen(Screen):
 
         from hugin.writer import create_post
 
+        author = self.query_one("#ideas-author", Select).value if self._authors else None
         created: list[Path] = []
         for idea in selected:
             slug = _slugify(idea["title"])
@@ -279,7 +301,8 @@ class NewsIdeasScreen(Screen):
             # Validate against known categories; fall back to first if invalid
             if self._categories and category not in self._categories:
                 category = self._categories[0]
-            create_post(path, title=title, slug=slug, category=category or None, body=body)
+            create_post(path, title=title, slug=slug, category=category or None, body=body,
+                        author=author)
             created.append(path)
 
         self.dismiss(created)
