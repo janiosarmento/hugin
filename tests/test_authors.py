@@ -175,3 +175,12 @@ def test_startup_warns_only_when_posts_lack_authors_and_no_list_exists(tmp_path)
     (tmp_path / "hugin").mkdir()
     (tmp_path / "hugin" / "config.toml").write_text('[authors]\nnames = ["Ana"]\n', encoding="utf-8")
     assert _missing_author_warning(tmp_path, posts) is None
+
+
+def test_author_goes_after_a_title_that_spans_lines():
+    text = "---\ntitle: 'Resenha: Antes de Partir: Os 5 principais\n  arrependimentos'\nslug: x\n---\nBody\n"
+    out = _with_author(text, "Janio Sarmento")
+    assert out == (
+        "---\ntitle: 'Resenha: Antes de Partir: Os 5 principais\n  arrependimentos'\n"
+        'author: "Janio Sarmento"\nslug: x\n---\nBody\n'
+    )

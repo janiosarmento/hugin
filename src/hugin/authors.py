@@ -78,8 +78,11 @@ def _with_author(text: str, author: str, author_field: str = "author") -> str | 
         if lines[i].startswith(f"{author_field}:"):
             lines[i] = line
             return "".join(lines)
-    insert_at = next((i + 1 for i in range(1, close) if lines[i].startswith("title:")), close)
-    lines.insert(insert_at, line)
+    insert_at = next((i for i in range(1, close) if lines[i].startswith("title:")), close)
+    # a multi-line value continues on indented lines: insert after them
+    while insert_at + 1 < close and lines[insert_at + 1][:1] in (" ", "\t"):
+        insert_at += 1
+    lines.insert(insert_at + 1 if insert_at < close else close, line)
     return "".join(lines)
 
 
