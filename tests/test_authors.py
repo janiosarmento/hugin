@@ -107,3 +107,19 @@ def test_startup_step_without_any_author_list_changes_nothing(tmp_path):
     posts = load_posts(tmp_path, [])
     assert run_migrations(tmp_path, posts).changed is False
     assert (tmp_path / "gatos.md").read_text(encoding="utf-8") == POST
+
+
+def test_authors_list_form_is_read_like_the_author_field(tmp_path):
+    from hugin.authors import authors_of, post_author, post_authors
+
+    listed = _post(tmp_path, "a.md", "---\ntitle: A\nauthors:\n- mariana\n---\n")
+    both = _post(tmp_path, "b.md", '---\ntitle: B\nauthor: "fabior"\nauthors: ["felipe", "fabior"]\n---\n')
+    assert post_author(listed) == "mariana"
+    assert post_authors(both) == ["fabior", "felipe"]
+    assert authors_of([listed, both]) == ["mariana", "fabior", "felipe"]
+
+
+def test_default_author_never_writes_next_to_an_authors_list(tmp_path):
+    listed = _post(tmp_path, "a.md", "---\ntitle: A\nauthors:\n- mariana\n---\nBody\n")
+    assert add_author_to_posts([listed], "Ana") == []
+    assert "author:" not in listed.path.read_text(encoding="utf-8")

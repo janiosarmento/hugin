@@ -14,7 +14,7 @@ from pathlib import Path
 
 import httpx
 
-from hugin.authors import post_author
+from hugin.authors import post_authors
 from hugin.engines import load_fulcrum_echo_secret
 from hugin.log import log_exception
 from hugin.scanner import Post
@@ -78,7 +78,7 @@ def _candidates(
     return [
         p for p in published_posts(posts)
         if (original is None or p.path != original.path)
-        and (author is None or post_author(p) == author)
+        and (author is None or author in post_authors(p))
     ]
 
 

@@ -14,14 +14,29 @@ from hugin.project import AuthorsSettings
 from hugin.scanner import Post
 
 
+def post_authors(post: Post) -> list[str]:
+    """Every author of the post, from `author` (one name) or `authors` (a list, Hugo's usual form).
+
+    Empty when the post has neither.
+    """
+    names = [post.metadata.get("author"), *_as_list(post.metadata.get("authors"))]
+    return list(dict.fromkeys(str(n).strip() for n in names if n and str(n).strip()))
+
+
+def _as_list(value) -> list:
+    if isinstance(value, list):
+        return value
+    return [value] if value else []
+
+
 def post_author(post: Post) -> str:
-    """The post's `author` front matter field, or "" when it has none."""
-    return str(post.metadata.get("author") or "").strip()
+    """The post's first author, or "" when it has none."""
+    return next(iter(post_authors(post)), "")
 
 
 def authors_of(posts: list[Post]) -> list[str]:
     """Distinct authors across the posts, in order of first appearance."""
-    return list(dict.fromkeys(a for a in (post_author(p) for p in posts) if a))
+    return list(dict.fromkeys(a for p in posts for a in post_authors(p)))
 
 
 def ordered_authors(settings: AuthorsSettings, posts: list[Post]) -> list[str]:
@@ -69,7 +84,7 @@ def add_author_to_posts(posts: list[Post], author: str) -> list[Path]:
     """Give `author` to every post that has none; returns the files changed."""
     changed = []
     for post in posts:
-        if post_author(post):
+        if post_authors(post):
             continue
         text = post.path.read_text(encoding="utf-8")
         new_text = _with_author(text, author)

@@ -487,3 +487,14 @@ def test_profile_is_sent_after_samples(tmp_path):
     p = make_post(tmp_path, "a.md", 1)
     message = build_message([p], "req", profile="Formal.")
     assert message.index("Here are 1 of my blog posts") < message.index("Formal.")
+
+
+def test_samples_match_a_post_listed_under_authors(tmp_path):
+    posts = []
+    for i in range(8):
+        post = make_post(tmp_path, f"m{i}.md", i + 1)
+        post.metadata["authors"] = ["mariana"]
+        posts.append(post)
+    assert has_enough_samples(posts, author="mariana")
+    assert select_samples(posts, None, author="mariana")
+    assert select_samples(posts, None, author="fabior") == []

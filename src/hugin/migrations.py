@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from hugin.authors import add_author_to_posts, default_author, import_authors, post_author
+from hugin.authors import add_author_to_posts, default_author, import_authors, post_authors
 from hugin.fsutil import atomic_write_text
 from hugin.project import (
     legacy_settings_path,
@@ -70,7 +70,7 @@ def add_post_authors_to_list(directory: Path, posts: list[Post]) -> Outcome:
 
 def default_author_for_posts(directory: Path, posts: list[Post]) -> Outcome:
     """Posts with no author get the first author of the list."""
-    missing = [p for p in posts if not post_author(p)]
+    missing = [p for p in posts if not post_authors(p)]
     if not missing:
         return Outcome()
     author = default_author(load_project(directory).authors, posts)
