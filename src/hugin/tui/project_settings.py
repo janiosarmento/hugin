@@ -238,8 +238,8 @@ class AuthorProfilesScreen(ModalScreen[bool]):
         self._config = config
         self._directory = directory
         self._profiles = config.authors.profiles
-        # Authors with posts, then profiles of authors with no posts yet
-        self._authors = list(dict.fromkeys([*authors, *self._profiles]))
+        # Same order as the author list elsewhere: profiles in config order, then the rest
+        self._authors = list(dict.fromkeys([*self._profiles, *authors]))
         # The author loaded in the form; renaming it in the form moves the profile
         self._loaded = self._authors[0] if self._authors else ""
 
@@ -297,8 +297,11 @@ class AuthorProfilesScreen(ModalScreen[bool]):
             self.notify(f"{name} already has a profile; pick it from the list.", severity="warning")
             return
 
-        if self._loaded and self._loaded != name:
-            self._profiles.pop(self._loaded, None)
+        if self._loaded and self._loaded != name and self._loaded in self._profiles:
+            # Renamed in place: the order of the list (its first author is the default) is kept
+            renamed = [(name if a == self._loaded else a, t) for a, t in self._profiles.items()]
+            self._profiles.clear()
+            self._profiles.update(renamed)
         if text:
             self._profiles[name] = text
         else:

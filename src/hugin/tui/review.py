@@ -2120,15 +2120,13 @@ class HuginScreen(Screen):
 
     def _author_choices(self) -> list[str]:
         """Authors with posts first, then those that only have a profile."""
-        from hugin.echo import authors_of
+        from hugin.authors import ordered_authors
 
-        profiles = self._project.authors.profiles
-        authors = authors_of(self.all_posts)
-        return authors + [a for a in profiles if a not in authors]
+        return ordered_authors(self._project.authors.profiles, self.all_posts)
 
     def _current_author(self) -> str | None:
         """Author of the post under the cursor, the default for a new post."""
-        from hugin.echo import post_author
+        from hugin.authors import post_author
 
         return post_author(self.posts[self.current_index]) if self.posts else None
 
@@ -2164,7 +2162,8 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
-        from hugin.echo import has_enough_samples, post_author
+        from hugin.authors import post_author
+        from hugin.echo import has_enough_samples
         from hugin.tui.echo_draft import EchoPromptScreen, EchoWaitScreen
 
         profiles = self._project.authors.profiles
@@ -2411,7 +2410,7 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
-        from hugin.echo import authors_of
+        from hugin.authors import authors_of
         from hugin.tui.project_settings import ProjectSettingsScreen
 
         def on_return(saved: bool) -> None:

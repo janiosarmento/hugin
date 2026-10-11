@@ -174,6 +174,7 @@ def test_profile_screen_renames_and_blank_removes(monkeypatch, tmp_path):
 
     _edit_profiles(blog, config, ["Old Name", "Gone"], rename)
     assert load_project(blog).authors.profiles == {"New Name": "Formal.", "Gone": "Bye."}
+    assert list(load_project(blog).authors.profiles) == ["New Name", "Gone"]  # order kept
 
     def blank(screen):
         screen.query_one("#input-profile-text", TextArea).load_text("")

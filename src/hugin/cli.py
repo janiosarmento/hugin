@@ -12,7 +12,7 @@ from hugin.embeddings import EmbeddingIndex
 from hugin.engines import get_engine
 from hugin.log import log_exception
 from hugin.hugo import HugoSite, ensure_ignored_in_hugo
-from hugin.scanner import AGENT_FILES
+from hugin.scanner import AGENT_FILES, Post
 from hugin.scanner import (
     collect_tag_pool,
     find_duplicate_tags,
@@ -49,6 +49,26 @@ def _git_sync_startup(directory: Path) -> None:
         raise SystemExit(1)
 
 
+def _give_default_author(directory: Path, posts: list[Post]) -> bool:
+    """Set the default author on posts that have none. True when files changed."""
+    from hugin.authors import add_author_to_posts, default_author, post_author
+    from hugin.project import load_project
+
+    missing = [p for p in posts if not post_author(p)]
+    if not missing:
+        return False
+    author = default_author(load_project(directory).authors.profiles, posts)
+    if author is None:
+        click.echo(
+            f"Warning: {len(missing)} post(s) have no author and there is no author list "
+            "to take a default from. Add authors in the project settings."
+        )
+        return False
+    changed = add_author_to_posts(missing, author)
+    click.echo(f"Default author {author!r} set on {len(changed)} post(s) without one.")
+    return bool(changed)
+
+
 @click.command()
 @click.argument(
     "directory",
@@ -82,6 +102,11 @@ def main(
             click.echo(f"Warning: {problem}")
         click.echo("No .md posts found in the directory.")
         raise SystemExit(1)
+
+    # Before the embedding index, so the index reads the posts as they now are
+    if _give_default_author(directory, posts):
+        _git_sync_startup(directory)  # commit and push the migrated posts
+        posts = load_posts(directory, [])
 
     # Hugo URL resolution
     site = HugoSite(directory)

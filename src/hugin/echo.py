@@ -14,6 +14,7 @@ from pathlib import Path
 
 import httpx
 
+from hugin.authors import post_author
 from hugin.engines import load_fulcrum_echo_secret
 from hugin.log import log_exception
 from hugin.scanner import Post
@@ -68,16 +69,6 @@ def _is_published(post: Post) -> bool:
 
 def published_posts(posts: list[Post]) -> list[Post]:
     return [p for p in posts if _is_published(p)]
-
-
-def post_author(post: Post) -> str:
-    """The post's `author` front matter field, or "" when it has none."""
-    return str(post.metadata.get("author") or "").strip()
-
-
-def authors_of(posts: list[Post]) -> list[str]:
-    """Distinct authors across the posts, in order of first appearance."""
-    return list(dict.fromkeys(a for a in (post_author(p) for p in posts) if a))
 
 
 def _candidates(

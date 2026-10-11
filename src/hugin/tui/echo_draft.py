@@ -28,7 +28,6 @@ from hugin.echo import (
     create_draft,
     has_enough_samples,
     parse_answer,
-    post_author,
     _select_parts,
     draw_random,
     inherited_fields,
@@ -40,6 +39,7 @@ from hugin.echo import (
     write_with_fallback,
     write_with_system_llm,
 )
+from hugin.authors import post_author
 from hugin.engines import load_fulcrum_echo_persona
 from hugin.log import log_exception
 from hugin.hugo import load_categories
