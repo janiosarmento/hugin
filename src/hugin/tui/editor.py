@@ -11,6 +11,7 @@ from textual.css.query import NoMatches
 from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button,
+    Checkbox,
     Footer,
     Input,
     Label,
@@ -89,6 +90,20 @@ def _quote_frontmatter_fields(raw: str, fields: tuple[str, ...] = ("title", "des
 EDITABLE_FIELDS = ("title", "date", "lastmod", "draft", "slug", "url", "description")
 # Fields managed by other tools — show but don't edit here
 READONLY_FIELDS = ("tags",)
+# Fields edited as a checkbox instead of text
+BOOLEAN_FIELDS = ("draft",)
+
+
+def _as_bool(value) -> bool:
+    return str(value).strip().lower() in ("true", "1", "yes")
+
+
+def _as_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return ", ".join(str(v) for v in value)
+    return str(value) if value else ""
 
 
 class ConfirmDiscardScreen(ModalScreen[bool]):
@@ -224,7 +239,7 @@ class EditorScreen(Screen[bool]):
     def __init__(self, post: Post) -> None:
         super().__init__()
         self.post = post
-        self._field_inputs: dict[str, Input] = {}
+        self._field_inputs: dict[str, Input | Checkbox] = {}
         self._extra_fields: dict[str, str] = {}
         self._original_meta = dict(post.metadata)
         self._original_content = post.content
@@ -247,19 +262,20 @@ class EditorScreen(Screen[bool]):
 
                 # Editable fields
                 for field_name in EDITABLE_FIELDS:
-                    value = meta.get(field_name, "")
-                    if value is None:
-                        value = ""
-                    if isinstance(value, list):
-                        value = ", ".join(str(v) for v in value)
-                    else:
-                        value = str(value) if value else ""
-
                     with Horizontal(classes="field-row"):
                         yield Label(field_name, classes="field-label")
-                        inp = Input(value=value, id=f"field-{field_name}", classes="field-input")
-                        self._field_inputs[field_name] = inp
-                        yield inp
+                        if field_name in BOOLEAN_FIELDS:
+                            widget = Checkbox(
+                                "", value=_as_bool(meta.get(field_name)),
+                                id=f"field-{field_name}", classes="field-input",
+                            )
+                        else:
+                            widget = Input(
+                                value=_as_text(meta.get(field_name)),
+                                id=f"field-{field_name}", classes="field-input",
+                            )
+                        self._field_inputs[field_name] = widget
+                        yield widget
 
                 # Read-only fields
                 for field_name in READONLY_FIELDS:
@@ -303,15 +319,12 @@ class EditorScreen(Screen[bool]):
         if self._raw_mode:
             return self.query_one("#raw-editor", TextArea).text != self._original_raw
 
-        for field_name, inp in self._field_inputs.items():
-            original = self._original_meta.get(field_name, "")
-            if original is None:
-                original = ""
-            if isinstance(original, list):
-                original = ", ".join(str(v) for v in original)
-            else:
-                original = str(original) if original else ""
-            if inp.value != original:
+        for field_name, widget in self._field_inputs.items():
+            original = self._original_meta.get(field_name)
+            if isinstance(widget, Checkbox):
+                if widget.value != _as_bool(original):
+                    return True
+            elif widget.value != _as_text(original):
                 return True
 
         try:
@@ -352,15 +365,11 @@ class EditorScreen(Screen[bool]):
                 return
 
             meta = parsed.metadata
-            for field_name, inp in self._field_inputs.items():
-                value = meta.get(field_name, "")
-                if value is None:
-                    value = ""
-                if isinstance(value, list):
-                    value = ", ".join(str(v) for v in value)
+            for field_name, widget in self._field_inputs.items():
+                if isinstance(widget, Checkbox):
+                    widget.value = _as_bool(meta.get(field_name))
                 else:
-                    value = str(value) if value else ""
-                inp.value = value
+                    widget.value = _as_text(meta.get(field_name))
             self.query_one("#body-editor", TextArea).load_text(parsed.content)
 
             raw_panel.display = False
@@ -416,19 +425,19 @@ class EditorScreen(Screen[bool]):
         new_meta = dict(self._original_meta)
 
         # Update editable fields from inputs
-        for field_name, inp in self._field_inputs.items():
-            value = inp.value.strip()
+        for field_name, widget in self._field_inputs.items():
+            if isinstance(widget, Checkbox):
+                # Written when set, or when the post already carries the key
+                if widget.value or field_name in new_meta:
+                    new_meta[field_name] = widget.value
+                continue
+
+            value = widget.value.strip()
             if not value:
                 if field_name != "title" and field_name in new_meta:
                     del new_meta[field_name]
                 continue
-
-            if field_name == "draft":
-                new_meta[field_name] = value.lower() in ("true", "1", "yes")
-            elif field_name == "tags":
-                new_meta[field_name] = [t.strip() for t in value.split(",") if t.strip()]
-            else:
-                new_meta[field_name] = value
+            new_meta[field_name] = value
 
         # Get body content
         body_editor = self.query_one("#body-editor", TextArea)
