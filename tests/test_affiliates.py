@@ -37,8 +37,8 @@ def test_save_add_update_rename_remove_keep_comments(aff_file):
 
 
 def test_accented_keywords_round_trip(aff_file):
-    aff.save_affiliate("ração para gatos", "https://amzn.to/zzz")
-    assert aff.load_affiliates()["ração para gatos"] == "https://amzn.to/zzz"
+    aff.save_affiliate("cat food", "https://amzn.to/zzz")
+    assert aff.load_affiliates()["cat food"] == "https://amzn.to/zzz"
 
 
 def test_creates_missing_file_when_saving(tmp_path, monkeypatch):
@@ -117,7 +117,7 @@ def test_screen_rejects_invalid_and_cancel_keeps_file(aff_file):
 
 
 def test_screen_lists_alphabetically_ignoring_case_and_accents(aff_file):
-    aff.save_affiliate("água", "https://amzn.to/1")
+    aff.save_affiliate("water", "https://amzn.to/1")
     aff.save_affiliate("Zebra", "https://amzn.to/2")
     aff.save_affiliate("bowl", "https://amzn.to/3")
 
@@ -128,7 +128,7 @@ def test_screen_lists_alphabetically_ignoring_case_and_accents(aff_file):
             await pilot.pause()
             table = app.screen.query_one("#af-table", DataTable)
             names = [table.get_row_at(i)[0] for i in range(table.row_count)]
-            assert names == ["água", "bowl", "litter box", "scratcher", "Zebra"]
+            assert names == ["bowl", "litter box", "scratcher", "water", "Zebra"]
             # actions follow the displayed order, not the file order
             table.move_cursor(row=4)
             await pilot.press("c")

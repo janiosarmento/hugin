@@ -1,4 +1,4 @@
-"""Testes do módulo scanner."""
+"""Tests for the scanner module."""
 
 
 from hugin.scanner import (
@@ -41,7 +41,7 @@ class TestPrioritize:
         posts = load_posts(tmp_posts)
         state = {"directory": str(tmp_posts), "posts": {}}
         ordered = prioritize(posts, state)
-        # Posts sem tags devem vir primeiro
+        # Posts without tags come first
         assert not ordered[0].has_tags
 
     def test_empty_when_all_processed(self, tmp_posts):
@@ -51,7 +51,7 @@ class TestPrioritize:
             state["posts"][p.filename] = {
                 "last_processed": "2099-01-01T00:00:00"
             }
-            # Simular que todos têm tags
+            # Pretend every post has tags
             p.has_tags = True
             p.tags = ["fake"]
         ordered = prioritize(posts, state)
@@ -119,12 +119,12 @@ class TestYamlRepair:
     def test_repairs_apostrophes_and_colons_without_changing_the_text(self, tmp_path):
         self._write(tmp_path, "a.md", "Tom's guide: part 1")
         self._write(tmp_path, "b.md", 'Say "hi": now')
-        self._write(tmp_path, "c.md", "Água: o guia")
+        self._write(tmp_path, "c.md", "Water: o guia")
         titles = {p.filename: p.metadata["title"] for p in load_posts(tmp_path)}
         assert titles == {
             "a.md": "Tom's guide: part 1",
             "b.md": 'Say "hi": now',
-            "c.md": "Água: o guia",
+            "c.md": "Water: o guia",
         }
 
     def test_repairs_multiline_plain_value(self, tmp_path):

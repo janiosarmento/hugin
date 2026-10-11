@@ -1,4 +1,4 @@
-"""Leitura de posts, filtragem e priorização."""
+"""Reading posts, filtering them, and ordering them by priority."""
 
 import json
 from collections import Counter
@@ -178,14 +178,14 @@ def prioritize(posts: list[Post], state: dict, include_all: bool = False) -> lis
         if not post.has_tags:
             no_tags.append(post)
         elif last_processed is None:
-            # Tem tags mas nunca foi processado pelo app
+            # Has tags but was never processed by the app
             no_tags.append(post)
         elif post.lastmod and post.lastmod > last_processed:
             edited.append(post)
         else:
             up_to_date.append(post)
 
-    # Sem tags: mais recentes primeiro
+    # No tags: most recent first
     no_tags.sort(key=lambda p: p.date or datetime.min, reverse=True)
     edited.sort(key=lambda p: p.lastmod or datetime.min, reverse=True)
 

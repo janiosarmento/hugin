@@ -44,12 +44,12 @@ def test_saving_blog_rules_and_a_language_override(monkeypatch, tmp_path):
     def edit(screen):
         screen.query_one("#input-constraints", TextArea).load_text("Blog rule.")
         screen.query_one("#input-override-language", Input).value = "Portuguese"
-        screen.query_one("#input-override-rules", TextArea).load_text("Regra em português.")
+        screen.query_one("#input-override-rules", TextArea).load_text("Rule in Portuguese.")
 
     _save(blog, config, edit)
     loaded = load_project(blog).writing
     assert loaded.constraints == "Blog rule."
-    assert loaded.by_language == {"Portuguese": "Regra em português."}
+    assert loaded.by_language == {"Portuguese": "Rule in Portuguese."}
 
 
 def test_renaming_an_override_moves_it(monkeypatch, tmp_path):

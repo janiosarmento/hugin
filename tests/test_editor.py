@@ -11,8 +11,8 @@ from hugin.tui.editor import EditorScreen
 
 
 def _post(tmp_path, draft_line: str):
-    text = f'---\ntitle: "Gatos"\nslug: gatos\ndate: 2024-01-02\n{draft_line}---\n\nCorpo.\n'
-    (tmp_path / "gatos.md").write_text(text, encoding="utf-8")
+    text = f'---\ntitle: "Cats"\nslug: cats\ndate: 2024-01-02\n{draft_line}---\n\nBody.\n'
+    (tmp_path / "cats.md").write_text(text, encoding="utf-8")
     return load_posts(tmp_path, [])[0]
 
 

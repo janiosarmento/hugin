@@ -1,4 +1,4 @@
-"""Testes do módulo llm (parser de resposta)."""
+"""Tests for the llm module (response parser)."""
 
 import pytest
 
@@ -114,15 +114,15 @@ class TestBuildPrompt:
         assert "linux (5), docker (3)" in prompt
 
     def test_includes_content(self):
-        prompt = build_prompt({}, "meu conteúdo aqui", "")
-        assert "meu conteúdo aqui" in prompt
+        prompt = build_prompt({}, "my content here", "")
+        assert "my content here" in prompt
 
     def test_truncates_long_content(self):
         long_content = "x" * 20000
-        metadata = {"title": "Meu Post", "description": "Descrição"}
+        metadata = {"title": "My Post", "description": "Summary"}
         prompt = build_prompt(metadata, long_content, "")
-        assert "Title: Meu Post" in prompt
-        assert "Description: Descrição" in prompt
+        assert "Title: My Post" in prompt
+        assert "Description: Summary" in prompt
         assert len(prompt) < len(long_content)
 
 

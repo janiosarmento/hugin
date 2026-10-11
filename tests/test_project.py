@@ -32,7 +32,7 @@ def test_custom_constraints_and_per_language_voices_round_trip(monkeypatch, tmp_
     blog = _isolate(monkeypatch, tmp_path)
     config = ProjectConfig(writing=WritingSettings(
         constraints='Plain "quoted" rule.\nSecond line with a \\ backslash.',
-        by_language={"Portuguese": "Escreva em português.", "English": "Write plainly."},
+        by_language={"Portuguese": "Write in Portuguese.", "English": "Write plainly."},
     ))
     save_project(blog, config)
 
@@ -70,12 +70,12 @@ def test_author_profiles_round_trip(monkeypatch, tmp_path):
 def test_author_list_order_round_trips(monkeypatch, tmp_path):
     blog = _isolate(monkeypatch, tmp_path)
     config = ProjectConfig()
-    config.authors.names = ["Zé", "Ana"]
+    config.authors.names = ["Joe", "Ana"]
     config.authors.profiles = {"Ana": "Warm."}
     save_project(blog, config)
 
     loaded = load_project(blog).authors
-    assert loaded.names == ["Zé", "Ana"]
+    assert loaded.names == ["Joe", "Ana"]
     assert loaded.profiles == {"Ana": "Warm."}
 
 
@@ -138,11 +138,11 @@ def test_author_list_is_hugo_data_and_profiles_stay_in_settings(monkeypatch, tmp
     posts = site / "content" / "en" / "post"
     posts.mkdir(parents=True)
     config = ProjectConfig()
-    config.authors.names = ["Zé", "Ana"]
+    config.authors.names = ["Joe", "Ana"]
     config.authors.profiles = {"Ana": "Warm."}
     save_project(posts, config)
 
-    assert "names = [\"Zé\", \"Ana\"]" in (site / "data" / "authors.toml").read_text(encoding="utf-8")
+    assert "names = [\"Joe\", \"Ana\"]" in (site / "data" / "authors.toml").read_text(encoding="utf-8")
     settings_text = (site / "hugin" / "config.toml").read_text(encoding="utf-8")
     assert "names" not in settings_text and '"Ana" = "Warm."' in settings_text
 
@@ -153,9 +153,9 @@ def test_author_list_in_old_settings_is_read_and_moves_on_save(monkeypatch, tmp_
     (site / "config" / "_default").mkdir(parents=True)
     (site / "config" / "_default" / "hugo.toml").write_text('baseURL = "https://x/"\n')
     (site / "hugin").mkdir()
-    (site / "hugin" / "config.toml").write_text('[authors]\nnames = ["Bia"]\n', encoding="utf-8")
+    (site / "hugin" / "config.toml").write_text('[authors]\nnames = ["Bea"]\n', encoding="utf-8")
 
-    assert load_project(site).authors.names == ["Bia"]
+    assert load_project(site).authors.names == ["Bea"]
     save_project(site, load_project(site))
     assert (site / "data" / "authors.toml").exists()
     assert "names" not in (site / "hugin" / "config.toml").read_text(encoding="utf-8")

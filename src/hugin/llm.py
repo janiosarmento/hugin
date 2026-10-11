@@ -1,4 +1,4 @@
-"""Comunicação com endpoint LLM e parse de respostas."""
+"""Communication with the LLM endpoint and parsing of its responses."""
 
 import ast
 import json
@@ -51,7 +51,7 @@ def _truncate_post(metadata: dict, content: str) -> str:
     # Extrair headings
     headings = [line for line in content.splitlines() if line.startswith("#")]
 
-    # Primeiros parágrafos (até ~1000 chars)
+    # First paragraphs (up to ~1000 chars)
     paragraphs = content[:1000]
 
     parts = []
@@ -100,7 +100,7 @@ def parse_response(text: str) -> list[str]:
     text = re.sub(r"\n?```\s*$", "", text)
     text = text.strip()
 
-    # Extrair do primeiro [ ao último ]
+    # Extract from the first [ to the last ]
     start = text.find("[")
     end = text.rfind("]")
     if start != -1 and end != -1 and end > start:
@@ -120,7 +120,7 @@ def parse_response(text: str) -> list[str]:
         except json.JSONDecodeError:
             pass
 
-    # Fallback: regex para strings entre aspas (duplas ou simples)
+    # Fallback: regex for strings in quotes (double or single)
     matches = re.findall(r'"([^"]+)"', text) or re.findall(r"'([^']+)'", text)
     if matches:
         return matches

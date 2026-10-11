@@ -23,8 +23,8 @@ from hugin.project import (
 )
 from hugin.scanner import load_posts
 
-POST = '---\ntitle: "Gatos"\nslug: gatos\ndate: 2024-01-02\n---\n\nCorpo.\n'
-BY_BIA = '---\ntitle: "Bia"\nauthor: "Bia"\ndate: 2024-01-03\n---\n\nOutro.\n'
+POST = '---\ntitle: "Cats"\nslug: cats\ndate: 2024-01-02\n---\n\nBody.\n'
+BY_BEA = '---\ntitle: "Bea"\nauthor: "Bea"\ndate: 2024-01-03\n---\n\nOther.\n'
 
 
 def _site(monkeypatch, tmp_path, posts=None):
@@ -66,47 +66,47 @@ def test_copy_legacy_settings_runs_once(monkeypatch, tmp_path):
 def test_move_author_list_alone_on_a_config_with_names(monkeypatch, tmp_path):
     site, posts_dir = _site(monkeypatch, tmp_path)
     (site / "hugin").mkdir()
-    (site / "hugin" / "config.toml").write_text('[authors]\nnames = ["Ana", "Bia"]\n', encoding="utf-8")
+    (site / "hugin" / "config.toml").write_text('[authors]\nnames = ["Ana", "Bea"]\n', encoding="utf-8")
 
     assert move_author_list_to_hugo_data(posts_dir, []) is not None
-    assert _names(site) == ["Ana", "Bia"]
+    assert _names(site) == ["Ana", "Bea"]
     assert "names" not in _config_text(site)
     assert move_author_list_to_hugo_data(posts_dir, []) is None
 
 
 def test_add_post_authors_alone_appends_only_new_names(monkeypatch, tmp_path):
-    site, posts_dir = _site(monkeypatch, tmp_path, {"bia.md": BY_BIA})
+    site, posts_dir = _site(monkeypatch, tmp_path, {"bea.md": BY_BEA})
     save_project(posts_dir, ProjectConfig(authors=AuthorsSettings(names=["Ana"])))
     posts = load_posts(posts_dir, [])
 
     assert add_post_authors_to_list(posts_dir, posts) is not None
-    assert _names(site) == ["Ana", "Bia"]
+    assert _names(site) == ["Ana", "Bea"]
     assert add_post_authors_to_list(posts_dir, posts) is None
 
 
 def test_default_author_alone_only_touches_posts_without_one(monkeypatch, tmp_path):
-    site, posts_dir = _site(monkeypatch, tmp_path, {"gatos.md": POST, "bia.md": BY_BIA})
-    save_project(posts_dir, ProjectConfig(authors=AuthorsSettings(names=["Ana", "Bia"])))
+    site, posts_dir = _site(monkeypatch, tmp_path, {"cats.md": POST, "bea.md": BY_BEA})
+    save_project(posts_dir, ProjectConfig(authors=AuthorsSettings(names=["Ana", "Bea"])))
     posts = load_posts(posts_dir, [])
 
     assert default_author_for_posts(posts_dir, posts) is not None
-    assert frontmatter.load(str(posts_dir / "gatos.md")).metadata["author"] == "Ana"
-    assert frontmatter.load(str(posts_dir / "bia.md")).metadata["author"] == "Bia"
+    assert frontmatter.load(str(posts_dir / "cats.md")).metadata["author"] == "Ana"
+    assert frontmatter.load(str(posts_dir / "bea.md")).metadata["author"] == "Bea"
     assert default_author_for_posts(posts_dir, load_posts(posts_dir, [])) is None
 
 
 # --- the whole sequence
 
 def test_full_run_on_an_old_blog_then_nothing_on_the_second_run(monkeypatch, tmp_path):
-    legacy_site, posts_dir = _site(monkeypatch, tmp_path, {"gatos.md": POST, "bia.md": BY_BIA})
+    legacy_site, posts_dir = _site(monkeypatch, tmp_path, {"cats.md": POST, "bea.md": BY_BEA})
     legacy = legacy_settings_path(posts_dir)
     legacy.parent.mkdir(parents=True)
     legacy.write_text('[authors]\nnames = ["Ana"]\n\n[authors.profiles]\n"Ana" = "Warm."\n', encoding="utf-8")
 
     first = run_migrations(posts_dir, load_posts(posts_dir, []))
     assert first
-    assert _names(legacy_site) == ["Ana", "Bia"]  # the list, then the author found on the posts
-    assert frontmatter.load(str(posts_dir / "gatos.md")).metadata["author"] == "Ana"
+    assert _names(legacy_site) == ["Ana", "Bea"]  # the list, then the author found on the posts
+    assert frontmatter.load(str(posts_dir / "cats.md")).metadata["author"] == "Ana"
     assert load_project(posts_dir).authors.profiles == {"Ana": "Warm."}
 
     snapshot = {p: p.read_bytes() for p in legacy_site.rglob("*") if p.is_file() and ".git" not in p.parts}
@@ -115,8 +115,8 @@ def test_full_run_on_an_old_blog_then_nothing_on_the_second_run(monkeypatch, tmp
 
 
 def test_a_blog_that_is_already_migrated_is_left_alone(monkeypatch, tmp_path):
-    site, posts_dir = _site(monkeypatch, tmp_path, {"bia.md": BY_BIA})
-    save_project(posts_dir, ProjectConfig(authors=AuthorsSettings(names=["Bia"])))
+    site, posts_dir = _site(monkeypatch, tmp_path, {"bea.md": BY_BEA})
+    save_project(posts_dir, ProjectConfig(authors=AuthorsSettings(names=["Bea"])))
     before = settings_path(posts_dir).read_bytes(), authors_path(posts_dir).read_bytes()
 
     assert run_migrations(posts_dir, load_posts(posts_dir, [])) == []
@@ -124,15 +124,15 @@ def test_a_blog_that_is_already_migrated_is_left_alone(monkeypatch, tmp_path):
 
 
 def test_no_author_list_anywhere_changes_nothing(monkeypatch, tmp_path):
-    site, posts_dir = _site(monkeypatch, tmp_path, {"gatos.md": POST})
+    site, posts_dir = _site(monkeypatch, tmp_path, {"cats.md": POST})
     assert run_migrations(posts_dir, load_posts(posts_dir, [])) == []
-    assert (posts_dir / "gatos.md").read_text(encoding="utf-8") == POST
+    assert (posts_dir / "cats.md").read_text(encoding="utf-8") == POST
 
 
 def test_each_blog_is_migrated_independently(monkeypatch, tmp_path):
     """Two blogs with different histories: running one never touches the other."""
     a_site, a_posts = _site(monkeypatch, tmp_path / "a", {"x.md": POST})
-    b_site, b_posts = _site(monkeypatch, tmp_path / "b", {"y.md": BY_BIA})
+    b_site, b_posts = _site(monkeypatch, tmp_path / "b", {"y.md": BY_BEA})
     run_migrations(b_posts, load_posts(b_posts, []))
     assert not (a_site / "data").exists()
     assert not (a_site / "hugin").exists()

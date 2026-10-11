@@ -15,7 +15,7 @@ from hugin.project import AuthorsSettings
 from hugin.scanner import Post, load_posts
 
 
-POST = '---\ntitle: "Gatos"\nslug: gatos\ndate: 2024-01-02\ntags: []\n---\n\nCorpo do texto.\n'
+POST = '---\ntitle: "Cats"\nslug: cats\ndate: 2024-01-02\ntags: []\n---\n\nBody text.\n'
 
 
 def _post(tmp_path, name, text):
@@ -26,7 +26,7 @@ def _post(tmp_path, name, text):
 
 def test_author_goes_right_after_title_and_nothing_else_moves():
     out = _with_author(POST, "Ana Lima")
-    assert out == POST.replace('title: "Gatos"\n', 'title: "Gatos"\nauthor: "Ana Lima"\n')
+    assert out == POST.replace('title: "Cats"\n', 'title: "Cats"\nauthor: "Ana Lima"\n')
 
 
 def test_empty_author_line_is_filled_in():
@@ -44,45 +44,45 @@ def test_file_without_front_matter_is_left_alone():
 
 
 def test_order_is_the_configured_list_then_authors_found_only_on_posts(tmp_path):
-    posts = [_post(tmp_path, "a.md", '---\ntitle: A\nauthor: "Bia"\n---\n')]
-    settings = AuthorsSettings(names=["Zé", "Ana"])
-    assert ordered_authors(settings, posts) == ["Zé", "Ana", "Bia"]
-    assert ordered_authors(settings, posts)[0] == "Zé"
-    assert ordered_authors(AuthorsSettings(), posts)[0] == "Bia"
+    posts = [_post(tmp_path, "a.md", '---\ntitle: A\nauthor: "Bea"\n---\n')]
+    settings = AuthorsSettings(names=["Joe", "Ana"])
+    assert ordered_authors(settings, posts) == ["Joe", "Ana", "Bea"]
+    assert ordered_authors(settings, posts)[0] == "Joe"
+    assert ordered_authors(AuthorsSettings(), posts)[0] == "Bea"
     assert ordered_authors(AuthorsSettings(), []) == []
 
 
 def test_import_adds_post_authors_to_the_end_once(tmp_path):
     posts = [
-        _post(tmp_path, "a.md", '---\ntitle: A\nauthor: "Bia"\n---\n'),
+        _post(tmp_path, "a.md", '---\ntitle: A\nauthor: "Bea"\n---\n'),
         _post(tmp_path, "b.md", '---\ntitle: B\nauthor: "Ana"\n---\n'),
     ]
     settings = AuthorsSettings(names=["Ana"])
-    assert import_authors(settings, posts) == ["Bia"]
-    assert settings.names == ["Ana", "Bia"]
+    assert import_authors(settings, posts) == ["Bea"]
+    assert settings.names == ["Ana", "Bea"]
     assert import_authors(settings, posts) == []
 
 
 def test_add_author_only_touches_posts_without_one(tmp_path):
-    missing = _post(tmp_path, "gatos.md", POST)
-    has = _post(tmp_path, "ok.md", '---\ntitle: Ok\nauthor: "Bia"\n---\nBody\n')
+    missing = _post(tmp_path, "cats.md", POST)
+    has = _post(tmp_path, "ok.md", '---\ntitle: Ok\nauthor: "Bea"\n---\nBody\n')
     changed = add_author_to_posts([missing, has], "Ana Lima")
     assert changed == [missing.path]
     assert frontmatter.load(str(missing.path)).metadata["author"] == "Ana Lima"
     assert has.path.read_text(encoding="utf-8").count("author:") == 1
-    assert frontmatter.load(str(missing.path)).content.strip() == "Corpo do texto."
+    assert frontmatter.load(str(missing.path)).content.strip() == "Body text."
 
 
 def test_startup_imports_authors_from_posts_and_defaults_to_the_first(tmp_path):
-    (tmp_path / "gatos.md").write_text(POST, encoding="utf-8")  # no author
-    (tmp_path / "bia.md").write_text('---\ntitle: B\nauthor: "Bia"\n---\nBody\n', encoding="utf-8")
+    (tmp_path / "cats.md").write_text(POST, encoding="utf-8")  # no author
+    (tmp_path / "bea.md").write_text('---\ntitle: B\nauthor: "Bea"\n---\nBody\n', encoding="utf-8")
     posts = load_posts(tmp_path, [])
 
     assert run_migrations(tmp_path, posts)
     migrated = load_posts(tmp_path, [])
-    assert migrated[0].metadata["author"] == "Bia"  # the only author on the posts
+    assert migrated[0].metadata["author"] == "Bea"  # the only author on the posts
     from hugin.project import load_project
-    assert load_project(tmp_path).authors.names == ["Bia"]  # written to the blog
+    assert load_project(tmp_path).authors.names == ["Bea"]  # written to the blog
     assert run_migrations(tmp_path, migrated) == []
 
 
@@ -91,7 +91,7 @@ def test_startup_step_sets_default_from_the_config_list(tmp_path):
     (tmp_path / "hugin" / "config.toml").write_text(
         '[authors.profiles]\n"Ana Lima" = "Warm."\n"Prof. Silva" = "Formal."\n', encoding="utf-8"
     )
-    (tmp_path / "gatos.md").write_text(POST, encoding="utf-8")
+    (tmp_path / "cats.md").write_text(POST, encoding="utf-8")
     posts = load_posts(tmp_path, [])
 
     assert run_migrations(tmp_path, posts)
@@ -102,10 +102,10 @@ def test_startup_step_sets_default_from_the_config_list(tmp_path):
 
 
 def test_startup_step_without_any_author_list_changes_nothing(tmp_path):
-    (tmp_path / "gatos.md").write_text(POST, encoding="utf-8")
+    (tmp_path / "cats.md").write_text(POST, encoding="utf-8")
     posts = load_posts(tmp_path, [])
     assert run_migrations(tmp_path, posts) == []
-    assert (tmp_path / "gatos.md").read_text(encoding="utf-8") == POST
+    assert (tmp_path / "cats.md").read_text(encoding="utf-8") == POST
 
 
 def test_authors_list_form_is_read_like_the_author_field(tmp_path):
@@ -160,8 +160,8 @@ def test_author_field_setting_round_trips(monkeypatch, tmp_path):
 def test_pick_author_keeps_the_preferred_one_or_takes_the_first():
     from hugin.authors import pick_author
 
-    assert pick_author("Bia", ["Ana", "Bia"]) == "Bia"
-    assert pick_author("Zé", ["Ana", "Bia"]) == "Ana"
+    assert pick_author("Bea", ["Ana", "Bea"]) == "Bea"
+    assert pick_author("Joe", ["Ana", "Bea"]) == "Ana"
     assert pick_author(None, []) is None
 
 
@@ -178,9 +178,9 @@ def test_startup_warns_only_when_posts_lack_authors_and_no_list_exists(tmp_path)
 
 
 def test_author_goes_after_a_title_that_spans_lines():
-    text = "---\ntitle: 'Resenha: Antes de Partir: Os 5 principais\n  arrependimentos'\nslug: x\n---\nBody\n"
+    text = "---\ntitle: 'Review: Before Leaving: The 5 main\n  regrets'\nslug: x\n---\nBody\n"
     out = _with_author(text, "Janio Sarmento")
     assert out == (
-        "---\ntitle: 'Resenha: Antes de Partir: Os 5 principais\n  arrependimentos'\n"
+        "---\ntitle: 'Review: Before Leaving: The 5 main\n  regrets'\n"
         'author: "Janio Sarmento"\nslug: x\n---\nBody\n'
     )

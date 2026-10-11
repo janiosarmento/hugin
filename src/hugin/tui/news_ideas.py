@@ -281,7 +281,7 @@ class NewsIdeasScreen(Screen):
         source_comment = (
             f"<!--\nPauta: {{}}\n\n"
             f"Busca: {self._last_query}\n\n"
-            f"Notícias relacionadas:\n{headlines}\n-->\n"
+            f"Related news:\n{headlines}\n-->\n"
         )
 
 

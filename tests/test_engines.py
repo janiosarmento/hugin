@@ -1,4 +1,4 @@
-"""Testes do módulo engines."""
+"""Tests for the engines module."""
 
 from secrets_resolver.exceptions import SecretFileNotFound
 

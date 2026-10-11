@@ -39,7 +39,7 @@ def _git(directory: Path, *args: str) -> str:
 
 
 def _write(directory: Path, name: str, front: str) -> None:
-    (directory / name).write_text(f"---\n{front}---\n\nCorpo.\n", encoding="utf-8")
+    (directory / name).write_text(f"---\n{front}---\n\nBody.\n", encoding="utf-8")
 
 
 @pytest.fixture
@@ -47,10 +47,10 @@ def blog(tmp_path):
     directory = tmp_path / "blog"
     directory.mkdir()
     _git(directory, "init", "-q")
-    _write(directory, "with-keywords.md", 'title: "Com"\ndate: 2024-01-01\nkeywords:\n- ja\n')
-    _write(directory, "needs-profile.md", 'title: "Sem"\ndate: 2024-01-02\n')
-    _write(directory, "no-profile.md", 'title: "Nada"\ndate: 2024-01-03\n')
-    _write(directory, "empty-list.md", 'title: "Vazio"\ndate: 2024-01-04\nkeywords: []\n')
+    _write(directory, "with-keywords.md", 'title: "Keyworded"\ndate: 2024-01-01\nkeywords:\n- old\n')
+    _write(directory, "needs-profile.md", 'title: "Plain"\ndate: 2024-01-02\n')
+    _write(directory, "no-profile.md", 'title: "Bare"\ndate: 2024-01-03\n')
+    _write(directory, "empty-list.md", 'title: "Empty"\ndate: 2024-01-04\nkeywords: []\n')
     _git(directory, "add", "-A")
     _git(directory, "commit", "-q", "-m", "initial")
     return directory
@@ -82,7 +82,7 @@ def test_fills_posts_without_keywords_and_commits_only_them(blog):
     assert message.startswith("Keywords filled from link profiles for 1 post(s), committed (not pushed).")
     assert "1 post(s) have no keywords and no link profile" in message
     assert frontmatter.load(str(blog / "needs-profile.md")).metadata["keywords"] == ["café", "Hugo", "python"]
-    assert frontmatter.load(str(blog / "with-keywords.md")).metadata["keywords"] == ["ja"]
+    assert frontmatter.load(str(blog / "with-keywords.md")).metadata["keywords"] == ["old"]
     assert frontmatter.load(str(blog / "empty-list.md")).metadata["keywords"] == []
     assert frontmatter.load(str(blog / "no-profile.md")).metadata.get("keywords") is None
 
@@ -100,14 +100,14 @@ def test_only_adds_the_keywords_block(blog):
 
     after = (blog / "needs-profile.md").read_text(encoding="utf-8")
     assert after == (
-        '---\ntitle: "Sem"\ndate: 2024-01-02\nkeywords:\n- café\n- Hugo\n- python\n---\n\nCorpo.\n'
+        '---\ntitle: "Plain"\ndate: 2024-01-02\nkeywords:\n- café\n- Hugo\n- python\n---\n\nBody.\n'
     )
-    assert before.replace("---\n\nCorpo.", "keywords:\n- café\n- Hugo\n- python\n---\n\nCorpo.") == after
+    assert before.replace("---\n\nBody.", "keywords:\n- café\n- Hugo\n- python\n---\n\nBody.") == after
 
 
 def test_refills_a_post_whose_keywords_were_removed(blog):
     fill_keywords_from_profiles(blog, _posts(blog), FakeIndex(_profiles()))
-    _write(blog, "needs-profile.md", 'title: "Sem"\ndate: 2024-01-02\n')
+    _write(blog, "needs-profile.md", 'title: "Plain"\ndate: 2024-01-02\n')
     _git(blog, "commit", "-q", "-am", "drop keywords by hand")
 
     message = fill_keywords_from_profiles(blog, _posts(blog), FakeIndex(_profiles()))
@@ -146,7 +146,7 @@ def test_untracked_files_do_not_block(blog):
 def test_not_a_repository_fills_nothing(tmp_path):
     directory = tmp_path / "plain"
     directory.mkdir()
-    _write(directory, "needs-profile.md", 'title: "Sem"\ndate: 2024-01-02\n')
+    _write(directory, "needs-profile.md", 'title: "Plain"\ndate: 2024-01-02\n')
 
     message = fill_keywords_from_profiles(directory, _posts(directory), FakeIndex(_profiles()))
 

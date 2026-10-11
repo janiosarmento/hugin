@@ -73,11 +73,11 @@ def _missing_author_warning(directory: Path, posts: list[Post]) -> str | None:
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     default=".",
 )
-@click.option("--batch", default=0, help="Maximo de posts a processar (0 = todos).")
-@click.option("--report", is_flag=True, help="Exibir estatisticas sem chamar LLM.")
-@click.option("--engine", "engine_id", default=None, help="ID do motor de AI.")
-@click.option("--model", "model_override", default=None, help="Override do modelo.")
-@click.option("-c", "--clear-cache", is_flag=True, help="Limpar cache de embeddings antes de iniciar.")
+@click.option("--batch", default=0, help="Maximum number of posts to process (0 = all).")
+@click.option("--report", is_flag=True, help="Show statistics without calling the LLM.")
+@click.option("--engine", "engine_id", default=None, help="ID of the AI engine.")
+@click.option("--model", "model_override", default=None, help="Override the model.")
+@click.option("-c", "--clear-cache", is_flag=True, help="Clear the embedding cache before starting.")
 def main(
     directory: Path,
     batch: int,
@@ -152,8 +152,8 @@ def main(
 
     if not engine.available:
         click.echo(
-            f"Motor '{engine.id}' sem API key. "
-            f"Adicione com: set-secret {engine.id}.api_key"
+            f"Engine '{engine.id}' has no API key. "
+            f"Add one with: set-secret {engine.id}.api_key"
         )
         raise SystemExit(1)
 
@@ -215,16 +215,16 @@ def _show_report(posts: list, directory: Path, index: EmbeddingIndex) -> None:
     pool = collect_tag_pool(posts)
     duplicates = find_duplicate_tags(pool)
 
-    click.echo(f"Posts sem tags:              {no_tags}")
-    click.echo(f"Posts editados apos tags:    {edited}")
-    click.echo(f"Posts atualizados:           {up_to_date}")
+    click.echo(f"Posts without tags:            {no_tags}")
+    click.echo(f"Posts edited after tags:       {edited}")
+    click.echo(f"Posts up to date:             {up_to_date}")
     click.echo(f"Total:                       {len(posts)}")
     click.echo()
     click.echo(f"Tags unicas:                 {len(pool)}")
 
     if duplicates:
         click.echo()
-        click.echo("Tags possivelmente duplicadas:")
+        click.echo("Possibly duplicate tags:")
         for tag_a, tag_b, reason in duplicates:
             click.echo(f"  {tag_a} <-> {tag_b}   ({reason})")
 
@@ -241,10 +241,10 @@ def _show_report(posts: list, directory: Path, index: EmbeddingIndex) -> None:
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     default=".",
 )
-@click.option("--engine", "engine_id", default=None, help="ID do motor de AI.")
-@click.option("--force", is_flag=True, help="Regerar mesmo posts que já têm perfil.")
-@click.option("--drafts", is_flag=True, help="Incluir posts com draft: true.")
-@click.option("-r", "--reset", is_flag=True, help="Apagar todos os link profiles antes de gerar.")
+@click.option("--engine", "engine_id", default=None, help="ID of the AI engine.")
+@click.option("--force", is_flag=True, help="Regenerate even for posts that already have a profile.")
+@click.option("--drafts", is_flag=True, help="Include posts with draft: true.")
+@click.option("-r", "--reset", is_flag=True, help="Delete all link profiles before generating.")
 def build_profiles(
     directory: Path,
     engine_id: str | None,
@@ -276,11 +276,11 @@ def build_profiles(
     to_process = [p for p in posts if force or reset or not index.get_link_keywords(p)]
     already = len(posts) - len(to_process)
 
-    click.echo(f"Posts totais:    {len(posts)}")
-    click.echo(f"Já com perfil:   {already}")
-    click.echo(f"A gerar:         {len(to_process)}")
+    click.echo(f"Total posts:      {len(posts)}")
+    click.echo(f"With profile:     {already}")
+    click.echo(f"To generate:       {len(to_process)}")
     if not to_process:
-        click.echo("Nada a fazer.")
+        click.echo("Nothing to do.")
         return
     click.echo()
 
@@ -303,7 +303,7 @@ def build_profiles(
                 errors += 1
 
         click.echo()
-        click.echo(f"Concluído. {len(to_process) - errors} gerados, {errors} erros.")
-        click.echo("Execute 'hugin <dir>' para rebuild dos embeddings com os novos perfis.")
+        click.echo(f"Done. {len(to_process) - errors} generated, {errors} errors.")
+        click.echo("Run 'hugin <dir>' to rebuild the embeddings with the new profiles.")
 
     asyncio.run(run())

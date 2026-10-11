@@ -1,4 +1,4 @@
-"""Fixtures compartilhadas para testes."""
+"""Shared fixtures for tests."""
 
 import shutil
 from pathlib import Path
@@ -15,7 +15,7 @@ def fixtures_dir():
 
 @pytest.fixture
 def tmp_posts(tmp_path):
-    """Cria diretório temporário com cópias dos fixtures."""
+    """Creates a temporary directory with copies of the fixtures."""
     for f in FIXTURES_DIR.glob("*.md"):
         shutil.copy(f, tmp_path / f.name)
     return tmp_path

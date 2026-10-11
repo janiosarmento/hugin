@@ -41,8 +41,8 @@ class FakeScreen:
 @pytest.fixture
 def post(tmp_path, monkeypatch):
     monkeypatch.setattr(state_module, "STATE_DIR", tmp_path / "state")
-    path = tmp_path / "gatos.md"
-    path.write_text('---\ntitle: "Gatos"\nkeywords:\n- velho\n---\n\nCorpo.\n', encoding="utf-8")
+    path = tmp_path / "cats.md"
+    path.write_text('---\ntitle: "Cats"\nkeywords:\n- velho\n---\n\nBody.\n', encoding="utf-8")
     return path
 
 
@@ -53,7 +53,7 @@ def test_replaces_keywords_with_the_link_profile(post, tmp_path):
 
     assert frontmatter.load(str(post)).metadata["keywords"] == ["café", "Hugo", "python"]
     assert screen.posts[0].metadata["keywords"] == ["café", "Hugo", "python"]
-    assert screen.notices[-1] == ("gatos.md: 3 keywords from the link profile", "information")
+    assert screen.notices[-1] == ("cats.md: 3 keywords from the link profile", "information")
     assert screen.details_updated == 1
 
 

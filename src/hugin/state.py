@@ -1,4 +1,4 @@
-"""Leitura e escrita do state file de processamento."""
+"""Reading and writing the processing state file."""
 
 import hashlib
 import json

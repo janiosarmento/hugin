@@ -1,4 +1,4 @@
-"""Testes do módulo state."""
+"""Tests for the state module."""
 
 from datetime import datetime
 

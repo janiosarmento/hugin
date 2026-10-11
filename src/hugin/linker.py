@@ -162,7 +162,7 @@ def _find_whole_word(body: str, anchor: str, start: int = 0) -> int:
     """Find anchor in body ensuring it doesn't start or end mid-word.
 
     Treats hyphens as word-joining characters to handle compound words
-    like não-fumante, ex-presidente, etc.
+    like well-known, ex-president, etc.
     """
     pattern = r"(?<![\w\-])" + re.escape(anchor) + r"(?![\w\-])"
     m = re.search(pattern, body[start:])
@@ -183,8 +183,8 @@ the an of in on at to for with by from and or but as
 """.split())
 
 
-# Words too weak to carry an anchor ("quando" in the title "Quando Tudo Tinha
-# Peso", "eu não" in "Eu não quero seu dinheiro"). Fine next to a content word,
+# Filler words, Portuguese and English, too weak to carry an anchor by themselves.
+# Fine next to a content word,
 # so an anchor is only rejected when every one of its words is in this set.
 # Lowercase, no accents.
 WEAK_SINGLE_WORDS = EDGE_STOPWORDS | frozenset("""
@@ -208,7 +208,7 @@ do does did doing done having am can will would could should
 
 
 def is_weak_anchor(anchor: str) -> bool:
-    """True when every word of the anchor is a filler word ("eu não", "when")."""
+    """True when every word of the anchor is a filler word ("at the", "when")."""
     words = _WORD_RE.findall(anchor)
     return bool(words) and all(strip_accents(w.lower()) in WEAK_SINGLE_WORDS for w in words)
 
@@ -216,7 +216,7 @@ def is_weak_anchor(anchor: str) -> bool:
 def trim_anchor_edges(anchor: str, stopwords: frozenset[str] = EDGE_STOPWORDS) -> str:
     """Drop prepositions/articles/conjunctions from both ends of an anchor.
 
-    "do bolsonarismo" -> "bolsonarismo"; "com o" -> "" (nothing left, so the
+    "of the cat" -> "cat"; "with a" -> "" (nothing left, so the
     caller should discard it). Inner function words are kept
     ("Game of Thrones"). The result is a substring of `anchor`.
     """

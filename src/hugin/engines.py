@@ -1,4 +1,4 @@
-"""Leitura e gerenciamento do cadastro de motores de AI."""
+"""Reading and managing the registry of AI engines."""
 
 import tomllib
 from dataclasses import dataclass
@@ -171,7 +171,7 @@ def _load_last_engine() -> tuple[str, str] | None:
 def get_engine(engine_id: str | None = None) -> Engine:
     engines = load_engines()
     if not engines:
-        raise SystemExit("Nenhum motor configurado em ~/.hugin/engines.toml")
+        raise SystemExit("No engine configured in ~/.hugin/engines.toml")
 
     if engine_id is None:
         # Try last used engine
@@ -189,4 +189,4 @@ def get_engine(engine_id: str | None = None) -> Engine:
             return engine
 
     available = ", ".join(e.id for e in engines)
-    raise SystemExit(f"Motor '{engine_id}' não encontrado. Disponíveis: {available}")
+    raise SystemExit(f"Engine '{engine_id}' not found. Available: {available}")

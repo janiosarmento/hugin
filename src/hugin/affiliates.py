@@ -14,7 +14,7 @@ DEFAULT_AFFILIATES = """\
 #
 # Example:
 # arranhador = "https://amzn.to/xxx"
-# "ração para gatos" = "https://amzn.to/yyy"
+# "cat food" = "https://amzn.to/yyy"
 """
 
 

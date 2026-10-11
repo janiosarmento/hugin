@@ -1,4 +1,4 @@
-"""Testes do módulo normalizer."""
+"""Tests for the normalizer module."""
 
 from hugin.normalizer import normalize_tag, normalize_tags
 

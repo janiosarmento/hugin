@@ -4,15 +4,15 @@ from hugin.writer import write_keywords_block
 
 BASE = (
     '---\n'
-    'title: "Gatos"\n'
+    'title: "Cats"\n'
     'author: "Janio Sarmento"\n'
-    'description: Uma descrição longa que o editor reflui de outra forma se o arquivo for salvo por completo\n'
+    'description: A long description that the editor reflows differently when the file is saved in full\n'
     'tags:\n'
     '  - animais\n'
     '  - casa\n'
     '---\n'
     '\n'
-    'Corpo, com "aspas".\n'
+    'Body, with "quotes".\n'
 )
 
 
@@ -20,10 +20,10 @@ def test_appends_block_at_the_end_of_the_frontmatter(tmp_path):
     path = tmp_path / "post.md"
     path.write_text(BASE, encoding="utf-8")
 
-    write_keywords_block(path, ["gatos", "café"])
+    write_keywords_block(path, ["cats", "café"])
 
     assert path.read_text(encoding="utf-8") == BASE.replace(
-        "  - casa\n---\n", "  - casa\nkeywords:\n- gatos\n- café\n---\n",
+        "  - casa\n---\n", "  - casa\nkeywords:\n- cats\n- café\n---\n",
     )
 
 

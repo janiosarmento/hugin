@@ -1,4 +1,4 @@
-"""Normalização de tags recebidas do LLM."""
+"""Normalization of tags received from the LLM."""
 
 import re
 import unicodedata
@@ -74,7 +74,7 @@ def normalize_tag(tag: str, strip_articles: bool = True) -> str:
     tag = re.sub(r"\s+", "-", tag)
 
     if strip_articles:
-        # Remover artigos apenas no início da tag
+        # Remove articles only at the start of the tag
         parts = tag.split("-")
         while parts and parts[0] in ARTICLES:
             parts.pop(0)
@@ -86,7 +86,7 @@ def normalize_tag(tag: str, strip_articles: bool = True) -> str:
         parts = parts[:3]
     tag = "-".join(parts)
 
-    # Remover hífens duplicados ou nas pontas
+    # Remove duplicate hyphens and hyphens at the ends
     tag = re.sub(r"-+", "-", tag).strip("-")
 
     return tag
@@ -113,7 +113,7 @@ def normalize_tags(
             tag = pool_lower[tag.lower()]
         else:
             # Fuzzy: if tag is a longer variant of an existing tag, use the existing one
-            # e.g. "comunicação-felina" → "comunicação", "comportamento-felino" → "comportamento"
+            # e.g. with "cat" in the pool, "cat-behavior" becomes "cat"
             tag_parts = tag.lower().split("-")
             for pool_tag_lower, pool_tag in pool_lower.items():
                 pool_parts = pool_tag_lower.split("-")
@@ -121,11 +121,11 @@ def normalize_tags(
                     tag = pool_tag
                     break
 
-        # Dedup contra tags existentes do post
+        # Dedup against the post's existing tags
         if tag.lower() in existing_lower:
             continue
 
-        # Dedup dentro do lote
+        # Dedup within the batch
         if tag.lower() in seen:
             continue
 
