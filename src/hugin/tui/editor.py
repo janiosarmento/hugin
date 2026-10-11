@@ -20,6 +20,7 @@ from textual.widgets import (
 )
 
 from hugin.scanner import Post
+from hugin.tui.date_picker import DatePickerScreen, format_frontmatter_date, parse_frontmatter_date
 from hugin.linker import convert_html_links_to_markdown
 from hugin.writer import save_post
 from hugin.writer import save_raw
@@ -86,12 +87,22 @@ def _quote_frontmatter_fields(raw: str, fields: tuple[str, ...] = ("title", "des
     return "".join(out)
 
 
-# Fields that get dedicated Input widgets (order matters for display)
-EDITABLE_FIELDS = ("title", "date", "lastmod", "draft", "slug", "url", "description")
-# Fields managed by other tools — show but don't edit here
-READONLY_FIELDS = ("tags",)
+# Editable fields, one row per tuple (fields in a row share the line)
+FIELD_ROWS = (
+    ("title",),
+    ("date",),
+    ("draft", "toc"),
+    ("slug",),
+    ("url",),
+    ("description",),
+)
+EDITABLE_FIELDS = tuple(name for row in FIELD_ROWS for name in row)
 # Fields edited as a checkbox instead of text
-BOOLEAN_FIELDS = ("draft",)
+BOOLEAN_FIELDS = ("draft", "toc")
+# Dates get a picker next to the text field
+DATE_FIELDS = ("date",)
+# Fields managed by other tools: show but don't edit here (lastmod is set on every save, so not shown)
+READONLY_FIELDS = ("tags",)
 
 
 def _as_bool(value) -> bool:
@@ -203,6 +214,16 @@ class EditorScreen(Screen[bool]):
         width: 1fr;
     }
 
+    .field-check {
+        width: auto;
+        margin-right: 2;
+    }
+
+    .pick-button {
+        width: 8;
+        min-width: 8;
+    }
+
     .field-readonly {
         width: 1fr;
         color: $text-muted;
@@ -261,21 +282,24 @@ class EditorScreen(Screen[bool]):
                 meta = self.post.metadata
 
                 # Editable fields
-                for field_name in EDITABLE_FIELDS:
+                for row in FIELD_ROWS:
                     with Horizontal(classes="field-row"):
-                        yield Label(field_name, classes="field-label")
-                        if field_name in BOOLEAN_FIELDS:
-                            widget = Checkbox(
-                                "", value=_as_bool(meta.get(field_name)),
-                                id=f"field-{field_name}", classes="field-input",
-                            )
-                        else:
-                            widget = Input(
-                                value=_as_text(meta.get(field_name)),
-                                id=f"field-{field_name}", classes="field-input",
-                            )
-                        self._field_inputs[field_name] = widget
-                        yield widget
+                        for field_name in row:
+                            yield Label(field_name, classes="field-label")
+                            if field_name in BOOLEAN_FIELDS:
+                                widget = Checkbox(
+                                    "", value=_as_bool(meta.get(field_name)),
+                                    id=f"field-{field_name}", classes="field-check",
+                                )
+                            else:
+                                widget = Input(
+                                    value=_as_text(meta.get(field_name)),
+                                    id=f"field-{field_name}", classes="field-input",
+                                )
+                            self._field_inputs[field_name] = widget
+                            yield widget
+                            if field_name in DATE_FIELDS:
+                                yield Button("Pick", id=f"pick-{field_name}", classes="pick-button")
 
                 # Read-only fields
                 for field_name in READONLY_FIELDS:
@@ -421,6 +445,12 @@ class EditorScreen(Screen[bool]):
             self.dismiss(True)
             return
 
+        for field_name in DATE_FIELDS:
+            text = self._field_inputs[field_name].value.strip()
+            if text and parse_frontmatter_date(text) is None:
+                self.notify(f"{field_name}: use YYYY-MM-DD HH:MM:SS", severity="error", timeout=8)
+                return
+
         # Build new metadata starting from original (preserves order and extra fields)
         new_meta = dict(self._original_meta)
 
@@ -462,8 +492,19 @@ class EditorScreen(Screen[bool]):
         else:
             self.dismiss(False)
 
+    def _pick_date(self, field_name: str) -> None:
+        widget = self._field_inputs[field_name]
+
+        def on_picked(value) -> None:
+            if value is not None:
+                widget.value = format_frontmatter_date(value)
+
+        self.app.push_screen(DatePickerScreen(parse_frontmatter_date(widget.value)), on_picked)
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-toggle-raw":
+        if event.button.id and event.button.id.startswith("pick-"):
+            self._pick_date(event.button.id.removeprefix("pick-"))
+        elif event.button.id == "btn-toggle-raw":
             self.action_toggle_raw()
         elif event.button.id == "btn-strip-emojis":
             self.action_strip_emojis()
