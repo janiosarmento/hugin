@@ -41,7 +41,8 @@ def test_prompt_screen_submits_text(monkeypatch):
         await pilot.press(*"hello", "ctrl+s")
 
     # No posts, so the profile is the only source of voice
-    profile_only = lambda: ed.EchoPromptScreen([], None, None, authors=["Ana"], profiles={"Ana": "Warm."})
+    def profile_only():
+        return ed.EchoPromptScreen([], None, None, authors=["Ana"], profiles={"Ana": "Warm."})
     assert _run(profile_only, keys) == ("hello", "echo")
 
 
@@ -191,7 +192,6 @@ def test_h_key_warns_without_enough_posts(tmp_path):
 
 
 def test_wait_screen_assigns_category_from_system_llm(tmp_path, monkeypatch):
-    import hugin.llm as llm
 
     (tmp_path / ".pages.yml").write_text(
         "content:\n  - name: post\n    fields:\n      - name: categories\n"
@@ -262,7 +262,6 @@ def test_wait_screen_survives_index_failure(tmp_path, monkeypatch):
 
 
 def test_wait_screen_falls_back_and_warns(tmp_path, monkeypatch):
-    import hugin.llm as llm
     from hugin.engines import Engine
 
     async def echo_down(message, persona, key):
@@ -348,7 +347,8 @@ def test_prompt_screen_f2_picks_system_writer_and_remembers(monkeypatch):
     async def keys(app, pilot):
         await pilot.press(*"hi", "f2", "ctrl+s")
 
-    profile_only = lambda: ed.EchoPromptScreen(
+    def profile_only():
+        return ed.EchoPromptScreen(
         [], None, engine, authors=["Ana"], profiles={"Ana": "Warm."}
     )
     assert _run(profile_only, keys) == ("hi", "system")
@@ -363,7 +363,6 @@ def test_prompt_screen_f2_picks_system_writer_and_remembers(monkeypatch):
 
 
 def test_wait_screen_system_writer_skips_echo(tmp_path, monkeypatch):
-    import hugin.llm as llm
     from hugin.engines import Engine
 
     def echo_must_not_run(*a, **k):
@@ -1129,7 +1128,8 @@ def test_prompt_screen_blocks_send_without_samples_or_profile(tmp_path):
         assert isinstance(app.screen, ed.EchoPromptScreen)
         await pilot.press("escape")
 
-    factory = lambda: ed.EchoPromptScreen(posts, None, None, authors=["Ana"], profiles={})
+    def factory():
+        return ed.EchoPromptScreen(posts, None, None, authors=["Ana"], profiles={})
     assert _run(factory, keys) is None
 
 
@@ -1139,7 +1139,8 @@ def test_prompt_screen_sends_profile_when_samples_are_short(tmp_path):
     async def keys(app, pilot):
         await pilot.press(*"hello", "ctrl+s")
 
-    factory = lambda: ed.EchoPromptScreen(
+    def factory():
+        return ed.EchoPromptScreen(
         posts, None, None, authors=["Ana"], profiles={"Ana": "Warm."}
     )
     screen_holder = {}
@@ -1163,7 +1164,8 @@ def test_prompt_screen_blocks_send_when_profile_is_unchecked(tmp_path):
         assert isinstance(app.screen, ed.EchoPromptScreen)
         await pilot.press("escape")
 
-    factory = lambda: ed.EchoPromptScreen(
+    def factory():
+        return ed.EchoPromptScreen(
         posts, None, None, authors=["Ana"], profiles={"Ana": "Warm."}
     )
     assert _run(factory, keys) is None

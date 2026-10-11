@@ -1,4 +1,4 @@
-"""Keywords are filled from link profiles once per blog, in a single local commit."""
+"""Posts without keywords are filled from their link profile, in a single local commit."""
 
 import os
 import subprocess
@@ -7,8 +7,7 @@ from pathlib import Path
 import frontmatter
 import pytest
 
-import hugin.state as state_module
-from hugin.migrations import KEYWORDS_FROM_PROFILES, fill_keywords_from_profiles, parse_profile
+from hugin.migrations import fill_keywords_from_profiles, parse_profile
 from hugin.scanner import load_posts
 
 GIT_ENV = {
@@ -44,8 +43,7 @@ def _write(directory: Path, name: str, front: str) -> None:
 
 
 @pytest.fixture
-def blog(tmp_path, monkeypatch):
-    monkeypatch.setattr(state_module, "STATE_DIR", tmp_path / "state")
+def blog(tmp_path):
     directory = tmp_path / "blog"
     directory.mkdir()
     _git(directory, "init", "-q")
@@ -107,16 +105,16 @@ def test_only_adds_the_keywords_block(blog):
     assert before.replace("---\n\nCorpo.", "keywords:\n- café\n- Hugo\n- python\n---\n\nCorpo.") == after
 
 
-def test_runs_once_per_blog(blog):
+def test_refills_a_post_whose_keywords_were_removed(blog):
     fill_keywords_from_profiles(blog, _posts(blog), FakeIndex(_profiles()))
-    # Removed on purpose: the post keeps its profile, but must not be filled again
     _write(blog, "needs-profile.md", 'title: "Sem"\ndate: 2024-01-02\n')
     _git(blog, "commit", "-q", "-am", "drop keywords by hand")
-    commits_before = _git(blog, "rev-list", "--count", "HEAD")
 
-    assert fill_keywords_from_profiles(blog, _posts(blog), FakeIndex(_profiles())) is None
-    assert _git(blog, "rev-list", "--count", "HEAD") == commits_before
-    assert frontmatter.load(str(blog / "needs-profile.md")).metadata.get("keywords") is None
+    message = fill_keywords_from_profiles(blog, _posts(blog), FakeIndex(_profiles()))
+
+    assert message.startswith("Keywords filled from link profiles for 1 post(s)")
+    assert frontmatter.load(str(blog / "needs-profile.md")).metadata["keywords"] == ["café", "Hugo", "python"]
+    assert _git(blog, "rev-list", "--count", "HEAD").strip() == "4"
 
 
 def test_does_nothing_with_tracked_changes(blog):
@@ -145,8 +143,7 @@ def test_untracked_files_do_not_block(blog):
     assert message.startswith("Keywords filled")
 
 
-def test_not_a_repository_fills_nothing(tmp_path, monkeypatch):
-    monkeypatch.setattr(state_module, "STATE_DIR", tmp_path / "state")
+def test_not_a_repository_fills_nothing(tmp_path):
     directory = tmp_path / "plain"
     directory.mkdir()
     _write(directory, "needs-profile.md", 'title: "Sem"\ndate: 2024-01-02\n')
@@ -157,10 +154,9 @@ def test_not_a_repository_fills_nothing(tmp_path, monkeypatch):
     assert frontmatter.load(str(directory / "needs-profile.md")).metadata.get("keywords") is None
 
 
-def test_no_candidates_leaves_no_marker(blog):
-    index = FakeIndex({})
+def test_nothing_to_do_returns_none_and_makes_no_commit(blog):
+    before = _git(blog, "rev-list", "--count", "HEAD")
 
-    assert fill_keywords_from_profiles(blog, _posts(blog), index) is None
+    assert fill_keywords_from_profiles(blog, _posts(blog), FakeIndex({})) is None
 
-    state = state_module.load_state(blog)
-    assert KEYWORDS_FROM_PROFILES not in state.get("migrations", {})
+    assert _git(blog, "rev-list", "--count", "HEAD") == before

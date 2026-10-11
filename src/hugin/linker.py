@@ -8,8 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import frontmatter
-from markdown_it import MarkdownIt
 from hugin.normalizer import strip_accents
 from hugin.writer import write_body
 

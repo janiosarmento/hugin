@@ -4,7 +4,6 @@ import asyncio
 import json
 import math
 import os
-import re
 import shlex
 import subprocess
 import time
@@ -77,16 +76,16 @@ from hugin.llm import (
     parse_anchor_response,
     parse_rerank_response,
     parse_suggestions,
-    suggest_keywords,
     suggest_summary,
     suggest_tags,
 )
-from hugin.normalizer import detect_language, normalize_keyword, normalize_keywords, normalize_tag, normalize_tags, strip_accents
-from hugin.scanner import Post, collect_keyword_pool, format_pool_for_prompt
-from hugin.project import ProjectConfig, load_project
+from hugin.normalizer import normalize_tag, normalize_tags, strip_accents
+from hugin.scanner import Post, format_pool_for_prompt
+from hugin.project import load_project
 from hugin.log import log_exception, log_info
 from hugin.state import mark_processed, save_state, get_last_post, set_last_post
-from hugin.writer import write_keywords, write_summary, write_tags
+from hugin.writer import write_keywords_block, write_summary, write_tags
+from hugin.migrations import parse_profile
 from rich.text import Text
 from rich.table import Table
 from rich.style import Style
@@ -95,7 +94,6 @@ from hugin.authors import ordered_authors
 from hugin.authors import post_author
 from hugin.echo import has_enough_samples
 from hugin.redirects import find_redirects_file
-from hugin.linker import extract_existing_links
 import httpx
 from hugin.git import pending_changes
 from hugin.git import git_sync
@@ -103,7 +101,7 @@ from hugin.hugo import slugify
 from hugin.writer import create_post
 import frontmatter as fm
 from hugin.trash import move_to_trash
-from hugin.redirects import append_redirect, find_redirects_file
+from hugin.redirects import append_redirect
 from rich.markup import escape
 
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -585,7 +583,7 @@ class HuginScreen(Screen):
         Binding("escape", "back", "Back", show=False, tooltip="Go back / cancel an in-progress LLM call"),
         Binding("question_mark", "help", "Help", tooltip="Show all keybindings, including the hidden ones"),
         Binding("t", "tags", "Tags", tooltip="Generate tags with LLM"),
-        Binding("k", "keywords", "Kwds", tooltip="Generate keywords with LLM (hidden taxonomy for related posts)"),
+        Binding("k", "keywords", "Kwds", tooltip="Copy the link profile into keywords (hidden taxonomy for related posts, no LLM)"),
         Binding("s", "summary", "Summ", tooltip="Generate summary with LLM"),
         Binding("i", "incoming", "In", tooltip="Find incoming link candidates (embedding only)"),
         Binding("o", "outgoing", "Out", tooltip="Generate outgoing link suggestions (embedding + LLM)"),
@@ -744,9 +742,6 @@ class HuginScreen(Screen):
         self.suggested_tags: list[str] = []
         self._existing_checkboxes: list[Checkbox] = []
         self._suggested_checkboxes: list[Checkbox] = []
-        self.suggested_keywords: list[str] = []
-        self._existing_keyword_checkboxes: list[Checkbox] = []
-        self._suggested_keyword_checkboxes: list[Checkbox] = []
         self._outgoing_checkboxes: list[Checkbox] = []
         self._listed_links: list[dict] = []
         self._row_keys: list[str] = []
@@ -1030,9 +1025,6 @@ class HuginScreen(Screen):
         self._suggested_summary = ""
         self._existing_checkboxes = []
         self._suggested_checkboxes = []
-        self.suggested_keywords = []
-        self._existing_keyword_checkboxes = []
-        self._suggested_keyword_checkboxes = []
         self._outgoing_checkboxes = []
         self._listed_links = []
         self._suggested_topics = []
@@ -1193,103 +1185,20 @@ class HuginScreen(Screen):
     # === KEYWORDS (hidden taxonomy for related-posts) ===
 
     def action_keywords(self) -> None:
-        if self._state != STATE_BROWSING:
+        """Copy the post's link profile into its keywords field. No LLM call."""
+        if self._state != STATE_BROWSING or not self.posts:
             return
-        self._state = STATE_LOADING
         post = self.posts[self.current_index]
-        self._clear_action_area()
-        self._mode = "keywords"
-        self._start_spinner(self.current_index, "Generating keywords...")
-        self._call_llm_keywords(post)
-
-    @work(exclusive=True)
-    async def _call_llm_keywords(self, post: Post) -> None:
-        language = detect_language(post.content)
-        keyword_pool = collect_keyword_pool(self.all_posts, language=language)
-        pool_str = format_pool_for_prompt(keyword_pool)
-        try:
-            raw_keywords = await suggest_keywords(
-                self.engine, post.metadata, post.content, pool_str,
-            )
-            existing_keywords = post.metadata.get("keywords") or []
-            normalized = normalize_keywords(raw_keywords, existing_keywords, keyword_pool)
-            self._display_keywords(normalized, keyword_pool)
-        except Exception as e:  # UI boundary: show it, keep the traceback in the log
-            log_exception("llm request")
-            self._display_error(self._format_error(e))
-
-    def _display_keywords(self, keywords: list[str], keyword_pool: dict[str, int]) -> None:
-        self._state = STATE_REVIEWING
-        self._stop_spinner()
-        self.suggested_keywords = keywords
-        self._existing_keyword_checkboxes = []
-        self._suggested_keyword_checkboxes = []
-
-        container = self.query_one("#suggested-tags-container")
-        container.remove_children()
-
-        post = self.posts[self.current_index]
-        existing_keywords = post.metadata.get("keywords") or []
-
-        if existing_keywords:
-            container.mount(Label("Existing:", classes="section-label"))
-            for keyword in existing_keywords:
-                cb = Checkbox(keyword, value=True)
-                self._existing_keyword_checkboxes.append(cb)
-                container.mount(cb)
-
-        if keywords:
-            container.mount(Label("Suggested:", classes="section-label"))
-            pool_lower = {k.lower() for k in keyword_pool}
-            for keyword in keywords:
-                is_new = keyword.lower() not in pool_lower
-                label = f"✨ {keyword}" if is_new else keyword
-                cb = Checkbox(label, value=True)
-                self._suggested_keyword_checkboxes.append(cb)
-                container.mount(cb)
-
-        self.query_one("#section-header", Label).update("")
-        manual_input = self.query_one("#manual-tags-input", Input)
-        manual_input.placeholder = "Manual keywords (comma-separated)"
-        manual_input.remove_class("hidden")
-        self.query_one("#review-buttons").remove_class("hidden")
-        self.query_one("#btn-apply", Button).label = "Apply"
-        self.query_one("#btn-apply", Button).focus()
-
-    def _apply_keywords(self) -> None:
-        post = self.posts[self.current_index]
-
-        kept = [cb.label.plain for cb in self._existing_keyword_checkboxes if cb.value]
-        added = [
-            cb.label.plain.removeprefix("✨ ")
-            for cb in self._suggested_keyword_checkboxes if cb.value
-        ]
-
-        manual_raw = self.query_one("#manual-tags-input", Input).value
-        manual = [normalize_keyword(k) for k in manual_raw.split(",") if k.strip()]
-        manual = [k for k in manual if k]
-
-        final_keywords = kept + added + manual
-
-        write_keywords(post.path, final_keywords)
+        terms = parse_profile(self.index.get_link_keywords(post))
+        if not terms:
+            self.notify("No link profile for this post yet. Press o to build one.", severity="warning")
+            return
+        write_keywords_block(post.path, terms)
+        post.metadata["keywords"] = terms
         mark_processed(self.state, post.filename)
         save_state(self.directory, self.state)
-
-        post.metadata["keywords"] = final_keywords
-        post.metadata["lastmod"] = datetime.now().isoformat(timespec="seconds")
-        self._stop_spinner(done=True)
-
-        parts = []
-        if added:
-            parts.append(f"+{len(added)}")
-        if manual:
-            parts.append(f"+{len(manual)} manual")
-        msg = ", ".join(parts) if parts else "no changes"
-        self.notify(f"{post.filename}: {msg}")
-
-        self._state = STATE_BROWSING
+        self.notify(f"{post.filename}: {len(terms)} keywords from the link profile")
         self._update_detail_panel()
-        self.query_one("#post-table", DataTable).focus()
 
     # === SUMMARY ===
 
@@ -1469,7 +1378,9 @@ class HuginScreen(Screen):
             self.query_one("#section-header", Label).update("Querying LLM...")
             self._run_outgoing_manual(post, budget, selected)
 
-        url_fn = lambda meta, fname: self.site.post_url(meta, fname)
+        def url_fn(meta, fname):
+            return self.site.post_url(meta, fname)
+
         self.app.push_screen(
             PostPickerScreen(self.all_posts, post, url_fn),
             on_pick,
@@ -2468,8 +2379,6 @@ class HuginScreen(Screen):
         if event.button.id == "btn-apply":
             if self._mode == "tags":
                 self._apply_tags()
-            elif self._mode == "keywords":
-                self._apply_keywords()
             elif self._mode == "summary":
                 self._apply_summary()
             elif self._mode == "list":

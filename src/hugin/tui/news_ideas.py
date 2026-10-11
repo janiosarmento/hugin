@@ -21,6 +21,7 @@ from hugin.hugo import slugify as _slugify
 from hugin.hugo import load_categories
 import asyncio
 from hugin.llm import NEWS_IDEAS_PROMPT, call_llm, parse_news_ideas
+from hugin.log import log_exception
 from hugin.news import fetch_news
 from hugin.writer import create_post
 from hugin.project import load_project

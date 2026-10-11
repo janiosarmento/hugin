@@ -222,7 +222,6 @@ class TestCategory:
         assert parse_category("", CATS) is None
 
     def test_pick_uses_system_llm_answer(self, monkeypatch):
-        import hugin.llm as llm
 
         seen = {}
 
@@ -236,7 +235,6 @@ class TestCategory:
         assert "- Technology" in seen["prompt"] and "body text" in seen["prompt"]
 
     def test_pick_falls_back_to_first_on_unmatched_or_error(self, monkeypatch):
-        import hugin.llm as llm
 
         async def nonsense(engine, prompt, system=None):
             return "no idea"
@@ -265,7 +263,6 @@ class TestFallback:
         return Engine("sys", "https://x/v1", "m", 30, "key" if available else None)
 
     def _setup(self, monkeypatch, echo_result):
-        import hugin.llm as llm
 
         calls = {}
 
@@ -298,7 +295,7 @@ class TestFallback:
         assert calls["engine"].timeout >= 300  # long-form writing gets a patient timeout
 
     def test_missing_key_also_falls_back(self, monkeypatch):
-        calls = self._setup(monkeypatch, "unused")
+        self._setup(monkeypatch, "unused")
 
         def no_key():
             raise EchoError("Echo API key not found")
@@ -314,7 +311,6 @@ class TestFallback:
                 asyncio.run(write_with_fallback("m", "p", engine))
 
     def test_both_fail(self, monkeypatch):
-        import hugin.llm as llm
 
         self._setup(monkeypatch, EchoError("echo down"))
 

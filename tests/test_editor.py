@@ -165,7 +165,6 @@ def test_picker_cancel_returns_none(tmp_path):
 def test_picker_opened_from_the_editor_shows_the_current_time_and_fits(tmp_path):
     from textual.widgets import Button, Input
 
-    from hugin.tui.date_picker import DatePickerScreen
 
     post = _post(tmp_path, "")
     post.path.write_text(post.path.read_text(encoding="utf-8").replace("date: 2024-01-02", "date: 2024-01-02T11:30:00"))

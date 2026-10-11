@@ -38,7 +38,6 @@ def _engine():
 
 
 def test_pick_category_falls_back_only_on_llm_failures(monkeypatch):
-    import hugin.llm as llm
 
     async def net_down(*a, **k):
         raise httpx.ConnectError("down")

@@ -1,7 +1,5 @@
 """Tests for hugin/linker.py — protected zones, substitution, link application."""
 
-import pytest
-from pathlib import Path
 
 from hugin.linker import (
     apply_links,
@@ -12,7 +10,6 @@ from hugin.linker import (
     is_in_protected_zone,
     write_post_with_links,
 )
-from hugin.linker import BrokenLink
 from hugin.scanner import Post
 from hugin.hugo import HugoSite
 

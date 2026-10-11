@@ -24,8 +24,7 @@ from hugin.git import git_sync
 from hugin.authors import ordered_authors, post_authors
 from hugin.project import load_project
 from hugin.tui.app import HuginApp
-from hugin.scanner import collect_tag_pool, find_duplicate_tags
-from hugin.state import get_last_processed, load_state
+from hugin.state import get_last_processed
 from hugin.llm import LINK_KEYWORDS_SYSTEM, LINK_KEYWORDS_USER_TEMPLATE, call_llm
 
 
@@ -297,7 +296,7 @@ def build_profiles(
                 )
                 keywords = (await call_llm(engine, prompt, system=LINK_KEYWORDS_SYSTEM)).strip()
                 index.store_link_keywords(post, keywords)
-                click.echo(f" ✓")
+                click.echo(" ✓")
             except Exception as e:  # per-post failure must not stop the batch
                 log_exception(f"profile {post.filename}")
                 click.echo(f" ✗ {type(e).__name__}: {e}")

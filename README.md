@@ -62,7 +62,7 @@ Press `?` at any time on the main screen for a modal listing every keybinding be
 |---|---|
 | `?` | Show all keybindings (hidden ones included) |
 | `t` | Generate tags with LLM |
-| `k` | Generate keywords with LLM (hidden taxonomy for related posts) |
+| `k` | Copy the post's link profile into `keywords` (hidden taxonomy for related posts; no LLM call). Replaces the current keywords |
 | `s` | Generate summary with LLM |
 | `i` | Find incoming link candidates (embedding only) |
 | `o` | Generate outgoing link suggestions (embedding + LLM) |
@@ -126,7 +126,9 @@ The LLM receives the post content and existing tag pool, and suggests tags and s
 
 A separate, hidden taxonomy (`keywords` front matter field) used only to feed the blog's "related posts" algorithm — never shown to readers, no listing page. Unlike tags (the specific subject) or categories (the broad bucket), a keyword captures the underlying theme connecting posts that don't necessarily share a tag.
 
-The LLM is given the pool of keywords already used across the **20 most recent posts** (older posts are out of scope) and strongly prefers reusing one over coining a new one — a controlled vocabulary is the whole point, since a fresh keyword per post would never match anything. Suggestions are lowercase, accent-stripped, hyphen-separated (`canetas-tinteiro`), and reviewed with checkboxes like tags.
+Keywords are the post's **link profile** (the link profile described under outgoing links), copied as they are: `k` writes the profile's terms into the `keywords` field and makes no LLM call. A post without a profile gets a warning; press `o` to build one first.
+
+On startup, Hugin fills in every post that has no `keywords` field and already has a link profile, in a single local commit (not pushed). A post whose `keywords` field is present, even empty, is left alone.
 
 ### Internal Links
 

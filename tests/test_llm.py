@@ -3,6 +3,7 @@
 import pytest
 
 from hugin.llm import build_prompt, parse_response, strip_reasoning
+from hugin.llm import parse_anchor_response, parse_suggestions
 
 
 class TestParseResponse:
@@ -58,8 +59,6 @@ class TestParseResponse:
         text = '["ok-tag", "[unparseable, no quotes]"]'
         assert parse_response(text) == ["ok-tag"]
 
-
-from hugin.llm import parse_anchor_response, parse_suggestions
 
 
 class TestParseAnchorResponse:

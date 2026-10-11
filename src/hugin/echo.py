@@ -8,7 +8,6 @@ engines.toml (see engines.load_fulcrum_echo_secret).
 
 import asyncio
 import random
-import re
 from datetime import datetime
 from pathlib import Path
 

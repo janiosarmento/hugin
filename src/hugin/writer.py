@@ -1,5 +1,6 @@
 """Centralised post writing — single path for all frontmatter serialisation."""
 
+import re
 from datetime import date, datetime
 from pathlib import Path
 
@@ -150,11 +151,31 @@ def write_tags(path: Path, tags: list[str]) -> None:
     save_post(path, post)
 
 
-def write_keywords(path: Path, keywords: list[str]) -> None:
-    """Write the full keyword list to a post, replacing any existing keywords."""
-    post = frontmatter.load(str(path))
-    post.metadata["keywords"] = keywords
-    save_post(path, post)
+_FRONTMATTER_END = re.compile(r"^-{3,}\s*$")
+_KEYWORDS_KEY = re.compile(r"^keywords\s*:")
+
+
+def write_keywords_block(path: Path, keywords: list[str]) -> None:
+    """Set a post's `keywords` to exactly `keywords`, touching nothing else in the file.
+
+    Not a full re-save: that would also re-quote and re-wrap the other fields.
+    An existing `keywords` entry is replaced where it stands (block or flow style);
+    without one, the entry goes at the end of the frontmatter.
+    """
+    lines = path.read_text(encoding="utf-8").split("\n")
+    end = next(i for i in range(1, len(lines)) if _FRONTMATTER_END.match(lines[i]))
+    block = yaml.safe_dump(
+        {"keywords": keywords}, allow_unicode=True, sort_keys=False, width=float("inf"),
+    ).splitlines()
+    start = next((i for i in range(1, end) if _KEYWORDS_KEY.match(lines[i])), None)
+    if start is None:
+        lines[end:end] = block
+    else:
+        stop = start + 1
+        while stop < end and (lines[stop].startswith("-") or lines[stop][:1].isspace()):
+            stop += 1
+        lines[start:stop] = block
+    atomic_write_text(path, "\n".join(lines))
 
 
 def write_summary(path: Path, summary: str) -> None:

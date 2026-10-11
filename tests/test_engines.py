@@ -1,6 +1,5 @@
 """Testes do módulo engines."""
 
-import secrets_resolver
 from secrets_resolver.exceptions import SecretFileNotFound
 
 import hugin.engines as engines_mod

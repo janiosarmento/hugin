@@ -1,6 +1,5 @@
 """Testes do módulo scanner."""
 
-from datetime import datetime
 
 from hugin.scanner import (
     collect_tag_pool,

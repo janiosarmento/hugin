@@ -1,10 +1,8 @@
 """Tests for hugin/config.py — config loading with fallback."""
 
-import pytest
-from pathlib import Path
 from unittest.mock import patch
 
-from hugin.config import load_config, LinksConfig, EmbeddingsConfig, FrontmatterConfig
+from hugin.config import load_config
 
 
 class TestLoadConfig:

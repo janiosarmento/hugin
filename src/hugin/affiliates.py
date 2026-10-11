@@ -1,7 +1,6 @@
 """Affiliate keyword → URL dictionary management."""
 
 import tomllib
-from pathlib import Path
 
 from hugin.engines import CONFIG_DIR
 import tomlkit
