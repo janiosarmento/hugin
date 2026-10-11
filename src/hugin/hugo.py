@@ -24,6 +24,16 @@ SUPPORTED_TOKENS = {":slug", ":year", ":month", ":day", ":section"}
 CONFIG_FILENAMES = ("hugo.toml", "config.toml", "config.yaml")
 
 
+def find_site_root(posts_dir: Path) -> Path:
+    """The Hugo site root above posts_dir, where its config lives; posts_dir when there is none."""
+    config_path = find_hugo_config(posts_dir)
+    if config_path is None:
+        return posts_dir.resolve()
+    if config_path.parent.name == "_default" and config_path.parent.parent.name == "config":
+        return config_path.parent.parent.parent
+    return config_path.parent
+
+
 def find_hugo_config(posts_dir: Path) -> Path | None:
     """Walk up from posts_dir to find Hugo config file.
 

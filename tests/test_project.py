@@ -109,3 +109,22 @@ def test_legacy_settings_are_read_until_the_blog_has_its_own(monkeypatch, tmp_pa
     save_project(blog, load_project(blog))
     legacy.write_text('[summary]\nwords = 99\n')  # stale copy must no longer win
     assert load_project(blog).summary.words == 33
+
+
+def test_settings_are_shared_by_all_languages_at_the_site_root(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    site = tmp_path / "site"
+    (site / "config" / "_default").mkdir(parents=True)
+    (site / "config" / "_default" / "hugo.toml").write_text('baseURL = "https://x/"\n')
+    en_posts = site / "content" / "en" / "post"
+    pt_posts = site / "content" / "pt" / "post"
+    en_posts.mkdir(parents=True)
+    pt_posts.mkdir(parents=True)
+
+    config = ProjectConfig()
+    config.authors.names = ["Ana"]
+    save_project(en_posts, config)
+
+    assert (site / "hugin" / "config.toml").exists()
+    assert not (en_posts / "hugin").exists()
+    assert load_project(pt_posts).authors.names == ["Ana"]

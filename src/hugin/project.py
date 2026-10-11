@@ -8,6 +8,7 @@ from pathlib import Path
 
 from hugin.engines import CONFIG_DIR
 from hugin.fsutil import atomic_write_text
+from hugin.hugo import find_site_root
 
 PROJECTS_DIR = CONFIG_DIR / "projects"  # legacy location, read as a fallback
 SETTINGS_DIR = "hugin"  # inside the blog repository
@@ -65,8 +66,12 @@ class ProjectConfig:
 
 
 def _project_path(directory: Path) -> Path:
-    """The blog's own settings file, inside its Git repository (the file saves write)."""
-    return directory / SETTINGS_DIR / SETTINGS_FILE
+    """The site's settings file, at the Hugo site root (the file saves write).
+
+    `directory` is the posts folder; the settings are shared by all of the
+    site's languages, so they live at the root, not in one language's folder.
+    """
+    return find_site_root(directory) / SETTINGS_DIR / SETTINGS_FILE
 
 
 def _legacy_path(directory: Path) -> Path:

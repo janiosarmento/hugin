@@ -8,6 +8,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, Static, TextArea
 
 from hugin.git import SETTINGS_PUSHED, commit_settings
+from hugin.hugo import find_site_root
 from hugin.project import DEFAULT_EDITORIAL_CONSTRAINTS, ProjectConfig, save_project
 
 
@@ -17,9 +18,10 @@ def save_and_sync(app, directory: Path, config: ProjectConfig, what: str) -> Non
     The commit is for the settings file alone, so a sync is never blocked on posts.
     """
     save_project(directory, config)
+    root = find_site_root(directory)
 
     def sync() -> None:
-        line = commit_settings(directory, f"Hugin settings: update {what}")
+        line = commit_settings(root, f"Hugin settings: update {what}")
         if line:
             severity = "information" if line == SETTINGS_PUSHED else "warning"
             app.call_from_thread(app.notify, line, severity=severity, timeout=10)
