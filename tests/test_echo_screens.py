@@ -40,7 +40,9 @@ def test_prompt_screen_submits_text(monkeypatch):
     async def keys(app, pilot):
         await pilot.press(*"hello", "ctrl+s")
 
-    assert _run(ed.EchoPromptScreen, keys) == ("hello", "echo")
+    # No posts, so the profile is the only source of voice
+    profile_only = lambda: ed.EchoPromptScreen([], None, None, authors=["Ana"], profiles={"Ana": "Warm."})
+    assert _run(profile_only, keys) == ("hello", "echo")
 
 
 def test_prompt_screen_rejects_empty_and_cancels():
@@ -346,14 +348,17 @@ def test_prompt_screen_f2_picks_system_writer_and_remembers(monkeypatch):
     async def keys(app, pilot):
         await pilot.press(*"hi", "f2", "ctrl+s")
 
-    assert _run(lambda: ed.EchoPromptScreen([], None, engine), keys) == ("hi", "system")
+    profile_only = lambda: ed.EchoPromptScreen(
+        [], None, engine, authors=["Ana"], profiles={"Ana": "Warm."}
+    )
+    assert _run(profile_only, keys) == ("hi", "system")
     assert ed._last_writer == "system"
 
     # next time the selector starts on the remembered writer
     async def keys2(app, pilot):
         await pilot.press(*"again", "ctrl+s")
 
-    assert _run(lambda: ed.EchoPromptScreen([], None, engine), keys2) == ("again", "system")
+    assert _run(profile_only, keys2) == ("again", "system")
     assert "sys / big-model" in ed.EchoPromptScreen([], None, engine)._system_label()
 
 
@@ -1104,3 +1109,61 @@ def test_refactor_form_has_no_length_field(tmp_path):
             assert app.screen.query(Input) is not None
 
     asyncio.run(go())
+
+
+def _authored(tmp_path, author, count):
+    posts = []
+    for i in range(count):
+        path = tmp_path / f"{author[:2]}{i}.md"
+        path.write_text("body")
+        posts.append(Post(path, {"title": f"{author} {i}", "author": author}, "body", False,
+                          date=datetime.now() - timedelta(days=i + 1)))
+    return posts
+
+
+def test_prompt_screen_blocks_send_without_samples_or_profile(tmp_path):
+    posts = _authored(tmp_path, "Ana", 3)
+
+    async def keys(app, pilot):
+        await pilot.press(*"hello", "ctrl+s")
+        assert isinstance(app.screen, ed.EchoPromptScreen)
+        await pilot.press("escape")
+
+    factory = lambda: ed.EchoPromptScreen(posts, None, None, authors=["Ana"], profiles={})
+    assert _run(factory, keys) is None
+
+
+def test_prompt_screen_sends_profile_when_samples_are_short(tmp_path):
+    posts = _authored(tmp_path, "Ana", 3)
+
+    async def keys(app, pilot):
+        await pilot.press(*"hello", "ctrl+s")
+
+    factory = lambda: ed.EchoPromptScreen(
+        posts, None, None, authors=["Ana"], profiles={"Ana": "Warm."}
+    )
+    screen_holder = {}
+
+    def make():
+        screen_holder["screen"] = factory()
+        return screen_holder["screen"]
+
+    assert _run(make, keys) == ("hello", "echo")
+    assert screen_holder["screen"].profile == "Warm."
+
+
+def test_prompt_screen_blocks_send_when_profile_is_unchecked(tmp_path):
+    from textual.widgets import Checkbox
+
+    posts = _authored(tmp_path, "Ana", 3)
+
+    async def keys(app, pilot):
+        app.screen.query_one("#echo-profile", Checkbox).value = False
+        await pilot.press(*"hello", "ctrl+s")
+        assert isinstance(app.screen, ed.EchoPromptScreen)
+        await pilot.press("escape")
+
+    factory = lambda: ed.EchoPromptScreen(
+        posts, None, None, authors=["Ana"], profiles={"Ana": "Warm."}
+    )
+    assert _run(factory, keys) is None

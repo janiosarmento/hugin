@@ -5,7 +5,7 @@ from pathlib import Path
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Static, TextArea
+from textual.widgets import Button, Input, Label, Select, Static, TextArea
 
 from hugin.project import DEFAULT_EDITORIAL_CONSTRAINTS, ProjectConfig, save_project
 
@@ -58,11 +58,15 @@ class ProjectSettingsScreen(ModalScreen[bool]):
     }
     """
 
-    def __init__(self, config: ProjectConfig, directory: Path, global_words_per_link: int = 300) -> None:
+    def __init__(
+        self, config: ProjectConfig, directory: Path, global_words_per_link: int = 300,
+        authors: list[str] | None = None,
+    ) -> None:
         super().__init__()
         self._config = config
         self._directory = directory
         self._global_wpl = global_words_per_link
+        self._authors = authors or []
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="settings-modal"):
@@ -98,6 +102,13 @@ class ProjectSettingsScreen(ModalScreen[bool]):
             )
             yield Button("Editorial rules…", id="btn-editorial-rules")
 
+            yield Label("Author profiles", classes="field-label")
+            yield Static(
+                "Voice and style of each author, sent with their Echo drafts. Not the public author bio.",
+                classes="field-hint",
+            )
+            yield Button("Author profiles…", id="btn-author-profiles")
+
             with Horizontal(id="settings-buttons"):
                 yield Button("Save", id="btn-save-settings", variant="primary")
                 yield Button("Cancel", id="btn-cancel-settings")
@@ -107,6 +118,8 @@ class ProjectSettingsScreen(ModalScreen[bool]):
             self._do_save()
         elif event.button.id == "btn-editorial-rules":
             self.app.push_screen(EditorialRulesScreen(self._config, self._directory))
+        elif event.button.id == "btn-author-profiles":
+            self.app.push_screen(AuthorProfilesScreen(self._config, self._directory, self._authors))
         else:
             self.dismiss(False)
 
@@ -134,6 +147,145 @@ class ProjectSettingsScreen(ModalScreen[bool]):
         self._config.summary.words = words
         self._config.summary.style = style or self._config.summary.style
         self._config.links.words_per_link = wpl
+
+        save_project(self._directory, self._config)
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
+class AuthorProfilesScreen(ModalScreen[bool]):
+    """Voice profile per author; saves straight to the project file.
+
+    The profile is part of the prompt, not the public bio. A blank profile
+    removes the author's entry. Switching author discards unsaved edits.
+    """
+
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    DEFAULT_CSS = """
+    AuthorProfilesScreen {
+        align: center middle;
+    }
+
+    #profiles-modal {
+        width: 90%;
+        max-width: 110;
+        height: 100%;
+        max-height: 100%;
+        border: round $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #profiles-modal .settings-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #profiles-modal .field-label {
+        margin-top: 1;
+        text-style: bold;
+    }
+
+    #profiles-modal .field-hint {
+        color: $text-muted;
+    }
+
+    #select-profile-author {
+        width: 50;
+    }
+
+    #input-profile-name {
+        width: 50;
+    }
+
+    #input-profile-text {
+        height: 1fr;
+        min-height: 4;
+    }
+
+    #profiles-buttons {
+        height: auto;
+        margin-top: 1;
+    }
+
+    #profiles-buttons Button {
+        margin: 0 1 0 0;
+    }
+    """
+
+    def __init__(self, config: ProjectConfig, directory: Path, authors: list[str]) -> None:
+        super().__init__()
+        self._config = config
+        self._directory = directory
+        self._profiles = config.authors.profiles
+        # Authors with posts, then profiles of authors with no posts yet
+        self._authors = list(dict.fromkeys([*authors, *self._profiles]))
+        # The author loaded in the form; renaming it in the form moves the profile
+        self._loaded = self._authors[0] if self._authors else ""
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="profiles-modal"):
+            yield Label("Author profiles", classes="settings-title")
+
+            yield Label("Author", classes="field-label")
+            yield Static(
+                "Pick an author to edit, or leave blank to add a new one. "
+                "The name must match the author front matter of the posts.",
+                classes="field-hint",
+            )
+            yield Select(
+                [(a, a) for a in self._authors],
+                value=self._loaded or Select.BLANK,
+                allow_blank=True,
+                id="select-profile-author",
+            )
+            yield Input(value=self._loaded, placeholder="Author name", id="input-profile-name")
+
+            yield Label("Profile", classes="field-label")
+            yield Static(
+                "Voice and style to write in, e.g. formal and academic, or warm and informal. "
+                "Blank removes this author's profile.",
+                classes="field-hint",
+            )
+            yield TextArea(self._profiles.get(self._loaded, ""), id="input-profile-text")
+
+            with Horizontal(id="profiles-buttons"):
+                yield Button("Save", id="btn-save-profile", variant="primary")
+                yield Button("Cancel", id="btn-cancel-profile")
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id != "select-profile-author" or event.value in (Select.BLANK, self._loaded):
+            return
+        self._loaded = event.value
+        self.query_one("#input-profile-name", Input).value = self._loaded
+        self.query_one("#input-profile-text", TextArea).load_text(self._profiles.get(self._loaded, ""))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-save-profile":
+            self._do_save()
+        else:
+            self.dismiss(False)
+
+    def _do_save(self) -> None:
+        name = self.query_one("#input-profile-name", Input).value.strip()
+        text = self.query_one("#input-profile-text", TextArea).text.strip()
+
+        if not name:
+            self.notify("Name the author before saving the profile.", severity="warning")
+            return
+        if name != self._loaded and name in self._profiles:
+            self.notify(f"{name} already has a profile; pick it from the list.", severity="warning")
+            return
+
+        if self._loaded and self._loaded != name:
+            self._profiles.pop(self._loaded, None)
+        if text:
+            self._profiles[name] = text
+        else:
+            self._profiles.pop(name, None)
 
         save_project(self._directory, self._config)
         self.dismiss(True)

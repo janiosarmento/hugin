@@ -131,3 +131,52 @@ def test_rules_screen_keeps_save_and_fields_on_a_30_row_terminal(monkeypatch, tm
     regions = asyncio.run(go())
     assert regions["save"].y + regions["save"].height <= 30
     assert regions["override"].y + regions["override"].height <= 30
+
+
+def _edit_profiles(blog, config, authors, edit):
+    from hugin.tui.project_settings import AuthorProfilesScreen
+
+    async def go():
+        app = App()
+        async with app.run_test(size=(100, 40)) as pilot:
+            app.push_screen(AuthorProfilesScreen(config, blog, authors))
+            await pilot.pause()
+            edit(app.screen)
+            await pilot.pause()
+            app.screen.query_one("#btn-save-profile").press()
+            await pilot.pause()
+
+    asyncio.run(go())
+
+
+def test_profile_screen_saves_the_voice_of_an_author(monkeypatch, tmp_path):
+    from textual.widgets import Input
+
+    blog, config = _setup(monkeypatch, tmp_path)
+
+    def edit(screen):
+        screen.query_one("#input-profile-name", Input).value = "Ana Lima"
+        screen.query_one("#input-profile-text", TextArea).load_text("Warm and informal.")
+
+    _edit_profiles(blog, config, ["Ana Lima"], edit)
+    assert load_project(blog).authors.profiles == {"Ana Lima": "Warm and informal."}
+
+
+def test_profile_screen_renames_and_blank_removes(monkeypatch, tmp_path):
+    from textual.widgets import Input
+
+    config = ProjectConfig()
+    config.authors.profiles = {"Old Name": "Formal.", "Gone": "Bye."}
+    blog, config = _setup(monkeypatch, tmp_path, config)
+
+    def rename(screen):
+        screen.query_one("#input-profile-name", Input).value = "New Name"
+
+    _edit_profiles(blog, config, ["Old Name", "Gone"], rename)
+    assert load_project(blog).authors.profiles == {"New Name": "Formal.", "Gone": "Bye."}
+
+    def blank(screen):
+        screen.query_one("#input-profile-text", TextArea).load_text("")
+
+    _edit_profiles(blog, load_project(blog), ["New Name", "Gone"], blank)
+    assert load_project(blog).authors.profiles == {"Gone": "Bye."}

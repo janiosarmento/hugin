@@ -192,7 +192,7 @@ class TestAskEcho:
         assert len(body["messages"]) == 1 and body["messages"][0]["role"] == "user"
         content = body["messages"][0]["content"]
         assert content.startswith("msg")
-        assert "writing samples you are given" in content
+        assert "writing samples and author profile you are given" in content
 
     @pytest.mark.parametrize("status,fragment", [(401, "401"), (500, "500")])
     def test_http_errors(self, monkeypatch, status, fragment):
@@ -429,3 +429,61 @@ def test_build_message_states_the_target_length_for_new_posts(tmp_path):
     p = make_post(tmp_path, "a.md", 1)
     assert "Target length: about 800 words." in build_message([p], "req", words=800)
     assert "Target length" not in build_message([p], "req")
+
+
+class TestAuthorFilter:
+    def _by_author(self, tmp_path):
+        posts = []
+        for i in range(8):
+            post = make_post(tmp_path, f"a{i}.md", i + 1)
+            post.metadata["author"] = "Ana Lima"
+            posts.append(post)
+        for i in range(8):
+            post = make_post(tmp_path, f"b{i}.md", i + 1)
+            post.metadata["author"] = "Prof. Silva"
+            posts.append(post)
+        return posts
+
+    def test_samples_come_only_from_the_author(self, tmp_path):
+        posts = self._by_author(tmp_path)
+        picked = select_samples(posts, None, author="Ana Lima")
+        assert picked and all(p.filename.startswith("a") for p in picked)
+
+    def test_enough_samples_counts_only_the_author(self, tmp_path):
+        posts = self._by_author(tmp_path)
+        assert has_enough_samples(posts, author="Ana Lima")
+        assert not has_enough_samples(posts[:8] + posts[8:12], author="Prof. Silva")
+
+    def test_post_without_author_is_not_a_sample_of_any_author(self, tmp_path):
+        posts = self._by_author(tmp_path)
+        posts.append(make_post(tmp_path, "orphan.md", 1))
+        assert all(p.filename != "orphan.md" for p in select_samples(posts, None, author="Ana Lima"))
+
+    def test_no_author_keeps_every_post(self, tmp_path):
+        posts = self._by_author(tmp_path)
+        assert {p.filename[0] for p in select_samples(posts, None)} == {"a", "b"}
+
+    def test_refactor_samples_follow_the_chosen_author(self, tmp_path):
+        posts = self._by_author(tmp_path)
+        original = posts[0]  # by Ana
+        picked = echo.select_refactor_samples(posts, original, author="Prof. Silva")
+        assert picked and all(p.filename.startswith("b") for p in picked)
+
+    def test_create_draft_records_the_author(self, tmp_path):
+        import frontmatter
+
+        path = create_draft(tmp_path, "Title\n\nBody", "req", author="Ana Lima")
+        assert frontmatter.load(str(path)).metadata["author"] == "Ana Lima"
+
+
+def test_profile_is_sent_and_works_without_samples():
+    message = build_message([], "Write about cats", profile="Warm and informal.")
+    assert "Here are" not in message
+    assert "Author profile" in message and "Warm and informal." in message
+    assert "Write about cats" in message
+
+
+def test_profile_is_sent_after_samples(tmp_path):
+    p = make_post(tmp_path, "a.md", 1)
+    message = build_message([p], "req", profile="Formal.")
+    assert message.index("Here are 1 of my blog posts") < message.index("Formal.")

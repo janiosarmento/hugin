@@ -56,3 +56,18 @@ def test_saving_other_settings_keeps_writing_settings(monkeypatch, tmp_path):
     save_project(blog, reloaded)
     assert load_project(blog).writing.constraints == "custom rules"
     assert load_project(blog).summary.words == 40
+
+
+def test_author_profiles_round_trip(monkeypatch, tmp_path):
+    blog = _isolate(monkeypatch, tmp_path)
+    config = ProjectConfig()
+    config.authors.profiles = {"Prof. Silva": "Formal, academic.", "Ana Lima": 'Warm and "informal".'}
+    save_project(blog, config)
+
+    assert load_project(blog).authors.profiles == config.authors.profiles
+
+
+def test_no_author_profiles_are_not_written_to_disk(monkeypatch, tmp_path):
+    blog = _isolate(monkeypatch, tmp_path)
+    save_project(blog, ProjectConfig())
+    assert "[authors" not in project._project_path(blog).read_text()

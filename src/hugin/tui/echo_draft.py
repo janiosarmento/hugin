@@ -7,7 +7,9 @@ from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, LoadingIndicator, RadioButton, RadioSet, Static, TextArea
+from textual.widgets import (
+    Button, Checkbox, Input, Label, LoadingIndicator, RadioButton, RadioSet, Select, Static, TextArea,
+)
 
 from hugin.echo import (
     DEFAULT_TARGET_WORDS,
@@ -24,7 +26,9 @@ from hugin.echo import (
     EchoError,
     build_message,
     create_draft,
+    has_enough_samples,
     parse_answer,
+    post_author,
     _select_parts,
     draw_random,
     inherited_fields,
@@ -113,6 +117,18 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         margin-right: 3;
     }
 
+    #echo-author-row {
+        height: auto;
+    }
+
+    #echo-author {
+        width: 40;
+    }
+
+    #echo-profile {
+        margin-bottom: 1;
+    }
+
     #echo-length {
         height: auto;
         margin-bottom: 1;
@@ -141,16 +157,20 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
 
     def __init__(
         self, posts: list[Post] | None = None, index=None, engine=None,
-        original: Post | None = None,
+        original: Post | None = None, authors: list[str] | None = None,
+        profiles: dict[str, str] | None = None, default_author: str | None = None,
     ) -> None:
         super().__init__()
         self._index = index
         self._engine = engine
         self._original = original
-        self._recent, rest = _select_parts(posts or [], original)
-        # Drawn once, so the title shown is the one that gets sent.
-        self.random_pick = None if original else draw_random(rest)
-        self._pool = [p for p in rest if p is not self.random_pick]
+        self._posts = posts or []
+        self._authors = authors or []
+        self._profiles = profiles or {}
+        # Refactors keep the original's author unless the operator changes it
+        preferred = post_author(original) if original is not None else default_author
+        self.author = preferred if preferred in self._authors else next(iter(self._authors), None)
+        self._recompute_pool()
         self._similar_note = R_SIMILAR_PENDING if original else SIMILAR_PENDING
         self._similar: list[Post] = []
         self._like_original: list[Post] = []
@@ -159,6 +179,18 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         self._debounce = None
         # Set when the prompt is sent; None for refactors (length comes from the original)
         self.target_words: int | None = None
+        # Author profile to send with the request, set when the prompt is sent
+        self.profile: str | None = None
+
+    def _recompute_pool(self) -> None:
+        """Recent posts and the candidates for the similar ones, for the chosen author."""
+        self._recent, rest = _select_parts(self._posts, self._original, self.author)
+        # Drawn once per author, so the title shown is the one that gets sent.
+        self.random_pick = None if self._original else draw_random(rest)
+        self._pool = [p for p in rest if p is not self.random_pick]
+
+    def _has_profile(self) -> bool:
+        return bool(self._profiles.get(self.author or ""))
 
     def compose(self) -> ComposeResult:
         with Vertical(id="echo-modal"):
@@ -186,6 +218,17 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
                 "Ctrl+S sends, F2 switches writer, Esc cancels.",
                 id="echo-hint",
             )
+            if self._authors:
+                with Horizontal(id="echo-author-row"):
+                    yield Label("Author: ")
+                    yield Select(
+                        [(a, a) for a in self._authors], value=self.author,
+                        allow_blank=False, id="echo-author",
+                    )
+                yield Checkbox(
+                    "Send the author profile", value=self._has_profile(),
+                    disabled=not self._has_profile(), id="echo-profile",
+                )
             yield TextArea(id="echo-prompt")
             if self._original is None:
                 with Horizontal(id="echo-length"):
@@ -250,10 +293,25 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
                 )
         if self.random_pick is not None:
             lines.append(row("random", self.random_pick))
+        if not lines:
+            who = f" by {escape(self.author)}" if self.author else ""
+            lines.append(f"  [i]no published posts{who}[/i]")
         return "Writing samples sent along:\n" + "\n".join(lines)
 
     def _refresh_samples(self) -> None:
         self.query_one("#echo-samples", Static).update(self._samples_text())
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id != "echo-author" or event.value == self.author:
+            return
+        self.author = event.value
+        self._recompute_pool()
+        self._similar = []
+        self._like_original = []
+        profile = self.query_one("#echo-profile", Checkbox)
+        profile.value = self._has_profile()
+        profile.disabled = not self._has_profile()
+        self._pick_displayed()
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         # Re-rank the similar sample once typing pauses.
@@ -321,10 +379,24 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         if not text:
             self.notify("Write a prompt first.", severity="warning")
             return
+        self.profile = self._profile_to_send()
+        if not has_enough_samples(self._posts, self._original, self.author) and not self.profile:
+            who = f" by {self.author}" if self.author else ""
+            self.notify(
+                f"Not enough published posts{who} to use as samples. "
+                "Send the author profile, or add posts.",
+                severity="warning", timeout=10,
+            )
+            return
         self.target_words = self._read_target_words() if self._original is None else None
         global _last_writer
         _last_writer = self._writer()
         self.dismiss((text, _last_writer))
+
+    def _profile_to_send(self) -> str | None:
+        if not self._authors or not self.query_one("#echo-profile", Checkbox).value:
+            return None
+        return self._profiles.get(self.author or "") or None
 
     def _read_target_words(self) -> int:
         """The length typed in the form, clamped; the default when it is not a number."""
@@ -372,10 +444,12 @@ class EchoWaitScreen(ModalScreen[Path | None]):
     }
     """
 
-    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, writer: str = WRITER_ECHO, original: Post | None = None, words: int | None = None) -> None:
+    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, writer: str = WRITER_ECHO, original: Post | None = None, words: int | None = None, author: str | None = None, profile: str | None = None) -> None:
         super().__init__()
         self._original = original
         self._words = words
+        self._author = author
+        self._profile = profile
         self._engine = engine
         self._index = index
         self._random_pick = random_pick
@@ -414,18 +488,21 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                     ranked = ranked_original = None  # embeddings unavailable: random sample instead
             self.query_one("#echo-wait-status", Label).update(self._wait_text())
             if self._original is None:
-                samples = select_samples(self._posts, ranked, random_pick=self._random_pick)
+                samples = select_samples(
+                    self._posts, ranked, random_pick=self._random_pick, author=self._author
+                )
             else:
                 samples = select_refactor_samples(
-                    self._posts, self._original, ranked, ranked_original
+                    self._posts, self._original, ranked, ranked_original, author=self._author
                 )
-            if not samples:
+            if not samples and not self._profile:
                 raise EchoError("No published posts to use as writing samples")
             writing = (await asyncio.to_thread(load_project, self._directory)).writing
-            language = detect_language(" ".join(p.content for p in samples))
+            language = detect_language(" ".join(p.content for p in samples) or self._request)
             message = build_message(
                 samples, self._request, self._original,
                 constraints=writing.for_language(language), words=self._words,
+                profile=self._profile,
             )
             if self._writer == WRITER_SYSTEM:
                 text = await write_with_system_llm(message, self._engine)
@@ -460,6 +537,7 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                 refactor_of=self._original.filename if self._original else None,
                 thumbnail=inherited.get("thumbnail"),
                 translation_key=inherited.get("translation_key"),
+                author=self._author,
             )
             self.notify(f"Written by {who}")
         except EchoError as e:
@@ -480,6 +558,7 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                 refactor_of=self._original.filename if self._original else None,
                 thumbnail=inherited.get("thumbnail"),
                 translation_key=inherited.get("translation_key"),
+                author=self._author,
             )
         except (OSError, ValueError):
             log_exception("echo: empty draft after failure")

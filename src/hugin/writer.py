@@ -106,6 +106,7 @@ def create_post(
     refactor_of: str | None = None,
     thumbnail: str | None = None,
     translation_key: str | None = None,
+    author: str | None = None,
 ) -> frontmatter.Post:
     """Create a new post with a complete frontmatter skeleton.
 
@@ -116,6 +117,7 @@ def create_post(
 
     `prompt` (LLM-generated posts) is kept in the frontmatter for reference.
     `refactor_of` is the filename of the post this one rewrites.
+    `author` is the post's author (multi-author blogs).
     """
     metadata = {
         "title": title,
@@ -129,6 +131,8 @@ def create_post(
         "description": "TBD",
         "tags": ["TBD"],
     }
+    if author:
+        metadata["author"] = author
     if prompt:
         metadata["prompt"] = prompt
     if refactor_of:

@@ -2126,16 +2126,20 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
-        from hugin.echo import MIN_SAMPLES, R_MIN_SAMPLES, has_enough_samples
+        from hugin.echo import authors_of, has_enough_samples, post_author
         from hugin.tui.echo_draft import EchoPromptScreen, EchoWaitScreen
 
-        if not has_enough_samples(self.all_posts, original):
-            self.notify(
-                f"Not enough published posts to give Echo references "
-                f"(need at least {MIN_SAMPLES if original is None else R_MIN_SAMPLES}).",
-                severity="warning",
-            )
+        # Authors with posts first, then those that only have a profile
+        profiles = self._project.authors.profiles
+        authors = authors_of(self.all_posts)
+        authors += [a for a in profiles if a not in authors]
+        # Coarse check; the prompt screen checks the author actually picked
+        if not profiles and not any(
+            has_enough_samples(self.all_posts, original, a) for a in authors or [None]
+        ):
+            self.notify("Not enough published posts to give Echo references.", severity="warning")
             return
+        current = self.posts[self.current_index] if self.posts else None
 
         def on_created(path) -> None:
             if path is None:
@@ -2156,7 +2160,11 @@ class HuginScreen(Screen):
             self._rebuild_post_table()
             self.notify(f"Draft created: {path.name}")
 
-        prompt_screen = EchoPromptScreen(self.all_posts, self.index, self.engine, original)
+        prompt_screen = EchoPromptScreen(
+            self.all_posts, self.index, self.engine, original,
+            authors=authors, profiles=profiles,
+            default_author=post_author(current) if current else None,
+        )
 
         def on_prompt(result: tuple[str, str] | None) -> None:
             if result:
@@ -2166,6 +2174,7 @@ class HuginScreen(Screen):
                         request, list(self.all_posts), self.directory, self.engine,
                         self.index, prompt_screen.random_pick, writer, original,
                         words=prompt_screen.target_words,
+                        author=prompt_screen.author, profile=prompt_screen.profile,
                     ),
                     on_created,
                 )
@@ -2363,6 +2372,7 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
+        from hugin.echo import authors_of
         from hugin.tui.project_settings import ProjectSettingsScreen
 
         def on_return(saved: bool) -> None:
@@ -2370,7 +2380,10 @@ class HuginScreen(Screen):
                 self.notify("Project settings saved")
 
         self.app.push_screen(
-            ProjectSettingsScreen(self._project, self.directory, self.config.links.words_per_link),
+            ProjectSettingsScreen(
+                self._project, self.directory, self.config.links.words_per_link,
+                authors=authors_of(self.all_posts),
+            ),
             on_return,
         )
 

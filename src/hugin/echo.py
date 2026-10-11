@@ -42,7 +42,9 @@ R_N_LIKE_ORIGINAL = 2  # closest to the post being rewritten
 R_MIN_SAMPLES = R_N_RECENT + R_N_SIMILAR + R_N_LIKE_ORIGINAL
 
 
-WRITER_SYSTEM_PROMPT = "You are a blog author. Write in the voice of the writing samples you are given."
+WRITER_SYSTEM_PROMPT = (
+    "You are a blog author. Write in the voice of the writing samples and author profile you are given."
+)
 
 
 # What a failed LLM call can raise: network/HTTP problems, a repetition loop
@@ -68,8 +70,31 @@ def published_posts(posts: list[Post]) -> list[Post]:
     return [p for p in posts if _is_published(p)]
 
 
-def has_enough_samples(posts: list[Post], original: Post | None = None) -> bool:
-    candidates = [p for p in published_posts(posts) if original is None or p.path != original.path]
+def post_author(post: Post) -> str:
+    """The post's `author` front matter field, or "" when it has none."""
+    return str(post.metadata.get("author") or "").strip()
+
+
+def authors_of(posts: list[Post]) -> list[str]:
+    """Distinct authors across the posts, in order of first appearance."""
+    return list(dict.fromkeys(a for a in (post_author(p) for p in posts) if a))
+
+
+def _candidates(
+    posts: list[Post], original: Post | None = None, author: str | None = None
+) -> list[Post]:
+    """Published posts usable as samples: never `original`, only `author`'s when given."""
+    return [
+        p for p in published_posts(posts)
+        if (original is None or p.path != original.path)
+        and (author is None or post_author(p) == author)
+    ]
+
+
+def has_enough_samples(
+    posts: list[Post], original: Post | None = None, author: str | None = None
+) -> bool:
+    candidates = _candidates(posts, original, author)
     return len(candidates) >= (MIN_SAMPLES if original is None else R_MIN_SAMPLES)
 
 
@@ -98,15 +123,10 @@ def inherited_fields(original: Post) -> dict[str, str | None]:
 
 
 def _select_parts(
-    posts: list[Post], original: Post | None = None
+    posts: list[Post], original: Post | None = None, author: str | None = None
 ) -> tuple[list[Post], list[Post]]:
-    """(most recent, every other candidate), published posts only.
-
-    `original` (refactor mode) is never a candidate.
-    """
-    published = [
-        p for p in published_posts(posts) if original is None or p.path != original.path
-    ]
+    """(most recent, every other candidate), see _candidates."""
+    published = _candidates(posts, original, author)
     recent = sorted(
         (p for p in published if p.date is not None),
         key=lambda p: p.date.replace(tzinfo=None),
@@ -143,6 +163,7 @@ def select_samples(
     ranked_paths: list[str] | None = None,
     rng: random.Random | None = None,
     random_pick: Post | None = None,
+    author: str | None = None,
 ) -> list[Post]:
     """N_RECENT most recent + N_SIMILAR closest to the prompt + N_RANDOM random.
 
@@ -152,9 +173,10 @@ def select_samples(
     Without a ranking (embeddings unavailable) random posts stand in for
     the missing similar ones. With fewer than MIN_SAMPLES published posts
     the result is shorter; callers should check has_enough_samples() first.
+    `author` keeps only that author's posts.
     """
     rng = rng or random
-    recent, rest = _select_parts(posts)
+    recent, rest = _select_parts(posts, author=author)
     if not N_RANDOM:
         random_pick = None
     elif random_pick is None or random_pick.path not in {p.path for p in rest}:
@@ -196,9 +218,10 @@ def select_refactor_samples(
     ranked_prompt: list[str] | None = None,
     ranked_original: list[str] | None = None,
     rng: random.Random | None = None,
+    author: str | None = None,
 ) -> list[Post]:
     """2 most recent + 2 closest to the prompt + 2 closest to the original."""
-    recent, rest = _select_parts(posts, original)
+    recent, rest = _select_parts(posts, original, author)
     similar, like_original = select_refactor_similar(rest, ranked_prompt, ranked_original, rng)
     return recent + similar + like_original
 
@@ -206,12 +229,16 @@ def select_refactor_samples(
 def build_message(
     samples: list[Post], request: str, original: Post | None = None,
     constraints: str | None = None, words: int | None = None,
+    profile: str | None = None,
 ) -> str:
     blocks = []
     for post in samples:
         title = post.metadata.get("title", post.path.stem)
         blocks.append(f"<post>\n# {title}\n\n{post.content.strip()}\n</post>")
     n = len(samples)
+    intro = [f"Here are {n} of my blog posts:\n\n" + "\n\n".join(blocks)] if samples else []
+    if profile and profile.strip():
+        intro.append(f"Author profile (the voice and style to write in):\n\n{profile.strip()}")
     if original is None:
         task = "Write a new post in my voice, following the request below. "
         if words:
@@ -256,8 +283,7 @@ def build_message(
         if constraints and constraints.strip() else ""
     )
     return (
-        f"Here are {n} of my blog posts:\n\n"
-        + "\n\n".join(blocks)
+        "\n\n".join(intro)
         + extra
         + f"\n\n{task}"
         "Put the post title alone on the first line (plain text, no # or "
@@ -449,6 +475,7 @@ def create_draft(
     refactor_of: str | None = None,
     thumbnail: str | None = None,
     translation_key: str | None = None,
+    author: str | None = None,
 ) -> Path:
     from hugin.hugo import slugify
     from hugin.writer import create_post
@@ -462,5 +489,5 @@ def create_draft(
     path = directory / f"{slug}.md"
     create_post(path, title=title, slug=slug, category=category, body=body,
                 prompt=request, refactor_of=refactor_of, thumbnail=thumbnail,
-                translation_key=translation_key)
+                translation_key=translation_key, author=author)
     return path

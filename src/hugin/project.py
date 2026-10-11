@@ -44,10 +44,20 @@ class WritingSettings:
 
 
 @dataclass
+class AuthorsSettings:
+    # Keyed by the `author` front matter value; the text is the voice to write in
+    profiles: dict[str, str] = field(default_factory=dict)
+
+    def profile_for(self, author: str | None) -> str | None:
+        return self.profiles.get(author or "") or None
+
+
+@dataclass
 class ProjectConfig:
     summary: SummarySettings = field(default_factory=SummarySettings)
     links: LinksSettings = field(default_factory=LinksSettings)
     writing: WritingSettings = field(default_factory=WritingSettings)
+    authors: AuthorsSettings = field(default_factory=AuthorsSettings)
 
 
 def _project_path(directory: Path) -> Path:
@@ -66,7 +76,9 @@ def load_project(directory: Path) -> ProjectConfig:
     summary_data = data.get("summary", {})
     links_data = data.get("links", {})
     writing_data = data.get("writing", {})
+    authors_data = data.get("authors", {})
     return ProjectConfig(
+        authors=AuthorsSettings(profiles=dict(authors_data.get("profiles", {}))),
         summary=SummarySettings(
             words=summary_data.get("words", 25),
             style=summary_data.get("style", DEFAULT_SUMMARY_STYLE),
@@ -104,6 +116,13 @@ def save_project(directory: Path, config: ProjectConfig) -> None:
                 f"{_toml_string(language)} = {_toml_string(text)}"
                 for language, text in writing.by_language.items()
             ]
+        lines.append("")
+    if config.authors.profiles:
+        lines += ["[authors.profiles]"]
+        lines += [
+            f"{_toml_string(author)} = {_toml_string(text)}"
+            for author, text in config.authors.profiles.items()
+        ]
         lines.append("")
     atomic_write_text(path, "\n".join(lines))
 
