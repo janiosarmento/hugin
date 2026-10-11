@@ -54,12 +54,15 @@ def _normalize_authors(directory: Path, posts: list[Post]) -> bool:
     the default (the first of the list). True when files changed and must be synced.
     """
     from hugin.authors import add_author_to_posts, default_author, import_authors, post_author
-    from hugin.project import load_project, save_project
+    from hugin.project import authors_path, load_project, save_project
 
     settings = load_project(directory)
     added = import_authors(settings.authors, posts)
-    if added:
+    # The list moves to Hugo data (data/authors.toml) the first time it is saved there
+    moved = bool(settings.authors.names) and not authors_path(directory).exists()
+    if added or moved:
         save_project(directory, settings)
+    if added:
         click.echo(f"Authors found on the posts added to the list: {', '.join(added)}")
 
     missing = [p for p in posts if not post_author(p)]
@@ -69,11 +72,11 @@ def _normalize_authors(directory: Path, posts: list[Post]) -> bool:
             f"Warning: {len(missing)} post(s) have no author and there is no author list "
             "to take a default from. Add authors in the project settings."
         )
-        return bool(added)
+        return bool(added or moved)
     changed = add_author_to_posts(missing, author) if missing else []
     if changed:
         click.echo(f"Default author {author!r} set on {len(changed)} post(s) without one.")
-    return bool(added or changed)
+    return bool(added or moved or changed)
 
 
 @click.command()

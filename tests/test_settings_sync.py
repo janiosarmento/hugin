@@ -60,3 +60,16 @@ def test_folder_that_is_not_a_repository_is_skipped(tmp_path):
     (tmp_path / "hugin").mkdir()
     (tmp_path / "hugin" / "config.toml").write_text("x = 1\n")
     assert commit_settings(tmp_path, "msg") is None
+
+
+def test_author_list_and_settings_are_committed_together(blog_and_remote):
+    blog, _ = blog_and_remote
+    (blog / "hugin").mkdir()
+    (blog / "hugin" / "config.toml").write_text("[summary]\nwords = 30\n")
+    (blog / "data").mkdir()
+    (blog / "data" / "authors.toml").write_text('names = ["Ana"]\n')
+
+    assert commit_settings(blog, "Hugin settings: update author list") == SETTINGS_PUSHED
+    assert sorted(_git(blog, "show", "--name-only", "--format=", "HEAD").split()) == [
+        "data/authors.toml", "hugin/config.toml",
+    ]

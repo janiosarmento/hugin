@@ -1,4 +1,4 @@
-"""Per-blog configuration, stored in the blog at hugin/config.toml."""
+"""Per-site configuration: hugin/config.toml, and the author list in Hugo data/authors.toml."""
 
 import hashlib
 import json
@@ -13,6 +13,7 @@ from hugin.hugo import find_site_root
 PROJECTS_DIR = CONFIG_DIR / "projects"  # legacy location, read as a fallback
 SETTINGS_DIR = "hugin"  # inside the blog repository
 SETTINGS_FILE = "config.toml"
+AUTHORS_DATA_FILE = Path("data") / "authors.toml"  # Hugo data, at the site root
 
 DEFAULT_SUMMARY_STYLE = "Write as if telling a friend — direct, with personality"
 
@@ -80,22 +81,36 @@ def _legacy_path(directory: Path) -> Path:
     return PROJECTS_DIR / f"{dir_hash}.toml"
 
 
+def authors_path(directory: Path) -> Path:
+    """The author list: Hugo data at the site root, so the theme and Hugin read the same names."""
+    return find_site_root(directory) / AUTHORS_DATA_FILE
+
+
+def _read_toml(path: Path) -> dict:
+    with open(path, "rb") as f:
+        return tomllib.load(f)
+
+
 def load_project(directory: Path) -> ProjectConfig:
     path = _project_path(directory)
     if not path.exists():
         path = _legacy_path(directory)
-    if not path.exists():
+    authors_file = authors_path(directory)
+    if not path.exists() and not authors_file.exists():
         return ProjectConfig()
 
-    with open(path, "rb") as f:
-        data = tomllib.load(f)
-
+    data = _read_toml(path) if path.exists() else {}
     summary_data = data.get("summary", {})
     links_data = data.get("links", {})
     writing_data = data.get("writing", {})
     authors_data = data.get("authors", {})
+    # Older settings kept the author list here; the Hugo data file wins once it exists
+    if authors_file.exists():
+        names = _read_toml(authors_file).get("names", [])
+    else:
+        names = authors_data.get("names", [])
     return ProjectConfig(
-        authors=_authors_settings(authors_data),
+        authors=_authors_settings(names, authors_data.get("profiles", {})),
         summary=SummarySettings(
             words=summary_data.get("words", 25),
             style=summary_data.get("style", DEFAULT_SUMMARY_STYLE),
@@ -135,23 +150,30 @@ def save_project(directory: Path, config: ProjectConfig) -> None:
             ]
         lines.append("")
     authors = config.authors
-    if authors.names or authors.profiles:
-        lines += ["[authors]", f"names = [{', '.join(_toml_string(n) for n in authors.names)}]"]
-        if authors.profiles:
-            lines += ["", "[authors.profiles]"]
-            lines += [
-                f"{_toml_string(author)} = {_toml_string(text)}"
-                for author, text in authors.profiles.items()
-            ]
+    if authors.profiles:
+        lines += ["[authors.profiles]"]
+        lines += [
+            f"{_toml_string(author)} = {_toml_string(text)}"
+            for author, text in authors.profiles.items()
+        ]
         lines.append("")
     atomic_write_text(path, "\n".join(lines))
 
+    if authors.names:
+        authors_file = authors_path(directory)
+        authors_file.parent.mkdir(parents=True, exist_ok=True)
+        names = ", ".join(_toml_string(n) for n in authors.names)
+        atomic_write_text(
+            authors_file,
+            "# Authors of the blog, in order. The first one is the default for posts without an author.\n"
+            f"names = [{names}]\n",
+        )
 
-def _authors_settings(data: dict) -> AuthorsSettings:
-    """Names first, then any profiled author missing from them (older files have profiles only)."""
-    profiles = dict(data.get("profiles", {}))
-    names = list(dict.fromkeys([*data.get("names", []), *profiles]))
-    return AuthorsSettings(names=names, profiles=profiles)
+
+def _authors_settings(names: list[str], profiles: dict[str, str]) -> AuthorsSettings:
+    """The list, then any profiled author missing from it."""
+    profiles = dict(profiles)
+    return AuthorsSettings(names=list(dict.fromkeys([*names, *profiles])), profiles=profiles)
 
 
 def _toml_string(text: str) -> str:

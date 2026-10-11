@@ -128,3 +128,34 @@ def test_settings_are_shared_by_all_languages_at_the_site_root(monkeypatch, tmp_
     assert (site / "hugin" / "config.toml").exists()
     assert not (en_posts / "hugin").exists()
     assert load_project(pt_posts).authors.names == ["Ana"]
+
+
+def test_author_list_is_hugo_data_and_profiles_stay_in_settings(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    site = tmp_path / "site"
+    (site / "config" / "_default").mkdir(parents=True)
+    (site / "config" / "_default" / "hugo.toml").write_text('baseURL = "https://x/"\n')
+    posts = site / "content" / "en" / "post"
+    posts.mkdir(parents=True)
+    config = ProjectConfig()
+    config.authors.names = ["Zé", "Ana"]
+    config.authors.profiles = {"Ana": "Warm."}
+    save_project(posts, config)
+
+    assert "names = [\"Zé\", \"Ana\"]" in (site / "data" / "authors.toml").read_text(encoding="utf-8")
+    settings_text = (site / "hugin" / "config.toml").read_text(encoding="utf-8")
+    assert "names" not in settings_text and '"Ana" = "Warm."' in settings_text
+
+
+def test_author_list_in_old_settings_is_read_and_moves_on_save(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    site = tmp_path / "site"
+    (site / "config" / "_default").mkdir(parents=True)
+    (site / "config" / "_default" / "hugo.toml").write_text('baseURL = "https://x/"\n')
+    (site / "hugin").mkdir()
+    (site / "hugin" / "config.toml").write_text('[authors]\nnames = ["Bia"]\n', encoding="utf-8")
+
+    assert load_project(site).authors.names == ["Bia"]
+    save_project(site, load_project(site))
+    assert (site / "data" / "authors.toml").exists()
+    assert "names" not in (site / "hugin" / "config.toml").read_text(encoding="utf-8")

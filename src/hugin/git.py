@@ -155,7 +155,7 @@ def git_sync(directory: Path) -> SyncResult:
     return result
 
 
-SETTINGS_PATH = "hugin/config.toml"
+SETTINGS_PATHS = ("hugin/config.toml", "data/authors.toml")
 SETTINGS_PUSHED = "Settings committed and pushed."
 
 
@@ -169,13 +169,16 @@ def commit_settings(directory: Path, message: str) -> str | None:
     ok, _ = _run(directory, ["git", "rev-parse", "--is-inside-work-tree"])
     if not ok:
         return None
-    ok, out = _run(directory, ["git", "add", "--", SETTINGS_PATH])
+    paths = [p for p in SETTINGS_PATHS if (directory / p).exists()]
+    if not paths:
+        return None
+    ok, out = _run(directory, ["git", "add", "--", *paths])
     if not ok:
         return f"Settings not committed:\n{out}"
-    ok, staged = _run(directory, ["git", "status", "--porcelain", "--", SETTINGS_PATH])
+    ok, staged = _run(directory, ["git", "status", "--porcelain", "--", *paths])
     if not staged:
         return None
-    ok, out = _run(directory, ["git", "commit", "-m", message, "--", SETTINGS_PATH])
+    ok, out = _run(directory, ["git", "commit", "-m", message, "--", *paths])
     if not ok:
         return f"Settings not committed:\n{out}"
     # Autostash: the blog usually has post edits in progress that must not block the pull
