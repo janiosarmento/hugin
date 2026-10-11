@@ -214,9 +214,9 @@ secret = "fulcrum_echo.key"
 persona = "Janio Sarmento"  # optional; whose voice Echo writes in
 ```
 
-Press `h` (hidden; listed under `?`) to ask Echo for a new post: describe it in the prompt box, Ctrl+S sends it together with 7 published posts as writing samples (the 3 latest and the 4 semantically closest to your prompt (a random sample is available by setting `N_RANDOM = 1`); with fewer than 7 published posts it just warns; the counts are `N_RECENT`/`N_SIMILAR`/`N_RANDOM` in `echo.py`), and the answer is saved as a new `draft: true` post. The prompt box has a writer selector (F2 toggles): Echo, or the engine selected with `n` called directly, for A/B comparisons; the choice is remembered for the session and a notification says who wrote the draft. If Echo is the writer and fails for any reason (no credits, bad or missing key, timeout, network), the same request goes to the engine selected with `n` and a warning says why. The category is always picked by that engine, never by Echo.
+Press `h` (hidden; listed under `?`) to ask Echo for a new post: describe it in the prompt box, Ctrl+S sends it together with 7 published posts as writing samples (the 3 latest and the 4 semantically closest to your prompt (a random sample is available by setting `N_RANDOM = 1`); with fewer than 7 published posts it just warns; the counts are `N_RECENT`/`N_SIMILAR`/`N_RANDOM` in `echo.py`). On a multi-author blog the prompt box has an Author selector (defaults to the author of the post under the cursor), and only that author's posts are samples. The author's profile (the voice to write in, kept in the project settings) goes along when its box is checked; with too few samples, the profile alone is sent, and the answer is saved as a new `draft: true` post. The prompt box has a writer selector (F2 toggles): Echo, or the engine selected with `n` called directly, for A/B comparisons; the choice is remembered for the session and a notification says who wrote the draft. If Echo is the writer and fails for any reason (no credits, bad or missing key, timeout, network), the same request goes to the engine selected with `n` and a warning says why. The category is always picked by that engine, never by Echo.
 
-Press `R` (hidden; listed under `?`) on a post to rewrite it: same prompt box, writers and fallback as `h`, but the post goes along as the text to rewrite, with 6 other published posts as samples (the 2 latest, the 2 closest to your prompt and the 2 closest to the original; counts are `R_N_*` in `echo.py`). The result is a new draft on top of the list whose frontmatter has `refactor_of: <original filename>` (plus the usual `prompt`), and it inherits the original's category, thumbnail and `translationKey` (the category is only picked by the engine when the original has none). Posts with `refactor_of` show a "Go to original" button next to "Copy .md to clipboard". Hugin never touches the original: keeping one, both or none is up to you.
+Press `R` (hidden; listed under `?`) on a post to rewrite it: same prompt box, writers, author selector and profile as `h`, but the post goes along. The author defaults to the original's, and changing it makes the rewrite that author's post as the text to rewrite, with 6 other published posts as samples (the 2 latest, the 2 closest to your prompt and the 2 closest to the original; counts are `R_N_*` in `echo.py`). The result is a new draft on top of the list whose frontmatter has `refactor_of: <original filename>` (plus the usual `prompt`), and it inherits the original's category, thumbnail and `translationKey` (the category is only picked by the engine when the original has none). Posts with `refactor_of` show a "Go to original" button next to "Copy .md to clipboard". Hugin never touches the original: keeping one, both or none is up to you.
 
 ### Link settings (`~/.hugin/links.toml`)
 
@@ -247,9 +247,9 @@ Maps keywords to affiliate URLs. Press `z` in the main screen to scan the curren
 "arranhador" = "https://amzn.to/def456"
 ```
 
-### Project settings (`~/.hugin/projects/<hash>.toml`)
+### Site settings (`hugin/config.toml` and `data/authors.toml`)
 
-Per-project overrides, editable via the `,` key in the TUI:
+Per-site settings, editable via the `,` key in the TUI. They live at the Hugo site root, shared by every language folder, and each save is committed and pushed to the blog's repository. `data/authors.toml` is the author list (the first author is the default for posts without one); `hugin/config.toml` holds the rest, including the author profiles, which are private voice notes and are not published. Settings from the older `~/.hugin/projects/` location are copied in at startup.
 
 ```toml
 [summary]

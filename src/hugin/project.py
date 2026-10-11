@@ -54,9 +54,6 @@ class AuthorsSettings:
     # Voice per author, keyed by the `author` front matter value
     profiles: dict[str, str] = field(default_factory=dict)
 
-    def profile_for(self, author: str | None) -> str | None:
-        return self.profiles.get(author or "") or None
-
 
 @dataclass
 class ProjectConfig:
