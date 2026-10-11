@@ -19,6 +19,7 @@ from textual.widgets import (
 from hugin.normalizer import find_similar_tags, normalize_tag, sort_key
 from hugin.scanner import Post
 from hugin.writer import write_tags
+from hugin.normalizer import strip_accents
 
 
 class MergeSourcesScreen(ModalScreen[list[str] | None]):
@@ -437,7 +438,6 @@ class TagManagerScreen(Screen):
         tags = self._sorted_tags()
         if not self._filter_text:
             return tags
-        from hugin.normalizer import strip_accents
         query = strip_accents(self._filter_text)
         return [(t, c) for t, c in tags if query in strip_accents(t)]
 

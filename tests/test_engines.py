@@ -35,14 +35,14 @@ class TestEngine:
 
 class TestGetApiKey:
     def test_reads_secret_from_vault(self, monkeypatch):
-        monkeypatch.setattr(secrets_resolver, "get_secret", lambda path: "sk-abc")
+        monkeypatch.setattr(engines_mod, "get_secret", lambda path: "sk-abc")
         assert _get_api_key("test") == "sk-abc"
 
     def test_returns_none_if_missing(self, monkeypatch):
         def _raise(path):
             raise SecretFileNotFound(f"no secret file for {path}")
 
-        monkeypatch.setattr(secrets_resolver, "get_secret", _raise)
+        monkeypatch.setattr(engines_mod, "get_secret", _raise)
         assert _get_api_key("nonexistent") is None
 
     def test_uses_custom_secret_path(self, monkeypatch):
@@ -52,7 +52,7 @@ class TestGetApiKey:
             seen["path"] = path
             return "sk-custom"
 
-        monkeypatch.setattr(secrets_resolver, "get_secret", _fake_get_secret)
+        monkeypatch.setattr(engines_mod, "get_secret", _fake_get_secret)
         assert _get_api_key("test", secret="custom.path") == "sk-custom"
         assert seen["path"] == "custom.path"
 
@@ -64,7 +64,7 @@ class TestFulcrumEchoSecret:
             path.write_text(content)
         monkeypatch.setattr(engines_mod, "CONFIG_DIR", tmp_path)
         monkeypatch.setattr(engines_mod, "ENGINES_FILE", path)
-        monkeypatch.setattr(secrets_resolver, "get_secret", lambda p: None)
+        monkeypatch.setattr(engines_mod, "get_secret", lambda p: None)
         return path
 
     def test_new_file_gets_default(self, monkeypatch, tmp_path):

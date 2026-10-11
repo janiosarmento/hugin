@@ -18,6 +18,12 @@ from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, Load
 
 from hugin.authors import pick_author
 from hugin.hugo import slugify as _slugify
+from hugin.hugo import load_categories
+import asyncio
+from hugin.llm import NEWS_IDEAS_PROMPT, call_llm, parse_news_ideas
+from hugin.news import fetch_news
+from hugin.writer import create_post
+from hugin.project import load_project
 
 
 class NewsIdeasScreen(Screen):
@@ -156,7 +162,6 @@ class NewsIdeasScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
-        from hugin.hugo import load_categories
         self._categories = load_categories(self.directory)
         self.query_one("#search-input", Input).focus()
 
@@ -193,9 +198,6 @@ class NewsIdeasScreen(Screen):
 
     @work(exclusive=True)
     async def _run_search(self, query: str) -> None:
-        import asyncio
-        from hugin.llm import NEWS_IDEAS_PROMPT, call_llm, parse_news_ideas
-        from hugin.news import fetch_news
 
         try:
             # Step 1: fetch news (blocking I/O → thread)
@@ -281,9 +283,7 @@ class NewsIdeasScreen(Screen):
             f"Notícias relacionadas:\n{headlines}\n-->\n"
         )
 
-        from hugin.writer import create_post
 
-        from hugin.project import load_project
 
         author = self.query_one("#ideas-author", Select).value if self._authors else None
         author_field = load_project(self.directory).authors.author_field

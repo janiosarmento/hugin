@@ -5,6 +5,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from hugin.fsutil import atomic_write_text
+from secrets_resolver import get_secret
+from secrets_resolver.exceptions import SecretsResolverError
+import json
+from urllib.parse import urlparse
 
 CONFIG_DIR = Path.home() / ".hugin"
 ENGINES_FILE = CONFIG_DIR / "engines.toml"
@@ -67,7 +71,6 @@ class Engine:
 
     @property
     def is_local(self) -> bool:
-        from urllib.parse import urlparse
         host = urlparse(self.url).hostname or ""
         if host in ("localhost", "127.0.0.1"):
             return True
@@ -116,8 +119,6 @@ def _get_api_key(engine_id: str, secret: str | None = None) -> str | None:
     Looks up `secret` path (default: "{engine_id}.api_key") via secrets-resolver.
     Returns None if the secret doesn't exist or the vault is not configured.
     """
-    from secrets_resolver import get_secret
-    from secrets_resolver.exceptions import SecretsResolverError
 
     path = secret or f"{engine_id}.api_key"
     try:
@@ -151,7 +152,6 @@ LAST_ENGINE_FILE = CONFIG_DIR / "last_engine.json"
 
 
 def save_last_engine(engine: Engine) -> None:
-    import json
     atomic_write_text(LAST_ENGINE_FILE, json.dumps({
         "engine": engine.id,
         "model": engine.model,
@@ -159,7 +159,6 @@ def save_last_engine(engine: Engine) -> None:
 
 
 def _load_last_engine() -> tuple[str, str] | None:
-    import json
     if not LAST_ENGINE_FILE.exists():
         return None
     try:

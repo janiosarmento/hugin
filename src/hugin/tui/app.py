@@ -13,6 +13,7 @@ from hugin.fsutil import atomic_write_text
 from hugin.hugo import HugoSite
 from hugin.log import log_notification
 from hugin.scanner import Post
+from hugin.tui.review import HuginScreen
 
 THEME_FILE = CONFIG_DIR / "theme.json"
 
@@ -71,7 +72,6 @@ class HuginApp(App):
         _save_theme(theme_name)
 
     def on_mount(self) -> None:
-        from hugin.tui.review import HuginScreen
         self.push_screen(HuginScreen(
             posts=self.posts,
             all_posts=self.all_posts,

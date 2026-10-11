@@ -32,6 +32,15 @@ from hugin.authors import pick_author
 from hugin.config import HuginConfig
 from hugin.embeddings import EmbeddingIndex
 from hugin.tui.post_picker import PostPickerScreen
+from hugin.tui.affiliates_screen import AffiliatesScreen
+from hugin.tui.broken_links import BrokenLinksScreen
+from hugin.tui.echo_draft import EchoPromptScreen, EchoWaitScreen
+from hugin.tui.editor import EditorScreen
+from hugin.tui.engine_picker import EnginePickerScreen
+from hugin.tui.news_ideas import NewsIdeasScreen
+from hugin.tui.project_settings import ProjectSettingsScreen
+from hugin.tui.redirects_screen import ConfirmDeleteScreen, RedirectSuggestScreen, RedirectsScreen
+from hugin.tui.tag_manager import TagManagerScreen
 from hugin.engines import Engine, load_engines, save_last_engine
 from hugin.hugo import HugoSite
 from hugin.linker import (
@@ -75,6 +84,24 @@ from hugin.project import ProjectConfig, load_project
 from hugin.log import log_exception, log_info
 from hugin.state import mark_processed, save_state, get_last_post, set_last_post
 from hugin.writer import write_keywords, write_summary, write_tags
+from rich.text import Text
+from rich.table import Table
+from rich.style import Style
+import numpy as np
+from hugin.authors import ordered_authors
+from hugin.authors import post_author
+from hugin.echo import has_enough_samples
+from hugin.redirects import find_redirects_file
+from hugin.linker import extract_existing_links
+import httpx
+from hugin.git import pending_changes
+from hugin.git import git_sync
+from hugin.hugo import slugify
+from hugin.writer import create_post
+import frontmatter as fm
+from hugin.trash import move_to_trash
+from hugin.redirects import append_redirect, find_redirects_file
+from rich.markup import escape
 
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
@@ -210,7 +237,6 @@ class ConfirmGitSyncScreen(ModalScreen[bool]):
             yield Label("Sync repository with GitHub?")
             yield Static("Will commit local changes, pull --rebase, then push.")
             if self._changes:
-                from rich.markup import escape
 
                 shown = self._changes[: self.MAX_LISTED]
                 lines = "\n".join(escape(line) for line in shown)
@@ -774,7 +800,6 @@ class HuginScreen(Screen):
         table.add_column("", key="status", width=1)
         table.add_column("Post", key="title")
 
-        from rich.text import Text
         for i, post in enumerate(self.posts):
             title = post.metadata.get("title", post.filename)
             if post.metadata.get("draft"):
@@ -846,7 +871,6 @@ class HuginScreen(Screen):
     def action_pick_engine(self) -> None:
         if self._state != STATE_BROWSING:
             return
-        from hugin.tui.engine_picker import EnginePickerScreen
         engines = load_engines()
 
         def on_pick(engine: Engine | None) -> None:
@@ -897,7 +921,6 @@ class HuginScreen(Screen):
     # --- Detail panel ---
 
     def _update_detail_panel(self) -> None:
-        from rich.table import Table
 
         post = self.posts[self.current_index]
         total = len(self.posts)
@@ -975,8 +998,6 @@ class HuginScreen(Screen):
 
         Single place that gives every frontmatter field its copy button.
         """
-        from rich.style import Style
-        from rich.text import Text
 
         field = field or key
         icon = Text(
@@ -1454,7 +1475,6 @@ class HuginScreen(Screen):
         """Open the affiliate links editor."""
         if self._state != STATE_BROWSING:
             return
-        from hugin.tui.affiliates_screen import AffiliatesScreen
 
         self.app.push_screen(AffiliatesScreen())
 
@@ -1938,7 +1958,6 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
-        from hugin.tui.broken_links import BrokenLinksScreen
 
         def on_return(changed: bool) -> None:
             if changed:
@@ -2007,7 +2026,6 @@ class HuginScreen(Screen):
         if not cached:
             return False
 
-        import numpy as np
 
         suggested_lower = strip_accents(suggested_title.lower())
         for entry in cached.values():
@@ -2068,7 +2086,6 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
-        from hugin.tui.tag_manager import TagManagerScreen
 
         def on_return(_=None) -> None:
             self._update_detail_panel()
@@ -2097,8 +2114,6 @@ class HuginScreen(Screen):
                 self.notify(f"{filename} already exists", severity="error")
                 return
             title = path.stem
-            from hugin.hugo import slugify
-            from hugin.writer import create_post
 
             fm_post = create_post(
                 path, title=title, slug=slugify(title), author=author,
@@ -2124,13 +2139,11 @@ class HuginScreen(Screen):
 
     def _author_choices(self) -> list[str]:
         """Authors with posts first, then those that only have a profile."""
-        from hugin.authors import ordered_authors
 
         return ordered_authors(self._project.authors, self.all_posts)
 
     def _current_author(self) -> str | None:
         """Author of the post under the cursor, the default for a new post."""
-        from hugin.authors import post_author
 
         return post_author(self.posts[self.current_index]) if self.posts else None
 
@@ -2166,9 +2179,6 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
-        from hugin.authors import post_author
-        from hugin.echo import has_enough_samples
-        from hugin.tui.echo_draft import EchoPromptScreen, EchoWaitScreen
 
         profiles = self._project.authors.profiles
         authors = self._author_choices()
@@ -2183,7 +2193,6 @@ class HuginScreen(Screen):
         def on_created(path) -> None:
             if path is None:
                 return
-            import frontmatter as fm
             loaded = fm.load(str(path))
             post = Post(
                 path=path,
@@ -2225,12 +2234,10 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
-        from hugin.tui.news_ideas import NewsIdeasScreen
 
         def on_created(paths: list) -> None:
             if not paths:
                 return
-            import frontmatter as fm
 
             now = datetime.now()
             added = 0
@@ -2271,8 +2278,6 @@ class HuginScreen(Screen):
         """Open the redirects manager screen."""
         if self._state != STATE_BROWSING:
             return
-        from hugin.redirects import find_redirects_file
-        from hugin.tui.redirects_screen import RedirectsScreen
 
         path = find_redirects_file(self.directory)
         if path is None:
@@ -2297,18 +2302,15 @@ class HuginScreen(Screen):
         post_url = self.index.get_post_url(post)
 
         # Collect similar posts BEFORE removing from index
-        from hugin.linker import extract_existing_links
         existing_urls = extract_existing_links(post.content)
         candidates = self.index.find_similar(post, n=3, exclude_urls=existing_urls)
 
-        from hugin.tui.redirects_screen import ConfirmDeleteScreen, RedirectSuggestScreen
 
         def on_confirm(confirmed: bool) -> None:
             if not confirmed:
                 return
 
             # Move the file to the trash (never an irreversible delete)
-            from hugin.trash import move_to_trash
 
             try:
                 trashed = move_to_trash(post.path)
@@ -2353,7 +2355,6 @@ class HuginScreen(Screen):
             if not post_url:
                 return
 
-            from hugin.redirects import append_redirect, find_redirects_file
             redirects_path = find_redirects_file(self.directory)
             if redirects_path is None:
                 return
@@ -2378,13 +2379,9 @@ class HuginScreen(Screen):
         )
 
     def _open_editor_for_post(self, post: Post, index: int) -> None:
-        from hugin.tui.editor import EditorScreen
 
         def on_return(saved: bool) -> None:
             if saved:
-                import frontmatter as fm
-                from rich.text import Text
-                import yaml
                 try:
                     updated = fm.load(str(post.path))
                 except (yaml.YAMLError, Exception) as e:
@@ -2414,8 +2411,6 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
-        from hugin.authors import ordered_authors
-        from hugin.tui.project_settings import ProjectSettingsScreen
 
         def on_return(saved: bool) -> None:
             if saved:
@@ -2472,7 +2467,6 @@ class HuginScreen(Screen):
             self._copy_to_clipboard(text)
             self.notify(f"{post.filename} copied to clipboard")
         elif event.button.id == "btn-copy-body":
-            import frontmatter as fm
 
             post = self.posts[self.current_index]
             # Read from disk: the editor may have changed the file since the scan
@@ -2484,7 +2478,6 @@ class HuginScreen(Screen):
 
     @staticmethod
     def _format_error(e: Exception) -> str:
-        import httpx
         if isinstance(e, httpx.ConnectError):
             return f"Connection refused — is the engine running? ({e.request.url})"
         if isinstance(e, httpx.ReadTimeout):
@@ -2516,13 +2509,11 @@ class HuginScreen(Screen):
                 self._start_spinner(self.current_index, "Syncing with GitHub...")
                 self._do_git_sync()
 
-        from hugin.git import pending_changes
 
         self.app.push_screen(ConfirmGitSyncScreen(pending_changes(self.directory)), on_confirm)
 
     @work(thread=True)
     def _do_git_sync(self) -> None:
-        from hugin.git import git_sync
 
         result = git_sync(self.directory)
         success = result.success
@@ -2604,7 +2595,6 @@ class HuginScreen(Screen):
 
     def _rebuild_post_table(self) -> None:
         """Clear and repopulate the post table from self.posts."""
-        from rich.text import Text
         table = self.query_one("#post-table", DataTable)
         table.clear()
         self._row_keys = []

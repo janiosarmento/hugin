@@ -4,6 +4,7 @@ import tomllib
 from pathlib import Path
 
 from hugin.engines import CONFIG_DIR
+import tomlkit
 
 AFFILIATES_PATH = CONFIG_DIR / "affiliates.toml"
 
@@ -47,7 +48,6 @@ def validate_affiliate(
 
 def _edit_document(change) -> None:
     """Apply `change(doc)` to the TOML file, keeping its comments and layout."""
-    import tomlkit
 
     load_affiliates()  # creates the file with its header comment if missing
     doc = tomlkit.parse(AFFILIATES_PATH.read_text(encoding="utf-8"))

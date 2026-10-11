@@ -205,7 +205,7 @@ def test_wait_screen_assigns_category_from_system_llm(tmp_path, monkeypatch):
         return "life"
 
     monkeypatch.setattr(echo_mod, "ask_echo", fake_ask)
-    monkeypatch.setattr(llm, "call_llm", fake_llm)
+    monkeypatch.setattr(echo_mod, "call_llm", fake_llm)
     monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
     monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
 
@@ -273,7 +273,7 @@ def test_wait_screen_falls_back_and_warns(tmp_path, monkeypatch):
 
     monkeypatch.setattr(echo_mod, "ask_echo", echo_down)
     monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
-    monkeypatch.setattr(llm, "call_llm", fake_llm)
+    monkeypatch.setattr(echo_mod, "call_llm", fake_llm)
     monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
     notes = []
     engine = Engine("sys", "https://x/v1", "m", 30, "key")
@@ -374,7 +374,7 @@ def test_wait_screen_system_writer_skips_echo(tmp_path, monkeypatch):
 
     monkeypatch.setattr(echo_mod, "ask_echo", echo_must_not_run)
     monkeypatch.setattr(echo_mod, "get_api_key", echo_must_not_run)
-    monkeypatch.setattr(llm, "call_llm", fake_llm)
+    monkeypatch.setattr(echo_mod, "call_llm", fake_llm)
     notes = []
     engine = Engine("sys", "https://x/v1", "big-model", 30, "key")
     result = {}

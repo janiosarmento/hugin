@@ -18,6 +18,13 @@ from hugin.authors import post_authors
 from hugin.engines import load_fulcrum_echo_secret
 from hugin.log import log_exception
 from hugin.scanner import Post
+from secrets_resolver import get_secret
+from secrets_resolver.exceptions import SecretsResolverError
+from hugin.llm import strip_reasoning
+from dataclasses import replace
+from hugin.llm import call_llm
+from hugin.hugo import slugify
+from hugin.writer import create_post
 
 ECHO_URL = "https://echo.fulcrum.inc/api/v1/chat/completions"
 ECHO_TIMEOUT = 900  # seconds; Echo's own server-side limit
@@ -285,8 +292,6 @@ def build_message(
 
 
 def get_api_key() -> str:
-    from secrets_resolver import get_secret
-    from secrets_resolver.exceptions import SecretsResolverError
 
     name = load_fulcrum_echo_secret()
     try:
@@ -332,7 +337,6 @@ async def ask_echo(message: str, persona: str, api_key: str) -> str:
         text = response.json()["choices"][0]["message"]["content"]
     except (ValueError, KeyError, IndexError, TypeError) as e:
         raise EchoError("Unexpected response format from Echo") from e
-    from hugin.llm import strip_reasoning
 
     text = strip_reasoning(text)
     if not text:
@@ -345,9 +349,7 @@ async def write_with_system_llm(message: str, engine) -> str:
     if engine is None or not engine.available:
         raise EchoError("No usable system LLM (check the selected engine and its key)")
 
-    from dataclasses import replace
 
-    from hugin.llm import call_llm
 
     patient = replace(engine, timeout=max(engine.timeout, FALLBACK_MIN_TIMEOUT))
     try:
@@ -443,7 +445,6 @@ async def pick_category(engine, title: str, body: str, categories: list[str]) ->
     """
     if not categories:
         return None
-    from hugin.llm import call_llm
 
     prompt = CATEGORY_PROMPT.format(
         categories="\n".join(f"- {c}" for c in categories),
@@ -469,8 +470,6 @@ def create_draft(
     author: str | None = None,
     author_field: str = "author",
 ) -> Path:
-    from hugin.hugo import slugify
-    from hugin.writer import create_post
 
     title, body = parse_answer(text, request)
     base = slugify(title) or "echo-draft"

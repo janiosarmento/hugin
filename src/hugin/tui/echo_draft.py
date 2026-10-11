@@ -46,6 +46,7 @@ from hugin.hugo import load_categories
 from hugin.normalizer import detect_language
 from hugin.project import load_project
 from hugin.scanner import Post
+from rich.markup import escape
 
 
 WAIT_TEXT = "Waiting for {who} (can take several minutes)…"
@@ -274,7 +275,6 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         return str(post.metadata.get("title") or post.path.stem)
 
     def _samples_text(self) -> str:
-        from rich.markup import escape
 
         def row(tag: str, post: Post) -> str:
             return f"  [b]{tag:<8}[/b] {escape(self._title(post))}"

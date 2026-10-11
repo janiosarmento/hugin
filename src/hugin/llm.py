@@ -8,6 +8,7 @@ import httpx
 
 from hugin.engines import Engine
 from hugin.normalizer import detect_language
+from collections import Counter
 
 TAG_SYSTEM_PROMPT = """\
 You are a blog post tag generator. Analyze the following blog post and suggest relevant tags.
@@ -230,11 +231,9 @@ def _is_repetition_loop(text: str, threshold: float = 0.5) -> bool:
     Splits on whitespace and commas, then checks whether the most common
     token makes up more than `threshold` of all tokens.
     """
-    import re
     tokens = [t.strip(".,;:!?\"'").lower() for t in re.split(r"[\s,]+", text) if t.strip()]
     if len(tokens) < 10:
         return False
-    from collections import Counter
     top_count = Counter(tokens).most_common(1)[0][1]
     return top_count / len(tokens) > threshold
 

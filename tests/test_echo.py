@@ -230,7 +230,7 @@ class TestCategory:
             seen["prompt"] = prompt
             return "Cats & Pets"
 
-        monkeypatch.setattr(llm, "call_llm", fake)
+        monkeypatch.setattr(echo, "call_llm", fake)
         got = asyncio.run(pick_category(object(), "T", "body text", CATS))
         assert got == "Cats & Pets"
         assert "- Technology" in seen["prompt"] and "body text" in seen["prompt"]
@@ -244,9 +244,9 @@ class TestCategory:
         async def boom(engine, prompt, system=None):
             raise httpx.ConnectError("down")
 
-        monkeypatch.setattr(llm, "call_llm", nonsense)
+        monkeypatch.setattr(echo, "call_llm", nonsense)
         assert asyncio.run(pick_category(object(), "T", "b", CATS)) == "Technology"
-        monkeypatch.setattr(llm, "call_llm", boom)
+        monkeypatch.setattr(echo, "call_llm", boom)
         assert asyncio.run(pick_category(object(), "T", "b", CATS)) == "Technology"
 
     def test_pick_without_categories_is_none(self):
@@ -281,7 +281,7 @@ class TestFallback:
 
         monkeypatch.setattr(echo, "get_api_key", lambda: "k")
         monkeypatch.setattr(echo, "ask_echo", fake_echo)
-        monkeypatch.setattr(llm, "call_llm", fake_llm)
+        monkeypatch.setattr(echo, "call_llm", fake_llm)
         return calls
 
     def test_echo_success_skips_fallback(self, monkeypatch):
@@ -321,7 +321,7 @@ class TestFallback:
         async def bad(engine, prompt, system=None):
             raise httpx.ConnectError("llm down")
 
-        monkeypatch.setattr(llm, "call_llm", bad)
+        monkeypatch.setattr(echo, "call_llm", bad)
         with pytest.raises(EchoError, match="echo down.*llm down"):
             asyncio.run(write_with_fallback("m", "p", self._engine()))
 
@@ -418,7 +418,7 @@ def test_write_with_system_llm_strips_reasoning(monkeypatch):
     async def fake_call_llm(engine, prompt, system=None):
         return llm.strip_reasoning("<|channel>thought\nnotes\n<channel|>Real Title\nBody")
 
-    monkeypatch.setattr(llm, "call_llm", fake_call_llm)
+    monkeypatch.setattr(echo, "call_llm", fake_call_llm)
     engine = Engine("t", "http://x/v1", "m", 5, "key")
     text = asyncio.run(echo.write_with_system_llm("msg", engine))
     assert text == "Real Title\nBody"

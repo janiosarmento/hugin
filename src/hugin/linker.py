@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import frontmatter
 from markdown_it import MarkdownIt
 from hugin.normalizer import strip_accents
+from hugin.writer import write_body
 
 if TYPE_CHECKING:
     from hugin.scanner import Post
@@ -572,6 +573,5 @@ def write_post_with_links(
     body: str,
 ) -> None:
     """Write post with updated body. Delegates to writer.save_post."""
-    from hugin.writer import write_body
 
     write_body(path, body)

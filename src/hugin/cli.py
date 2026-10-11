@@ -20,6 +20,13 @@ from hugin.scanner import (
     load_posts,
 )
 from hugin.state import load_state
+from hugin.git import git_sync
+from hugin.authors import ordered_authors, post_authors
+from hugin.project import load_project
+from hugin.tui.app import HuginApp
+from hugin.scanner import collect_tag_pool, find_duplicate_tags
+from hugin.state import get_last_processed, load_state
+from hugin.llm import LINK_KEYWORDS_SYSTEM, LINK_KEYWORDS_USER_TEMPLATE, call_llm
 
 
 def _ignore_ctrl_z() -> None:
@@ -37,7 +44,6 @@ def _ignore_ctrl_z() -> None:
 
 def _git_sync_startup(directory: Path) -> None:
     """On startup: commit local changes, pull --rebase, push. Exit on error."""
-    from hugin.git import git_sync
 
     result = git_sync(directory)
     if not result.success:
@@ -52,8 +58,6 @@ def _git_sync_startup(directory: Path) -> None:
 
 def _missing_author_warning(directory: Path, posts: list[Post]) -> str | None:
     """Posts without an author, and no author list to give them a default from."""
-    from hugin.authors import ordered_authors, post_authors
-    from hugin.project import load_project
 
     missing = sum(1 for p in posts if not post_authors(p))
     if not missing or ordered_authors(load_project(directory).authors, posts):
@@ -152,7 +156,6 @@ def main(
 
     pool = collect_tag_pool(posts)
 
-    from hugin.tui.app import HuginApp
 
     while True:
         app = HuginApp(
@@ -190,8 +193,6 @@ def main(
 
 
 def _show_report(posts: list, directory: Path, index: EmbeddingIndex) -> None:
-    from hugin.scanner import collect_tag_pool, find_duplicate_tags
-    from hugin.state import get_last_processed, load_state
 
     state = load_state(directory)
 
@@ -249,7 +250,6 @@ def build_profiles(
     reset: bool,
 ) -> None:
     """Generate link profiles (keywords) for all posts in batch."""
-    from hugin.llm import LINK_KEYWORDS_SYSTEM, LINK_KEYWORDS_USER_TEMPLATE, call_llm
 
     directory = directory.resolve()
     config = load_config()

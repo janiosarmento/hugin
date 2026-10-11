@@ -19,6 +19,9 @@ from textual.widgets import (
 )
 
 from hugin.scanner import Post
+from hugin.linker import convert_html_links_to_markdown
+from hugin.writer import save_post
+from hugin.writer import save_raw
 
 
 _EMOJI_RE = re.compile(
@@ -368,7 +371,6 @@ class EditorScreen(Screen[bool]):
 
     def action_links_to_markdown(self) -> None:
         """Convert HTML anchor tags to Markdown links in the body text."""
-        from hugin.linker import convert_html_links_to_markdown
         editor_id = "#raw-editor" if self._raw_mode else "#body-editor"
         editor = self.query_one(editor_id, TextArea)
         original = editor.text
@@ -397,7 +399,6 @@ class EditorScreen(Screen[bool]):
         post = self.post
 
         if self._raw_mode:
-            from hugin.writer import save_raw
             raw_text = self.query_one("#raw-editor", TextArea).text
             # Auto-fix common YAML issues (quotes on title/description)
             fixed = _quote_frontmatter_fields(raw_text)
@@ -434,7 +435,6 @@ class EditorScreen(Screen[bool]):
         new_content = body_editor.text
 
         # Build post object and save through centralised writer
-        from hugin.writer import save_post
 
         fm_post = frontmatter.Post(new_content, **new_meta)
         save_post(post.path, fm_post)
