@@ -3,7 +3,10 @@
 import asyncio
 import json
 import math
+import os
 import re
+import shlex
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -587,6 +590,7 @@ class HuginScreen(Screen):
         Binding("i", "incoming", "In", tooltip="Find incoming link candidates (embedding only)"),
         Binding("o", "outgoing", "Out", tooltip="Generate outgoing link suggestions (embedding + LLM)"),
         Binding("e", "editor", "Edit", tooltip="Open built-in editor"),
+        Binding("E", "external_editor", "Ext", show=False, tooltip="Open post in $EDITOR"),
         Binding("p", "new_post", "Post", tooltip="Create a new post"),
         Binding("g", "git_sync", "Git", tooltip="Sync repository with GitHub (commit + pull --rebase + push)"),
         Binding("m", "manage_tags", "Mngr", show=False, tooltip="Open tag manager"),
@@ -2080,6 +2084,23 @@ class HuginScreen(Screen):
             return
         self._open_editor_for_post(self.posts[self.current_index], self.current_index)
 
+    def action_external_editor(self) -> None:
+        if self._state != STATE_BROWSING or not self.posts:
+            return
+        editor = os.environ.get("EDITOR", "").strip()
+        if not editor:
+            self.notify(
+                "$EDITOR is not set. Export it in your shell, e.g. export EDITOR=hx",
+                severity="warning", timeout=8,
+            )
+            return
+        index = self.current_index
+        post = self.posts[index]
+        with self.app.suspend():
+            subprocess.run([*shlex.split(editor), str(post.path)])
+        self._reload_post(post, index)
+        self._update_detail_panel()
+
     # === MANAGE TAGS ===
 
     def action_manage_tags(self) -> None:
@@ -2382,28 +2403,32 @@ class HuginScreen(Screen):
 
         def on_return(saved: bool) -> None:
             if saved:
-                try:
-                    updated = fm.load(str(post.path))
-                except (yaml.YAMLError, Exception) as e:
-                    self.notify(
-                        f"Saved but can't parse frontmatter: {e}",
-                        severity="error", timeout=8,
-                    )
-                    self._update_detail_panel()
-                    return
-                post.metadata = updated.metadata
-                post.content = updated.content
-                post.tags = list(updated.metadata.get("tags", []) or [])
-                post.has_tags = bool(post.tags)
-                self.index.update_post(post, self.site.post_url)
-                self._build_incoming_index()
-                new_title = post.metadata.get("title", post.filename)
-                cell = Text(f"[DRAFT] {new_title}", style="dim") if post.metadata.get("draft") else Text(new_title)
-                table = self.query_one("#post-table", DataTable)
-                table.update_cell(self._row_keys[index], "title", cell)
+                self._reload_post(post, index)
             self._update_detail_panel()
 
         self.app.push_screen(EditorScreen(post=post), on_return)
+
+    def _reload_post(self, post: Post, index: int) -> None:
+        """Re-read a post from disk after it was edited outside the TUI."""
+
+        try:
+            updated = fm.load(str(post.path))
+        except (yaml.YAMLError, Exception) as e:
+            self.notify(
+                f"Saved but can't parse frontmatter: {e}",
+                severity="error", timeout=8,
+            )
+            return
+        post.metadata = updated.metadata
+        post.content = updated.content
+        post.tags = list(updated.metadata.get("tags", []) or [])
+        post.has_tags = bool(post.tags)
+        self.index.update_post(post, self.site.post_url)
+        self._build_incoming_index()
+        new_title = post.metadata.get("title", post.filename)
+        cell = Text(f"[DRAFT] {new_title}", style="dim") if post.metadata.get("draft") else Text(new_title)
+        table = self.query_one("#post-table", DataTable)
+        table.update_cell(self._row_keys[index], "title", cell)
 
     # === PROJECT SETTINGS ===
 

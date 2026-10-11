@@ -67,6 +67,7 @@ Press `?` at any time on the main screen for a modal listing every keybinding be
 | `i` | Find incoming link candidates (embedding only) |
 | `o` | Generate outgoing link suggestions (embedding + LLM) |
 | `e` | Open built-in editor |
+| `E` | Open the post in `$EDITOR` (suspends Hugin, reloads the post on return). Shows a warning if `$EDITOR` is not set |
 | `p` | Create new post |
 | `g` | Sync repository with GitHub (commit + pull --rebase + push). The confirmation lists what will be committed. Never prompts for credentials, times out instead of hanging, refuses new files that look like secrets (`.env`, `*.pem`, `*.key`…) and leaves a rebase/merge you started untouched |
 | `/` | Inline search — filter post list by title or filename |
