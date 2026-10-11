@@ -160,3 +160,34 @@ def test_picker_cancel_returns_none(tmp_path):
 
     asyncio.run(go())
     assert result["v"] is None
+
+
+def test_picker_opened_from_the_editor_shows_the_current_time_and_fits(tmp_path):
+    from textual.widgets import Button, Input
+
+    from hugin.tui.date_picker import DatePickerScreen
+
+    post = _post(tmp_path, "")
+    post.path.write_text(post.path.read_text(encoding="utf-8").replace("date: 2024-01-02", "date: 2024-01-02T11:30:00"))
+    post = load_posts(tmp_path, [])[0]
+    seen = {}
+
+    async def go():
+        app = App()
+        async with app.run_test(size=(100, 30)) as pilot:
+            app.push_screen(EditorScreen(post))
+            await pilot.pause()
+            app.screen.query_one("#pick-date", Button).press()
+            await pilot.pause()
+            await pilot.pause()
+            picker = app.screen
+            seen["picker"] = type(picker).__name__
+            seen["time"] = picker.query_one("#picker-time-input", Input).value
+            modal = picker.query_one("#picker-modal").region
+            seen["inside"] = all(
+                b.region.right <= modal.right and b.region.bottom <= modal.bottom
+                for b in picker.query(Button)
+            )
+
+    asyncio.run(go())
+    assert seen == {"picker": "DatePickerScreen", "time": "11:30", "inside": True}

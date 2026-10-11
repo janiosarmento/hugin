@@ -1,6 +1,7 @@
 """Date and time picker for frontmatter dates: a month grid, and the time kept as is."""
 
 import calendar
+import re
 from datetime import date, datetime, time, timedelta
 
 from textual.app import ComposeResult
@@ -60,38 +61,49 @@ class DatePickerScreen(ModalScreen[datetime | None]):
     }
 
     #picker-modal {
-        width: 34;
+        width: 36;
         height: auto;
         border: round $accent;
         background: $surface;
-        padding: 1 2;
+        padding: 0 1;
     }
 
     #picker-month {
         text-style: bold;
-        content-align: center middle;
         width: 100%;
+        content-align: center middle;
     }
 
     #picker-grid {
         height: auto;
-        margin: 1 0;
+        margin-bottom: 1;
     }
 
     #picker-time {
-        height: auto;
+        height: 1;
+    }
+
+    #picker-time Label {
+        width: auto;
+        padding-right: 1;
     }
 
     #picker-time Input {
-        width: 6;
+        width: 8;
+        height: 1;
+        border: none;
+        padding: 0;
     }
 
     #picker-buttons {
-        height: auto;
+        height: 1;
         margin-top: 1;
     }
 
     #picker-buttons Button {
+        height: 1;
+        min-width: 8;
+        border: none;
         margin-right: 1;
     }
 
@@ -104,19 +116,16 @@ class DatePickerScreen(ModalScreen[datetime | None]):
         super().__init__()
         start = value or datetime.now()
         self._day = start.date()
-        self._hour = start.hour
-        self._minute = start.minute
+        self._time = time(start.hour, start.minute)
 
     def compose(self) -> ComposeResult:
         with Vertical(id="picker-modal"):
             yield Static("", id="picker-month")
             yield Static("", id="picker-grid")
             with Horizontal(id="picker-time"):
-                yield Label("Time ")
-                yield Input(f"{self._hour:02d}", id="picker-hour", type="integer", max_length=2)
-                yield Label(":")
-                yield Input(f"{self._minute:02d}", id="picker-minute", type="integer", max_length=2)
-            yield Static("Arrows move the day, PgUp/PgDn the month, Enter uses it, Esc cancels.", id="picker-hint")
+                yield Label("Time")
+                yield Input(self._time.strftime("%H:%M"), id="picker-time-input")
+            yield Static("←→↑↓ day  PgUp/PgDn month", id="picker-hint")
             with Horizontal(id="picker-buttons"):
                 yield Button("Use", id="btn-use", variant="primary")
                 yield Button("Cancel", id="btn-cancel-pick")
@@ -159,14 +168,15 @@ class DatePickerScreen(ModalScreen[datetime | None]):
             self.action_cancel()
 
     def action_confirm(self) -> None:
+        match = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", self.query_one("#picker-time-input", Input).value)
         try:
-            hour = int(self.query_one("#picker-hour", Input).value)
-            minute = int(self.query_one("#picker-minute", Input).value)
-            chosen = datetime.combine(self._day, time(hour, minute))
+            chosen_time = time(int(match.group(1)), int(match.group(2))) if match else None
         except ValueError:
-            self.notify("Hour must be 0-23 and minute 0-59.", severity="warning")
+            chosen_time = None
+        if chosen_time is None:
+            self.notify("Time must be HH:MM, from 00:00 to 23:59.", severity="warning")
             return
-        self.dismiss(chosen)
+        self.dismiss(datetime.combine(self._day, chosen_time))
 
     def action_cancel(self) -> None:
         self.dismiss(None)
