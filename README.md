@@ -13,7 +13,7 @@ In Norse mythology, **Hugin** (*huginn*, "thought") is one of Odin's two ravens 
 - **Tag generation** — LLM suggests tags, preferring reuse from your existing tag pool. New tags are marked with a sparkle emoji.
 - **Summary generation** — LLM writes meta descriptions with personality, not generic SEO filler. Auto-retries if too long.
 - **Internal link discovery** — Finds posts that could link to the selected post using semantic similarity (no LLM needed).
-- **Outgoing link suggestions** — Embedding + tag matching finds candidates; LLM reranks and finds verbatim anchor text. A link profile (LLM-generated keywords) is built lazily per post to improve future searches.
+- **Outgoing link suggestions** — Embedding + tag matching finds candidates; LLM reranks, then chooses the verbatim anchor text in the body from each candidate's link profile (its keywords). A link profile is built lazily per post and is the only description of a target the LLM sees.
 - **Direct post picker** — Manually select any post and let the LLM find a natural anchor for it.
 - **Amazon affiliate links** — Scans your affiliates dictionary and inserts matching links with one keystroke.
 - **Topic suggestions** — LLM suggests new post ideas that complement the current one.
@@ -144,9 +144,7 @@ On startup, Hugin fills in every post that has no `keywords` field and already h
 
 3. **LLM reranking** — The LLM filters the merged pool to genuinely related posts. It runs in inclusive mode — borderline candidates are kept for human review. A minimum of 3 candidates always passes through regardless of the LLM response.
 
-4. **LLM anchor finding** — The LLM identifies verbatim phrases in the post body that would naturally serve as anchor text for each candidate. Each anchor is validated: must exist exactly in the text, not inside a heading/code/existing link, not in a paragraph already at its link limit.
-
-5. **Keyword fallback** — Candidates the LLM missed get a deterministic search derived from the target post's URL slug. Hugin tries the full slug phrase first ("leucemia felina"), then progressively shorter sub-phrases, then individual words (≥6 chars). Matching is accent-insensitive so slugs without diacritics still find accented body text. The longest matching phrase is used as anchor.
+4. **LLM anchor finding** — The LLM chooses, for each candidate, a verbatim phrase in the post body that names one of the candidate's keywords. Candidates without a link profile are skipped (generate their profiles with `hugin-profiles`). Each anchor is validated: must exist exactly in the text, not inside a heading/code/existing link, not in a paragraph already at its link limit. A phrase that does not exist is asked again once, with the keywords.
 
 **Apply** — Checked suggestions are inserted as Markdown links. The post's embedding is recomputed and the cache updated.
 

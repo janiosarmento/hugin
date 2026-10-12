@@ -123,6 +123,7 @@ def test_h_key_creates_draft_in_main_screen(tmp_path, monkeypatch):
     index.has_no_outgoing.return_value = False
     index.get_post_url.return_value = "/x"
     index.get_link_keywords.return_value = ""
+    index.link_keywords_for_path.return_value = "alpha, beta"
 
     class Host(App):
         def on_mount(self):
@@ -164,6 +165,7 @@ def test_h_key_warns_without_enough_posts(tmp_path):
     index.has_no_outgoing.return_value = False
     index.get_post_url.return_value = "/x"
     index.get_link_keywords.return_value = ""
+    index.link_keywords_for_path.return_value = "alpha, beta"
     notes = []
 
     class Host(App):
@@ -450,6 +452,7 @@ def test_R_key_refactors_post_and_goto_original(tmp_path, monkeypatch):
     index.has_no_outgoing.return_value = False
     index.get_post_url.return_value = "/x"
     index.get_link_keywords.return_value = ""
+    index.link_keywords_for_path.return_value = "alpha, beta"
 
     class Host(App):
         def on_mount(self):
@@ -512,6 +515,7 @@ def test_copy_body_button_copies_markdown_without_frontmatter(tmp_path):
     index.has_no_outgoing.return_value = False
     index.get_post_url.return_value = "/x"
     index.get_link_keywords.return_value = ""
+    index.link_keywords_for_path.return_value = "alpha, beta"
     copied = []
 
     class Host(App):
@@ -562,6 +566,7 @@ def test_u_key_sends_similar_post_titles_to_the_llm(tmp_path, monkeypatch):
     index.has_no_outgoing.return_value = False
     index.get_post_url.return_value = "/x"
     index.get_link_keywords.return_value = ""
+    index.link_keywords_for_path.return_value = "alpha, beta"
     index.find_similar.return_value = [{"title": "Litter box guide"}, {"title": "Cat food"}]
     index._cache = {}
 
@@ -588,14 +593,14 @@ def test_u_key_sends_similar_post_titles_to_the_llm(tmp_path, monkeypatch):
 
 
 class TestFindAnchors:
-    """Anchor finding: slug matches skip the LLM, retries run concurrently."""
+    """The LLM picks anchors in the body, from each target's link keywords."""
 
     BODY = (
         "I bought a litter box last week. My cat loves the automatic "
         "feeder and the water fountain too.\n"
     )
 
-    def _run(self, monkeypatch, candidates, llm):
+    def _run(self, monkeypatch, candidates, llm, keywords):
         from types import SimpleNamespace
 
         import hugin.tui.review as review
@@ -603,41 +608,60 @@ class TestFindAnchors:
         from hugin.scanner import Post
 
         monkeypatch.setattr(review, "call_llm", llm)
+        index = SimpleNamespace(link_keywords_for_path=lambda path: keywords.get(path, ""))
         fake = SimpleNamespace(
-            engine=None, config=SimpleNamespace(links=LinksConfig()), _anchor_stats={},
+            engine=None, config=SimpleNamespace(links=LinksConfig()),
+            index=index, _anchor_stats={},
         )
         post = Post(Path("x.md"), {"title": "X"}, self.BODY, False)
         result = asyncio.run(review.HuginScreen._find_anchors(fake, post, candidates, set()))
         return result, fake
 
-    def test_multiword_slug_match_skips_the_llm(self, monkeypatch):
+    LITTER = {"title": "Litter", "url": "/litter-box/", "path": "/blog/litter.md"}
+    FEEDER = {"title": "Feeder", "url": "/feeder/", "path": "/blog/feeder.md"}
+    KEYWORDS = {"/blog/litter.md": "litter, cat toilets", "/blog/feeder.md": "automatic feeders, pets"}
+
+    def test_llm_gets_the_keywords_not_the_title(self, monkeypatch):
+        prompts = []
+
+        async def llm(engine, prompt, **kw):
+            prompts.append(prompt)
+            return '[{"target_url": "/litter-box/", "anchor_text": "litter box"}]'
+
+        result, fake = self._run(monkeypatch, [self.LITTER], llm, self.KEYWORDS)
+
+        assert result == [{"anchor_text": "litter box", "target_url": "/litter-box/"}]
+        assert "cat toilets" in prompts[0]
+        assert "Litter" not in prompts[0]
+        assert fake._anchor_stats["llm_asked"] == 1
+
+    def test_candidate_without_keywords_is_not_sent(self, monkeypatch):
+        prompts = []
+
+        async def llm(engine, prompt, **kw):
+            prompts.append(prompt)
+            return '[{"target_url": "/feeder/", "anchor_text": "automatic feeder"}]'
+
+        result, fake = self._run(
+            monkeypatch, [self.LITTER, self.FEEDER], llm,
+            {"/blog/feeder.md": "automatic feeders, pets"},
+        )
+
+        assert [r["target_url"] for r in result] == ["/feeder/"]
+        assert '"/litter-box/"' not in prompts[0]
+        assert fake._anchor_stats["no_keywords"] == 1
+
+    def test_no_keywords_at_all_makes_no_llm_call(self, monkeypatch):
         calls = []
 
         async def llm(engine, prompt, **kw):
             calls.append(prompt)
             return "[]"
 
-        result, fake = self._run(
-            monkeypatch, [{"title": "Litter", "url": "/litter-box/"}], llm,
-        )
-        assert result == [{"anchor_text": "litter box", "target_url": "/litter-box/"}]
+        result, fake = self._run(monkeypatch, [self.LITTER], llm, {})
+
+        assert result == []
         assert calls == []
-        assert fake._anchor_stats["llm_asked"] == 0
-
-    def test_only_unsettled_candidates_go_to_the_llm(self, monkeypatch):
-        prompts = []
-
-        async def llm(engine, prompt, **kw):
-            prompts.append(prompt)
-            return '[{"target_url": "/water/", "anchor_text": "water fountain"}]'
-
-        result, _ = self._run(monkeypatch, [
-            {"title": "Litter", "url": "/litter-box/"},
-            {"title": "Water", "url": "/water/"},
-        ], llm)
-        assert [r["target_url"] for r in result] == ["/litter-box/", "/water/"]
-        assert '"/water/"' in prompts[0]
-        assert '"/litter-box/"' not in prompts[0]
 
     def test_near_miss_anchor_is_repaired_without_another_llm_call(self, monkeypatch):
         calls = []
@@ -646,36 +670,38 @@ class TestFindAnchors:
             calls.append(prompt)
             return '[{"target_url": "/feeder/", "anchor_text": "Automatic Feeders"}]'
 
-        result, fake = self._run(
-            monkeypatch, [{"title": "Feeder", "url": "/feeder/"}], llm,
-        )
+        result, fake = self._run(monkeypatch, [self.FEEDER], llm, self.KEYWORDS)
+
         assert result == [{"anchor_text": "automatic feeder", "target_url": "/feeder/"}]
         assert len(calls) == 1
         assert fake._anchor_stats["repaired"] == 1
         assert fake._anchor_stats["retries"] == 0
 
-    def test_retries_run_concurrently(self, monkeypatch):
-        import time
+    def test_phrase_not_in_body_is_asked_again_with_the_keywords(self, monkeypatch):
+        prompts = []
 
         async def llm(engine, prompt, **kw):
-            await asyncio.sleep(0.3)
+            prompts.append(prompt)
             if "does not appear verbatim" in prompt:
-                return "automatic feeder" if "/feeder/" in prompt else "water fountain"
+                return "water fountain"
+            return '[{"target_url": "/feeder/", "anchor_text": "smart dispenser"}]'
+
+        result, fake = self._run(monkeypatch, [self.FEEDER], llm, self.KEYWORDS)
+
+        assert result == [{"anchor_text": "water fountain", "target_url": "/feeder/"}]
+        assert "automatic feeders" in prompts[1]
+        assert fake._anchor_stats["retries"] == 1
+
+    def test_one_anchor_per_candidate(self, monkeypatch):
+        async def llm(engine, prompt, **kw):
             return (
-                '[{"target_url": "/feeder/", "anchor_text": "self feeder"},'
-                ' {"target_url": "/water/", "anchor_text": "drinking fountain"}]'
+                '[{"target_url": "/feeder/", "anchor_text": "automatic feeder"},'
+                ' {"target_url": "/feeder/", "anchor_text": "water fountain"}]'
             )
 
-        start = time.perf_counter()
-        result, fake = self._run(monkeypatch, [
-            {"title": "Feeder", "url": "/feeder/"},
-            {"title": "Water", "url": "/water/"},
-        ], llm)
-        elapsed = time.perf_counter() - start
+        result, _ = self._run(monkeypatch, [self.FEEDER], llm, self.KEYWORDS)
 
-        assert {r["anchor_text"] for r in result} == {"automatic feeder", "water fountain"}
-        assert fake._anchor_stats["retries"] == 2
-        assert elapsed < 0.85  # 0.3 (anchors) + 0.3 (both retries), not 0.9
+        assert result == [{"anchor_text": "automatic feeder", "target_url": "/feeder/"}]
 
 
 def test_o_key_runs_the_outgoing_pipeline_and_logs_timings(tmp_path, monkeypatch):
@@ -704,8 +730,9 @@ def test_o_key_runs_the_outgoing_pipeline_and_logs_timings(tmp_path, monkeypatch
     index.has_no_outgoing.return_value = False
     index.get_post_url.return_value = "/x"
     index.get_link_keywords.return_value = ""
+    index.link_keywords_for_path.return_value = "alpha, beta"
     index.find_similar.return_value = [
-        {"title": f"T{i}", "url": f"/t{i}/", "score": 0.8 - i / 100} for i in range(6)
+        {"title": f"T{i}", "url": f"/t{i}/", "path": f"/blog/t{i}.md", "score": 0.8 - i / 100} for i in range(6)
     ]
     index.find_by_shared_tags.return_value = []
     index._cache = {}
@@ -731,7 +758,7 @@ def test_o_key_runs_the_outgoing_pipeline_and_logs_timings(tmp_path, monkeypatch
     # profile + anchors only: 6 candidates are few enough to skip the rerank
     assert len(prompts) == 2
     # budget 2 -> only 4 candidates reach the anchor step
-    assert prompts[1].count('"url"') == 4
+    assert prompts[1].count('{"target_url": "/t') == 4
     text = log.LOG_PATH.read_text()
     assert "INFO outgoing p0.md" in text and "anchors" in text
     assert "NameError" not in text
@@ -763,8 +790,9 @@ def _count_outgoing_llm_calls(tmp_path, monkeypatch, rerank_min_posts):
     index.has_no_outgoing.return_value = False
     index.get_post_url.return_value = "/x"
     index.get_link_keywords.return_value = ""
+    index.link_keywords_for_path.return_value = "alpha, beta"
     index.find_similar.return_value = [
-        {"title": f"T{i}", "url": f"/t{i}/", "score": 0.9 - i / 100} for i in range(14)
+        {"title": f"T{i}", "url": f"/t{i}/", "path": f"/blog/t{i}.md", "score": 0.9 - i / 100} for i in range(14)
     ]
     index.find_by_shared_tags.return_value = []
     index._cache = {}
@@ -818,6 +846,7 @@ def test_app_logs_error_notifications(tmp_path):
     index.has_no_outgoing.return_value = False
     index.get_post_url.return_value = "/x"
     index.get_link_keywords.return_value = ""
+    index.link_keywords_for_path.return_value = "alpha, beta"
     index._cache = {}
     posts = _posts(tmp_path)
     app = HuginApp(
@@ -869,6 +898,7 @@ def test_esc_cancels_a_running_outgoing_flow(tmp_path, monkeypatch):
     index.has_no_outgoing.return_value = False
     index.get_post_url.return_value = "/x"
     index.get_link_keywords.return_value = ""
+    index.link_keywords_for_path.return_value = "alpha, beta"
     index._cache = {}
     seen = {}
 
@@ -901,35 +931,6 @@ def test_esc_cancels_a_running_outgoing_flow(tmp_path, monkeypatch):
     assert len(started) == 1 and finished == []
 
 
-class TestAnchorEdgeTrimming:
-    def test_llm_anchor_loses_edge_prepositions_and_pure_stopword_anchors_are_dropped(
-        self, monkeypatch,
-    ):
-        body = "Falamos do bolsonarismo e brincamos com o gato.\n"
-
-        async def llm(engine, prompt, **kw):
-            return (
-                '[{"target_url": "/a/", "anchor_text": "do bolsonarismo"},'
-                ' {"target_url": "/b/", "anchor_text": "com o"}]'
-            )
-
-        from types import SimpleNamespace
-
-        import hugin.tui.review as review
-        from hugin.config import LinksConfig
-        from hugin.scanner import Post
-
-        monkeypatch.setattr(review, "call_llm", llm)
-        fake = SimpleNamespace(
-            engine=None, config=SimpleNamespace(links=LinksConfig()), _anchor_stats={},
-        )
-        post = Post(Path("x.md"), {"title": "X"}, body, False)
-        result = asyncio.run(review.HuginScreen._find_anchors(
-            fake, post, [{"title": "A", "url": "/a/"}, {"title": "B", "url": "/b/"}], set(),
-        ))
-        assert result == [{"anchor_text": "bolsonarismo", "target_url": "/a/"}]
-
-
 def _review_session(tmp_path, monkeypatch):
     """A HuginScreen host whose `o` ends in the REVIEWING state."""
     from unittest.mock import MagicMock
@@ -940,6 +941,8 @@ def _review_session(tmp_path, monkeypatch):
     from hugin.tui.review import HuginScreen
 
     async def fake_llm(engine, prompt, **kw):
+        if "Candidate posts" in prompt:
+            return '[{"target_url": "/litter-box/", "anchor_text": "litter box"}]'
         return "[]"
 
     monkeypatch.setattr(review, "call_llm", fake_llm)
@@ -954,7 +957,8 @@ def _review_session(tmp_path, monkeypatch):
     index.has_no_outgoing.return_value = False
     index.get_post_url.return_value = "/x"
     index.get_link_keywords.return_value = ""
-    index.find_similar.return_value = [{"title": "Litter", "url": "/litter-box/", "score": 0.9}]
+    index.link_keywords_for_path.return_value = "alpha, beta"
+    index.find_similar.return_value = [{"title": "Litter", "url": "/litter-box/", "path": "/blog/litter.md", "score": 0.9}]
     index.find_by_shared_tags.return_value = []
     index._cache = {}
 
@@ -1001,27 +1005,6 @@ def test_navigating_away_from_open_suggestions_follows_the_cursor(tmp_path, monk
 def test_esc_after_navigating_acts_on_the_post_under_the_cursor(tmp_path, monkeypatch):
     out = _current_after(tmp_path, monkeypatch, ["down", "escape"])
     assert out["index"] == 1 and out["state"] == "browsing"
-
-
-def test_llm_single_weak_word_anchor_is_dropped(monkeypatch):
-    from types import SimpleNamespace
-
-    import hugin.tui.review as review
-    from hugin.config import LinksConfig
-    from hugin.scanner import Post
-
-    async def llm(engine, prompt, **kw):
-        return '[{"target_url": "/a/", "anchor_text": "quando"}]'
-
-    monkeypatch.setattr(review, "call_llm", llm)
-    fake = SimpleNamespace(
-        engine=None, config=SimpleNamespace(links=LinksConfig()), _anchor_stats={},
-    )
-    post = Post(Path("x.md"), {"title": "X"}, "Lembro de quando era criança.\n", False)
-    result = asyncio.run(review.HuginScreen._find_anchors(
-        fake, post, [{"title": "A", "url": "/a/"}], set(),
-    ))
-    assert result == []
 
 
 def test_wait_screen_shows_the_cancel_hint_and_esc_cancels(tmp_path, monkeypatch):

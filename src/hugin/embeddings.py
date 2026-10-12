@@ -379,7 +379,10 @@ class EmbeddingIndex:
 
     def get_link_keywords(self, post) -> str:
         """Return cached link_keywords for a post, or empty string if none."""
-        abs_path = str(post.path.resolve())
+        return self.link_keywords_for_path(str(post.path.resolve()))
+
+    def link_keywords_for_path(self, abs_path: str) -> str:
+        """Cached link_keywords for the post at `abs_path`, or empty string if none."""
         return self._keywords.get(abs_path, "")
 
     @staticmethod

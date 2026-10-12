@@ -116,7 +116,7 @@ class PostPickerScreen(ModalScreen[list[dict] | None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-confirm":
             selected = [
-                {"title": cand["title"], "url": cand["url"]}
+                {"title": cand["title"], "url": cand["url"], "path": str(cand["post"].path.resolve())}
                 for cand, cb in self._checkboxes
                 if cb.value
             ]

@@ -171,66 +171,6 @@ def _find_whole_word(body: str, anchor: str, start: int = 0) -> int:
     return -1
 
 
-# Function words (Portuguese + English) that add nothing at the edge of an
-# anchor: "do bolsonarismo" should link "bolsonarismo". Compared lowercase and
-# without accents.
-EDGE_STOPWORDS = frozenset("""
-a o as os um uma uns umas
-de do da dos das em no na nos nas por pelo pela pelos pelas
-para pra com sem sob sobre ate entre ao aos
-e ou mas que
-the an of in on at to for with by from and or but as
-""".split())
-
-
-# Filler words, Portuguese and English, too weak to carry an anchor by themselves.
-# Fine next to a content word,
-# so an anchor is only rejected when every one of its words is in this set.
-# Lowercase, no accents.
-WEAK_SINGLE_WORDS = EDGE_STOPWORDS | frozenset("""
-nao nem sim not no yes nor
-quando como porque onde qual quais quem quanto quanta quantos quantas
-cada todo toda todos todas tudo nada algo alguem ninguem outro outra outros outras
-muito muita muitos muitas pouco pouca mais menos ainda ja sempre nunca depois antes
-agora entao tambem apenas so mesmo mesma assim aqui ali la
-esse essa esses essas este esta estes estas isso isto aquele aquela aquilo
-eu tu ele ela eles elas voce voces nos me te se lhe meu minha seu sua nosso nossa
-ser sendo sido sou somos seja sejam seria sera serao foi fui fomos era eram
-estar estando estou estamos estava estavam esta estao
-ter tendo tido tenho temos tem tenha teve tive tinha tinham haver havendo havia ha
-fazer fazendo feito faz fazem fez ir indo ido vou vamos vai vao vem
-pode podem poder podendo deve devem sao
-when how why where what which who whom whose each every all much many more less
-still always never after before then also only this that these those it its
-he she they we you i me my your our their is are was were be been being have has had
-do does did doing done having am can will would could should
-""".split())
-
-
-def is_weak_anchor(anchor: str) -> bool:
-    """True when every word of the anchor is a filler word ("at the", "when")."""
-    words = _WORD_RE.findall(anchor)
-    return bool(words) and all(strip_accents(w.lower()) in WEAK_SINGLE_WORDS for w in words)
-
-
-def trim_anchor_edges(anchor: str, stopwords: frozenset[str] = EDGE_STOPWORDS) -> str:
-    """Drop prepositions/articles/conjunctions from both ends of an anchor.
-
-    "of the cat" -> "cat"; "with a" -> "" (nothing left, so the
-    caller should discard it). Inner function words are kept
-    ("Game of Thrones"). The result is a substring of `anchor`.
-    """
-    words = list(_WORD_RE.finditer(anchor))
-    first, last = 0, len(words)
-    while first < last and strip_accents(words[first].group().lower()) in stopwords:
-        first += 1
-    while last > first and strip_accents(words[last - 1].group().lower()) in stopwords:
-        last -= 1
-    if first == last:
-        return ""
-    return anchor[words[first].start():words[last - 1].end()]
-
-
 _WORD_RE = re.compile(r"\w[\w\-]*")
 
 
@@ -267,67 +207,6 @@ def repair_anchor(body: str, anchor: str, min_ratio: float = 0.8) -> str | None:
                     return best[1]
 
     return best[1] if best else None
-
-
-def find_keyword_anchors(
-    body: str,
-    candidates: list[dict],
-) -> list[dict]:
-    """Find deterministic anchors by matching candidate slug keywords in the body.
-
-    For each candidate, extracts keywords from its URL slug and searches
-    for them (case-insensitive) in the body. Returns the longest keyword
-    match as anchor text, preserving the original case from the body.
-
-    Args:
-        body: the raw post body
-        candidates: list of dicts with 'title' and 'url'
-
-    Returns:
-        List of dicts with 'anchor_text' and 'target_url'
-    """
-    zones = find_protected_zones(body)
-    # Normalize body once for accent-insensitive matching; positions are preserved
-    # because strip_accents maps each character 1-to-1 (é→e, ã→a, etc.).
-    body_norm = strip_accents(body.lower())
-    results = []
-
-    for c in candidates:
-        url = c["url"]
-        slug = url.strip("/").rsplit("/", 1)[-1] if "/" in url else url
-        parts = slug.split("-")
-
-        # Build candidates: full phrase first, then progressively shorter sub-phrases,
-        # then individual words (≥6 chars). Longer phrases ranked first.
-        phrase_candidates: list[str] = []
-        for length in range(len(parts), 0, -1):
-            for start in range(len(parts) - length + 1):
-                phrase = " ".join(parts[start:start + length])
-                if length == 1 and len(phrase) < 6:
-                    continue
-                if is_weak_anchor(phrase):
-                    continue
-                phrase_candidates.append(phrase)
-
-        for kw in phrase_candidates:
-            # Match against normalized body so accented slugs find accented body text
-            kw_norm = strip_accents(kw.lower())
-            pattern = r"(?<!\w)" + re.escape(kw_norm) + r"(?!\w)"
-            m = re.search(pattern, body_norm)
-            if m and not is_in_protected_zone(m.start(), len(kw_norm), zones):
-                # Extract original (accented) text from body at the same position
-                matched = body[m.start():m.end()]
-                # A piece of the title should start and end on content words;
-                # the whole title is linked as written
-                is_whole = len(kw.split()) == len(parts)
-                anchor = trim_anchor_edges(
-                    matched, EDGE_STOPWORDS if is_whole else WEAK_SINGLE_WORDS,
-                )
-                if anchor:
-                    results.append({"anchor_text": anchor, "target_url": url})
-                break
-
-    return results
 
 
 def check_anchor_viable(

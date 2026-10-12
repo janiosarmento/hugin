@@ -51,10 +51,7 @@ from hugin.linker import (
     apply_links,
     check_anchor_viable,
     extract_existing_links,
-    find_keyword_anchors,
-    is_weak_anchor,
     repair_anchor,
-    trim_anchor_edges,
     find_protected_zones,
     is_in_protected_zone,
     list_links,
@@ -1439,33 +1436,35 @@ class HuginScreen(Screen):
     async def _find_anchors(
         self, post: Post, candidates: list[dict], existing_urls: set[str],
     ) -> list[dict]:
-        """Find anchor text in the post body for each candidate.
+        """Let the LLM choose each anchor in the body, from the target's keywords.
 
-        Candidates with a strong deterministic match (a multi-word phrase
-        from the target's slug) are settled without the LLM; the rest are
-        sent to it in one call, and anchors it gets wrong are re-asked
-        concurrently. Returns validated suggestions with anchor_text and
-        target_url.
+        A candidate without link keywords is skipped: they are the only
+        description of the target the LLM gets. Anchors are checked against the
+        body (verbatim, with small fixes); a phrase that does not exist is
+        re-asked once. Returns suggestions with anchor_text and target_url.
         """
         existing_normalized = {u.rstrip("/") for u in existing_urls}
         max_words = self.config.links.max_anchor_words
         zones = find_protected_zones(post.content)
 
-        validated = [
-            s for s in find_keyword_anchors(post.content, candidates)
-            if len(s["anchor_text"].split()) >= 2
-            and len(s["anchor_text"].split()) <= max_words
-            and s["target_url"].rstrip("/") not in existing_normalized
-        ]
-        settled = {s["target_url"] for s in validated}
-        remaining = [c for c in candidates if c["url"] not in settled]
-        self._anchor_stats = {"keyword": len(validated), "llm_asked": len(remaining), "retries": 0}
-        if not remaining:
-            return validated
+        asked = []
+        for c in candidates:
+            if c["url"].rstrip("/") in existing_normalized:
+                continue
+            keywords = self.index.link_keywords_for_path(c["path"])
+            if keywords:
+                asked.append({**c, "keywords": keywords})
+        self._anchor_stats = {
+            "llm_asked": len(asked),
+            "no_keywords": len(candidates) - len(asked),
+            "repaired": 0,
+            "retries": 0,
+        }
+        if not asked:
+            return []
 
         candidates_json = json.dumps([
-            {"title": c["title"], "summary": "", "url": c["url"]}
-            for c in remaining
+            {"target_url": c["url"], "keywords": c["keywords"]} for c in asked
         ])
         user_msg = ANCHOR_USER_TEMPLATE.format(
             body=post.content, candidates_json=candidates_json,
@@ -1473,41 +1472,36 @@ class HuginScreen(Screen):
         system = ANCHOR_SYSTEM_PROMPT.format(max_anchor_words=max_words)
         response = await call_llm(self.engine, user_msg, system=system)
 
-        remaining_urls = {c["url"] for c in remaining}
+        by_url = {c["url"]: c for c in asked}
         entries = []
+        seen_targets = set()
         for s in parse_anchor_response(response):
-            anchor = s.get("anchor_text", "")
+            anchor = (s.get("anchor_text") or "").strip()
             target = s.get("target_url", "")
-            if not anchor or not target:
-                continue
-            if target not in remaining_urls:
-                continue
-            if target.rstrip("/") in existing_normalized:
+            if not anchor or target not in by_url or target in seen_targets:
                 continue
             if len(anchor.split()) > max_words:
                 continue
+            seen_targets.add(target)
             entries.append({"anchor": anchor, "target": target})
 
-        # Anchors the LLM paraphrased: re-ask for all of them at once
-        by_url = {c["url"]: c for c in remaining}
+        # Anchors the LLM paraphrased: fix near-misses locally, re-ask the rest
         to_retry = []
-        repaired = 0
         for e in entries:
             if _find_whole_word(post.content, e["anchor"]) != -1:
                 continue
-            # Near-misses (case, accents, a changed ending) are fixed locally
             fixed = repair_anchor(post.content, e["anchor"])
             if fixed and len(fixed.split()) <= max_words:
                 e["anchor"] = fixed
-                repaired += 1
+                self._anchor_stats["repaired"] += 1
             else:
                 to_retry.append(e)
-        self._anchor_stats["repaired"] = repaired
         self._anchor_stats["retries"] = len(to_retry)
         if to_retry:
             responses = await asyncio.gather(*(
                 call_llm(self.engine, RETRY_PROMPT.format(
-                    anchor_text=e["anchor"], title=by_url[e["target"]]["title"],
+                    anchor_text=e["anchor"],
+                    keywords=by_url[e["target"]]["keywords"],
                     url=e["target"], body=post.content,
                 ))
                 for e in to_retry
@@ -1515,15 +1509,15 @@ class HuginScreen(Screen):
             for e, retry_response in zip(to_retry, responses):
                 e["anchor"] = retry_response.strip().strip('"').strip("'")
 
+        validated = []
         for e in entries:
-            anchor = trim_anchor_edges(e["anchor"])
-            if not anchor or len(anchor.split()) > max_words or is_weak_anchor(anchor):
+            anchor = e["anchor"]
+            if not anchor or len(anchor.split()) > max_words:
                 continue
             pos = _find_whole_word(post.content, anchor)
             if pos == -1 or is_in_protected_zone(pos, len(anchor), zones):
                 continue
             validated.append({"anchor_text": anchor, "target_url": e["target"]})
-
         return validated
 
     def _finish_outgoing(
@@ -1556,20 +1550,9 @@ class HuginScreen(Screen):
             existing_urls = extract_existing_links(post.content)
             self._set_spinner_message(f"Finding anchors for {len(candidates)} post(s)...")
             validated = await self._find_anchors(post, candidates, existing_urls)
-
-            # Keyword anchors as fallback for candidates the LLM missed
-            llm_urls = {s["target_url"] for s in validated}
-            uncovered = [c for c in candidates if c["url"] not in llm_urls]
-            fallback = find_keyword_anchors(post.content, uncovered)
-            existing_normalized = {u.rstrip("/") for u in existing_urls}
-            fallback = [
-                s for s in fallback
-                if s["target_url"].rstrip("/") not in existing_normalized
-            ]
-            for s in fallback:
+            for s in validated:
                 s["_manual"] = True
-
-            validated = (validated + fallback)[:budget]
+            validated = validated[:budget]
             self._finish_outgoing(post, validated)
 
         except Exception as e:  # UI boundary
@@ -1580,7 +1563,7 @@ class HuginScreen(Screen):
 
     @work(exclusive=True)
     async def _run_outgoing(self, post: Post, budget: int) -> None:
-        """Find outgoing links automatically: embed + tags → rerank → anchor + keyword fallback."""
+        """Find outgoing links automatically: embed + tags → rerank → LLM anchors from keywords."""
         try:
             timings: list[tuple[str, float]] = []
             t0 = time.perf_counter()
@@ -1603,7 +1586,6 @@ class HuginScreen(Screen):
 
             self._set_spinner_message("Step 2 — Searching similar posts...")
             existing_urls = extract_existing_links(post.content)
-            existing_normalized = {u.rstrip("/") for u in existing_urls}
             pre_filter_n = max(self.config.links.candidates * 4, 20)
 
             # Pool 1: semantic similarity
@@ -1693,18 +1675,6 @@ class HuginScreen(Screen):
                     self.config.links.max_per_paragraph,
                 )
             ]
-
-            # Keyword fallback for candidates the LLM missed
-            llm_urls = {s["target_url"] for s in validated}
-            uncovered = [c for c in candidates if c["url"] not in llm_urls]
-            if uncovered:
-                keyword_suggestions = find_keyword_anchors(post.content, uncovered)
-                keyword_suggestions = [
-                    s for s in keyword_suggestions
-                    if s["target_url"].rstrip("/") not in existing_normalized
-                    and s["target_url"] not in llm_urls
-                ]
-                validated = validated + keyword_suggestions
 
             validated = validated[:budget]
             lap("finish")

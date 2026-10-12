@@ -309,16 +309,21 @@ async def suggest_summary(
 # --- Link prompts (from Munin) ---
 
 ANCHOR_SYSTEM_PROMPT = """\
-You are a technical blog editor. Your task is to identify natural anchor text within a blog post body that could serve as an internal link to related posts.
+You are a technical blog editor. You add internal links from a blog post to related posts.
+
+Each candidate post comes with its target_url and its keywords: the topics that post covers.
+For each candidate, choose a phrase from the post body that a reader would naturally click to
+read that post.
 
 Rules:
-- The anchor_text must appear verbatim in the post body.
-- Prefer MULTI-WORD phrases over single words when the full phrase appears in the text. A compound term ("leucemia felina", "doença renal crônica", "sistema imune") is a better anchor than any single word from it.
-- Anchors must be between 1 and {max_anchor_words} words. Prefer the longest meaningful phrase that fits naturally, not the shortest. Never use full sentences.
-- An anchor must not start or end with a preposition, article or conjunction ("bolsonarismo", not "do bolsonarismo"; "water fountain", not "the water fountain").
-- Do not suggest anchors inside headings, code blocks, inline code, images, or existing links.
+- The anchor_text must appear verbatim in the post body, exactly as written.
+- Choose a phrase that names one of the topics in the candidate's keywords. Do not choose a
+  word just because it appears in the keywords.
+- Use between 1 and {max_anchor_words} words. Never use a full sentence.
+- Do not start or end the anchor with an article, preposition or conjunction.
+- Do not anchor inside headings, code blocks, inline code, images, or existing links.
 - Suggest at most one anchor per candidate post.
-- Omit candidates for which no natural anchor exists — do not force one.
+- Omit candidates for which no natural anchor exists; do not force one.
 - Return a JSON array and nothing else. No preamble, no markdown fences."""
 
 ANCHOR_USER_TEMPLATE = """\
@@ -407,7 +412,7 @@ POST CONTENT:
 RETRY_PROMPT = """\
 The phrase '{anchor_text}' does not appear verbatim in the post body.
 Choose a phrase from the body that exists exactly as written and would
-naturally link to: {title} ({url})
+naturally link to a post about: {keywords} ({url})
 
 Post body:
 {body}"""
