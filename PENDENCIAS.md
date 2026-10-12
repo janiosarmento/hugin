@@ -1,6 +1,6 @@
 # Pendências
 
-Snapshot feito ao fim da sessão de 2026-10-12. Cada item diz o estado, o que falta e o que decidir. Itens de Echo também estão no beads (`bd list --status=open`); este arquivo cobre o resto.
+Snapshot feito ao fim da sessão de 2026-10-12. Cada item diz o estado, o que falta e o que decidir. Este arquivo é a única lista de pendências do projeto.
 
 Como retomar numa sessão nova: ler este arquivo, `CLAUDE.md` e `PROJECT.md`, depois `git log --oneline -10` para ver os últimos commits.
 
@@ -70,13 +70,16 @@ Itens específicos do uso do autor encontrados no código:
 - Há três arquivos apagados sem commit em `.recall/` (`.capture.json`, `context.md`, `history.md`). Não foram tocados. Decidir se são do usuário e o que fazer com eles.
 - As tags `v0.5.22`, `v0.5.23` e `v0.5.24` nunca foram criadas; só existem os commits de bump.
 
-### 10. Itens do beads (Echo e outros)
-- `hugo-tagger-3a7`: conjunto de avaliação fixo para comparar métricas de rascunho antes e depois de mudar o prompt.
-- `hugo-tagger-7a5`: detectar tiques de escrita de IA (travessões por mil palavras, padrão "não X, é Y", razão de frases curtas) e avisar no rascunho.
-- `hugo-tagger-d34`: reduzir os exemplos de escrita para 2 a 3 posts, truncados, por causa do contexto de modelos fracos.
-- `hugo-tagger-mi2`: checar o tamanho dos rascunhos novos e pedir expansão uma vez se ficar abaixo de ~70% do alvo.
-- `hugo-tagger-wtf`: o prompt de refatoração ainda está longo; simplificar só se não trouxer de volta as falhas que ele corrige.
-- `hugo-tagger-va3` (P4, bloqueado): revisitar upgrades de dependência travados pelo pin do `optimum-onnx`.
+### 10. Itens migrados do beads (Echo e dependências)
+
+O projeto deixou de usar o beads. Estes eram os itens abertos nele; o texto abaixo é o registro completo.
+
+- **Echo: conjunto de avaliação** (era `hugo-tagger-3a7`, P2, criado em 2026-10-10). Conjunto fixo de pedidos e um motor fixo para comparar as métricas de rascunho antes e depois de mudar o prompt. Adiado porque o usuário decidiu manter os prompts atuais por enquanto.
+- **Echo: detectar tiques de escrita de IA** (era `hugo-tagger-7a5`, P2, 2026-10-10). Medir no código travessões por mil palavras, o padrão "não X, é Y" e a proporção de frases curtas, e avisar no rascunho. Adiado pelo mesmo motivo.
+- **Echo: reduzir as amostras de escrita** (era `hugo-tagger-d34`, P2, 2026-10-10). Usar 2 a 3 posts, truncados, para caber no contexto de modelos fracos. Adiado pelo mesmo motivo.
+- **Echo: checar o tamanho dos rascunhos** (era `hugo-tagger-mi2`, P2, 2026-10-10). Para rascunhos novos, se a saída ficar abaixo de ~70% do alvo, pedir expansão uma vez. Adiado pelo mesmo motivo.
+- **Echo: simplificar o prompt de refatoração** (era `hugo-tagger-wtf`, P2, 2026-10-10). O prompt ainda está longo. Simplificar só se não trouxer de volta as falhas que ele corrige. Adiado pelo mesmo motivo.
+- **Atualizar dependências travadas** (era `hugo-tagger-va3`, P4, criado em 2026-10-07, bloqueado). Estado: `transformers` 4.57.6, `sentence-transformers` 5.7.0, `huggingface-hub` 0.36.2, `tokenizers` 0.22.2 e `optimum` 2.1.0 estão travados (últimas versões: 5.19.0, 6.1.0, 2.1.1, 0.23.2 e 2.3.0). Causa: `optimum-onnx` 0.1.0 exige `optimum~=2.1.0` e `transformers<4.58`, e `src/hugin/embeddings.py` (linha ~176) usa `SentenceTransformer(backend='onnx')`, que depende dele. Opções: (1) esperar um `optimum-onnx` que suporte transformers 5, a opção segura; (2) trocar para `backend='torch'` e remover `optimum`, `optimum-onnx` e `onnx`, medindo antes tempo de carga, velocidade e memória; (3) usar onnxruntime direto, reescrita que não vale a pena. Também: o `uv.lock` está desatualizado porque o `secrets-resolver` deixou de ser pacote local (`../jano`) e hoje vem da tag git; `uv sync` e `uv lock` falham. Para recriar o ambiente, o registro antigo sugeria `uv venv --clear && uv pip install -e ../jano -e '.[dev]' --upgrade`, mas esse comando não reflete mais a dependência por tag: revisar antes de usar. Testar qualquer upgrade num venv separado primeiro.
 
 ## Projeto separado (a tratar em outra sessão)
 
@@ -84,5 +87,5 @@ Itens específicos do uso do autor encontrados no código:
 
 ## Estado do git ao salvar este arquivo
 
-- `hugo-tagger`: `main` sincronizado com `origin`. `.beads/issues.jsonl` ficou com alterações do beads depois do último commit; decidir se entra no próximo commit.
+- `hugo-tagger`: `main` sincronizado com `origin`. A pasta `.beads/` continua no disco, mas o projeto não depende mais dela.
 - Este arquivo (`PENDENCIAS.md`) não foi commitado.
