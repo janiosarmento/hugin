@@ -142,7 +142,7 @@ On startup, Hugin fills in every post that has no `keywords` field and already h
 
 2. **Candidate search** — Two pools are merged: semantic similarity (top 4× candidates) and tag-based candidates (posts sharing ≥2 tags, ranked by IDF-weighted overlap). Pools are deduplicated and ranked by score, which includes cosine similarity + mention boost (slug keywords found in body) + tag IDF boost.
 
-3. **LLM reranking** — The LLM filters the merged pool to genuinely related posts. It runs in inclusive mode — borderline candidates are kept for human review. A minimum of 3 candidates always passes through regardless of the LLM response.
+3. **LLM reranking** — The LLM filters the merged pool to genuinely related posts, judging each candidate by its link profile (keywords). It runs in inclusive mode — borderline candidates are kept for human review. A minimum of 3 candidates always passes through regardless of the LLM response.
 
 4. **LLM anchor finding** — The LLM chooses, for each candidate, a verbatim phrase in the post body that names one of the candidate's keywords. Candidates without a link profile are skipped (generate their profiles with `hugin-profiles`). Each anchor is validated: must exist exactly in the text, not inside a heading/code/existing link, not in a paragraph already at its link limit. A phrase that does not exist is asked again once, with the keywords.
 

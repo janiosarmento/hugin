@@ -829,6 +829,9 @@ def test_small_blog_skips_the_llm_rerank(tmp_path, monkeypatch):
 def test_big_blog_still_reranks(tmp_path, monkeypatch):
     prompts = _count_outgoing_llm_calls(tmp_path, monkeypatch, rerank_min_posts=5)
     assert len(prompts) == 3  # profile + rerank + anchors
+    # the rerank judges candidates by their link keywords, not their titles
+    assert '"keywords": "alpha, beta"' in prompts[1]
+    assert '"title"' not in prompts[1]
 
 
 def test_app_logs_error_notifications(tmp_path):

@@ -1624,7 +1624,11 @@ class HuginScreen(Screen):
             ):
                 self._set_spinner_message(f"Step 3/4 — Reranking {len(candidates)} candidates...")
                 rerank_json = json.dumps([
-                    {"title": c["title"], "url": c["url"]} for c in candidates
+                    {
+                        "url": c["url"],
+                        "keywords": self.index.link_keywords_for_path(c["path"]),
+                    }
+                    for c in candidates
                 ])
                 rerank_prompt = RERANK_USER_TEMPLATE.format(
                     title=post.metadata.get("title", post.filename),
