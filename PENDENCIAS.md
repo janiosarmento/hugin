@@ -52,7 +52,7 @@ Como retomar numa sessão nova: ler este arquivo, `CLAUDE.md` e `PROJECT.md`, de
 ### 7. Generalização do código (auditoria feita, nada alterado)
 Itens específicos do uso do autor encontrados no código:
 - `engines.py`: `DEFAULT_FULCRUM_ECHO_PERSONA = "Janio Sarmento"`, segredo padrão `fulcrum_echo.key` e bloco `[fulcrum_echo]` escrito no `engines.toml` de todo usuário.
-- `engines.py`: `DEFAULT_ENGINES` com um endpoint local `localhost:5555` e o modelo `apple-ai`.
+- `engines.py`: `DEFAULT_ENGINES` com um endpoint local `localhost:5555` e o modelo `apple-ai`. Esse endpoint é do Apple Intelligence via Apfel, não do LM Studio.
 - `linker.py` (`_is_affiliate_url`) e `affiliates.py` (exemplo `amzn.to`): afiliados só da Amazon; o atalho `z` insere link da Amazon.
 - `hugo.py`: `DEFAULT_PERMALINK = "/:section/:slug/"` (o blog usa `/:slug/`); leitura de `.pages.yml` para categorias; mensagens que citam "PagesCMS" em `writer.py`, `echo.py` e `echo_draft.py`.
 - `redirects.py`: supõe `static/_redirects`. `git.py`: `SETTINGS_PATHS` supõe `hugin/config.toml` e `data/authors.toml`.
