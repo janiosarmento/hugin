@@ -1548,7 +1548,7 @@ class HuginScreen(Screen):
         """Find anchors for manually selected candidates."""
         try:
             existing_urls = extract_existing_links(post.content)
-            self._set_spinner_message(f"Finding anchors for {len(candidates)} post(s)...")
+            self._set_spinner_message(f"Asking the LLM for anchors for {len(candidates)} post(s), in one request...")
             validated = await self._find_anchors(post, candidates, existing_urls)
             for s in validated:
                 s["_manual"] = True
@@ -1665,7 +1665,7 @@ class HuginScreen(Screen):
                 return
 
             # LLM anchor finding
-            self._set_spinner_message(f"{anchor_step} — Finding anchors for {len(candidates)} posts...")
+            self._set_spinner_message(f"{anchor_step} — Asking the LLM for anchors for {len(candidates)} post(s), in one request...")
             validated = await self._find_anchors(post, candidates, existing_urls)
             lap("anchors")
             validated = [
