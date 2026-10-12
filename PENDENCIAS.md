@@ -87,5 +87,5 @@ O projeto deixou de usar o beads. Estes eram os itens abertos nele; o texto abai
 
 ## Estado do git ao salvar este arquivo
 
-- `hugo-tagger`: `main` sincronizado com `origin`. A pasta `.beads/` continua no disco, mas o projeto não depende mais dela.
+- `hugo-tagger`: `main` sincronizado com `origin`. A pasta `.beads/` foi removida do repositório e do disco.
 - Este arquivo (`PENDENCIAS.md`) não foi commitado.
