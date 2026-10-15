@@ -2462,6 +2462,10 @@ class HuginScreen(Screen):
             event.input.value = event.value[1:]
             return  # on_input_changed fires again with clean value
         query = event.value.strip().lower()
+        # Clearing the bar on close echoes back here; rebuilding would
+        # reset the cursor that _close_search just placed.
+        if not query and not self._search_mode:
+            return
         # Activate search mode if the user typed directly into the bar
         if query and not self._search_mode:
             self._search_mode = True
@@ -2478,6 +2482,11 @@ class HuginScreen(Screen):
         self._rebuild_post_table()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "search-bar":
+            self._close_search()
+
+    def on_input_blurred(self, event: Input.Blurred) -> None:
+        """Leaving the search bar (click elsewhere, tab) restores the full list."""
         if event.input.id == "search-bar":
             self._close_search()
 
