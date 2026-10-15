@@ -98,3 +98,29 @@ def test_enter_and_escape_keep_found_post_selected(tmp_path):
                 assert screen.query_one("#post-table", DataTable).cursor_row == screen.current_index
 
     asyncio.run(go())
+
+
+def test_clicking_a_found_row_selects_that_post(tmp_path):
+    """The bar blurs on mouse-down, so the list changes under the click."""
+    async def go():
+        app = _host(tmp_path)
+        async with app.run_test(size=(140, 50)) as pilot:
+            await pilot.pause()
+            screen = app.screen
+            await pilot.press("slash", *"post 4")
+            await pilot.pause()
+
+            # Row 0 of the filtered list is Post 4; of the full list, Post 0
+            await pilot.click("#post-table", offset=(5, 1))
+            await pilot.pause()
+
+            assert len(screen.posts) == 7
+            assert _selected_title(screen) == "Post 4"
+            assert screen.query_one("#post-table", DataTable).cursor_row == screen.current_index
+
+            # Outside search, clicks move the cursor as usual
+            await pilot.click("#post-table", offset=(5, 6))
+            await pilot.pause()
+            assert _selected_title(screen) == "Post 5"
+
+    asyncio.run(go())

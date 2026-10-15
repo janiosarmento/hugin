@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 import yaml
-from textual import work
+from textual import events, work
 from textual.app import ComposeResult, ScreenError, ScreenStackError
 from textual.binding import Binding
 from textual.css.query import NoMatches
@@ -106,6 +106,30 @@ SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 STATE_BROWSING = "browsing"
 STATE_LOADING = "loading"
 STATE_REVIEWING = "reviewing"
+
+
+class PostTable(DataTable):
+    """Post list that treats a click during search as one gesture.
+
+    Textual moves focus on mouse-down, so leaving the search bar restores the
+    full list between press and click: the click would land on whatever post
+    now sits under the pointer. The press picks from the filtered rows instead,
+    and the click that follows is dropped.
+    """
+
+    searching = False
+    _drop_click = False
+
+    def _on_mouse_down(self, event: events.MouseDown) -> None:
+        self._drop_click = self.searching
+        row = event.style.meta.get("row")
+        if self.searching and row is not None and row >= 0:
+            self.move_cursor(row=row)
+
+    def _on_click(self, event: events.Click) -> None:
+        if self._drop_click:
+            self._drop_click = False
+            event.prevent_default()
 
 
 class ClickableLink(Static, can_focus=True):
@@ -767,7 +791,7 @@ class HuginScreen(Screen):
         with Horizontal(id="review-container"):
             with Vertical(id="post-list-panel"):
                 yield Input(placeholder="/ to search", id="search-bar")
-                table = DataTable(id="post-table", cursor_type="row", zebra_stripes=True)
+                table = PostTable(id="post-table", cursor_type="row", zebra_stripes=True)
                 yield table
 
             with Vertical(id="detail-panel"):
@@ -2448,8 +2472,7 @@ class HuginScreen(Screen):
             and not self._search_mode
         ):
             event.stop()
-            self._search_mode = True
-            self._search_base = list(self.posts)
+            self._open_search()
             bar = self.query_one("#search-bar", Input)
             bar.value = ""
             bar.focus()
@@ -2468,8 +2491,7 @@ class HuginScreen(Screen):
             return
         # Activate search mode if the user typed directly into the bar
         if query and not self._search_mode:
-            self._search_mode = True
-            self._search_base = list(self.posts)
+            self._open_search()
         if self._search_mode and query:
             filtered = [
                 p for p in self._search_base
@@ -2488,16 +2510,26 @@ class HuginScreen(Screen):
     def on_input_blurred(self, event: Input.Blurred) -> None:
         """Leaving the search bar (click elsewhere, tab) restores the full list."""
         if event.input.id == "search-bar":
-            self._close_search()
+            # Queued on the table so a click there picks its row first
+            self.query_one("#post-table", PostTable).call_later(self._close_search)
+
+    def _open_search(self) -> None:
+        self._search_mode = True
+        self._search_base = list(self.posts)
+        self.query_one("#post-table", PostTable).searching = True
 
     def _close_search(self) -> None:
         """Exit search mode: restore full list, cursor on selected post."""
         if not self._search_mode:
             return
-        selected_post = self.posts[self.current_index] if self.posts else None
+        table = self.query_one("#post-table", PostTable)
+        # The cursor, not current_index: its highlight event may still be queued
+        row = table.cursor_row
+        selected_post = self.posts[row] if 0 <= row < len(self.posts) else None
         self.posts = self._search_base
         self._search_base = []
         self._search_mode = False
+        table.searching = False
         bar = self.query_one("#search-bar", Input)
         bar.value = ""
         self._rebuild_post_table()
