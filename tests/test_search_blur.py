@@ -17,7 +17,7 @@ def _host(tmp_path):
         path = tmp_path / f"p{i}.md"
         path.write_text("body")
         posts.append(Post(path, {"title": f"Post {i}"}, "body", False,
-                          date=datetime.now() - timedelta(days=i + 1)))
+                          date=datetime.now() - timedelta(days=i + 1), mtime=path.stat().st_mtime))
     site = MagicMock()
     site.post_url.return_value = "/x"
     site.warnings = []

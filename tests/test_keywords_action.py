@@ -37,6 +37,12 @@ class FakeScreen:
     def _update_detail_panel(self):
         self.details_updated += 1
 
+    def _sync_current_post(self):
+        pass
+
+    def _write_keywords(self, post, terms):
+        HuginScreen._write_keywords(self, post, terms)
+
 
 @pytest.fixture
 def post(tmp_path, monkeypatch):

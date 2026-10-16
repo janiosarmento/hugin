@@ -22,6 +22,8 @@ class Post:
     tags: list[str] = field(default_factory=list)
     date: datetime | None = None
     lastmod: datetime | None = None
+    # File mtime when this copy was read; None forces a reload on next sync
+    mtime: float | None = None
 
     @property
     def filename(self) -> str:
@@ -162,6 +164,7 @@ def load_posts(directory: Path, problems: list[str] | None = None) -> list[Post]
             tags=list(tags),
             date=_parse_date(post.metadata.get("date")),
             lastmod=_parse_date(post.metadata.get("lastmod")),
+            mtime=path.stat().st_mtime,
         ))
 
     return posts

@@ -11,7 +11,7 @@ from hugin.config import load_config
 from hugin.embeddings import EmbeddingIndex
 from hugin.engines import get_engine
 from hugin.log import log_exception
-from hugin.migrations import fill_keywords_from_profiles, run_migrations
+from hugin.migrations import fill_keywords_from_profiles, parse_profile, run_migrations
 from hugin.hugo import HugoSite, ensure_ignored_in_hugo
 from hugin.scanner import AGENT_FILES, Post
 from hugin.scanner import (
@@ -26,6 +26,7 @@ from hugin.project import load_project
 from hugin.tui.app import HuginApp
 from hugin.state import get_last_processed
 from hugin.llm import LINK_KEYWORDS_SYSTEM, LINK_KEYWORDS_USER_TEMPLATE, call_llm
+from hugin.writer import write_keywords_block
 
 
 def _ignore_ctrl_z() -> None:
@@ -296,6 +297,10 @@ def build_profiles(
                 )
                 keywords = (await call_llm(engine, prompt, system=LINK_KEYWORDS_SYSTEM)).strip()
                 index.store_link_keywords(post, keywords)
+                # Hugo's related posts read `keywords`, so it follows the new profile
+                terms = parse_profile(index.get_link_keywords(post))
+                if terms != post.metadata.get("keywords"):
+                    write_keywords_block(post.path, terms)
                 click.echo(" ✓")
             except Exception as e:  # per-post failure must not stop the batch
                 log_exception(f"profile {post.filename}")

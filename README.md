@@ -50,7 +50,7 @@ hugin-profiles ~/blog/content/posts --drafts    # Include draft posts
 hugin-profiles ~/blog/content/posts --engine cerebras
 ```
 
-`hugin-profiles` generates LLM link profiles for every post in a directory and saves them to the keyword cache. Runs incrementally — already-profiled posts are skipped unless `--force` or `--reset` is given. `--reset` deletes the entire keyword cache before running. Interrupted runs can be safely resumed.
+`hugin-profiles` generates LLM link profiles for every post in a directory and saves them to the keyword cache. Each new profile is also written into the post's `keywords` field. Runs incrementally — already-profiled posts are skipped unless `--force` or `--reset` is given. `--reset` deletes the entire keyword cache before running. Interrupted runs can be safely resumed.
 
 ---
 
@@ -138,7 +138,7 @@ On startup, Hugin fills in every post that has no `keywords` field and already h
 
 **Outgoing (`o`)** — Multi-stage pipeline:
 
-1. **Link profile** (lazy, one LLM call per post, cached) — On the first run for a post, the LLM extracts 10–15 focused keywords describing the post's topics. The profile is visible in the detail panel and used to improve similarity matching. Profiles are stored in a separate `_kw.json` file that survives embedding cache clears. Pressing `o` always regenerates the profile for the current post.
+1. **Link profile** (lazy, one LLM call per post, cached) — On the first run for a post, the LLM extracts 10–15 focused keywords describing the post's topics. The profile is visible in the detail panel and used to improve similarity matching. Profiles are stored in a separate `_kw.json` file that survives embedding cache clears. Pressing `o` always regenerates the profile for the current post, from the file as it is on disk (edits made in another editor while Hugin is open are picked up), and writes the new profile into the post's `keywords` field, which Hugo's related posts read.
 
 2. **Candidate search** — Two pools are merged: semantic similarity (top 4× candidates) and tag-based candidates (posts sharing ≥2 tags, ranked by IDF-weighted overlap). Pools are deduplicated and ranked by score, which includes cosine similarity + mention boost (slug keywords found in body) + tag IDF boost.
 

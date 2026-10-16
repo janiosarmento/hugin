@@ -163,10 +163,14 @@ def write_keywords_block(path: Path, keywords: list[str]) -> None:
     without one, the entry goes at the end of the frontmatter.
     """
     lines = path.read_text(encoding="utf-8").split("\n")
-    end = next(i for i in range(1, len(lines)) if _FRONTMATTER_END.match(lines[i]))
     block = yaml.safe_dump(
         {"keywords": keywords}, allow_unicode=True, sort_keys=False, width=float("inf"),
     ).splitlines()
+    if not _FRONTMATTER_END.match(lines[0]):
+        # No frontmatter yet: the block becomes it
+        atomic_write_text(path, "\n".join(["---", *block, "---", *lines]))
+        return
+    end = next(i for i in range(1, len(lines)) if _FRONTMATTER_END.match(lines[i]))
     start = next((i for i in range(1, end) if _KEYWORDS_KEY.match(lines[i])), None)
     if start is None:
         lines[end:end] = block

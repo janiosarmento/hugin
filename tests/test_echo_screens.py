@@ -16,7 +16,7 @@ def _posts(tmp_path):
         path = tmp_path / f"p{i}.md"
         path.write_text("body")
         out.append(Post(path, {"title": f"P{i}"}, "body", False,
-                        date=datetime.now() - timedelta(days=i + 1)))
+                        date=datetime.now() - timedelta(days=i + 1), mtime=path.stat().st_mtime))
     return out
 
 
@@ -1102,7 +1102,7 @@ def _authored(tmp_path, author, count):
         path = tmp_path / f"{author[:2]}{i}.md"
         path.write_text("body")
         posts.append(Post(path, {"title": f"{author} {i}", "author": author}, "body", False,
-                          date=datetime.now() - timedelta(days=i + 1)))
+                          date=datetime.now() - timedelta(days=i + 1), mtime=path.stat().st_mtime))
     return posts
 
 

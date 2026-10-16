@@ -913,6 +913,7 @@ class HuginScreen(Screen):
         if event.cursor_row is not None and event.cursor_row != self.current_index:
             self._state = STATE_BROWSING
             self.current_index = event.cursor_row
+            self._sync_from_disk(self.current_index)
             self._update_detail_panel()
 
     def _leave_review(self) -> None:
@@ -1097,6 +1098,7 @@ class HuginScreen(Screen):
     def action_tags(self) -> None:
         if self._state != STATE_BROWSING:
             return
+        self._sync_current_post()
         self._state = STATE_LOADING
         post = self.posts[self.current_index]
         self._clear_action_area()
@@ -1209,23 +1211,30 @@ class HuginScreen(Screen):
         """Copy the post's link profile into its keywords field. No LLM call."""
         if self._state != STATE_BROWSING or not self.posts:
             return
+        self._sync_current_post()
         post = self.posts[self.current_index]
         terms = parse_profile(self.index.get_link_keywords(post))
         if not terms:
             self.notify("No link profile for this post yet. Press o to build one.", severity="warning")
             return
-        write_keywords_block(post.path, terms)
-        post.metadata["keywords"] = terms
+        self._write_keywords(post, terms)
         mark_processed(self.state, post.filename)
         save_state(self.directory, self.state)
         self.notify(f"{post.filename}: {len(terms)} keywords from the link profile")
         self._update_detail_panel()
+
+    def _write_keywords(self, post: Post, terms: list[str]) -> None:
+        """Write `terms` as the post's keywords, keeping the in-memory copy in step."""
+        write_keywords_block(post.path, terms)
+        post.metadata["keywords"] = terms
+        post.mtime = post.path.stat().st_mtime  # our own write: no reload needed
 
     # === SUMMARY ===
 
     def action_summary(self) -> None:
         if self._state != STATE_BROWSING:
             return
+        self._sync_current_post()
         self._state = STATE_LOADING
         post = self.posts[self.current_index]
         self._clear_action_area()
@@ -1316,6 +1325,7 @@ class HuginScreen(Screen):
     def action_incoming(self) -> None:
         if self._state != STATE_BROWSING:
             return
+        self._sync_current_post()
 
         self._clear_action_area()
         post = self.posts[self.current_index]
@@ -1352,6 +1362,7 @@ class HuginScreen(Screen):
     def action_outgoing(self) -> None:
         if self._state != STATE_BROWSING:
             return
+        self._sync_current_post()
 
         self._clear_action_area()
         post = self.posts[self.current_index]
@@ -1377,6 +1388,7 @@ class HuginScreen(Screen):
         """Open post picker for manual link target selection."""
         if self._state != STATE_BROWSING:
             return
+        self._sync_current_post()
 
         post = self.posts[self.current_index]
         word_count = len(post.content.split())
@@ -1418,6 +1430,7 @@ class HuginScreen(Screen):
         """Insert affiliate links from the keyword dictionary."""
         if self._state != STATE_BROWSING:
             return
+        self._sync_current_post()
 
         affiliates = load_affiliates()
         if not affiliates:
@@ -1606,6 +1619,10 @@ class HuginScreen(Screen):
             )
             keywords = (await call_llm(self.engine, kw_prompt, system=LINK_KEYWORDS_SYSTEM)).strip()
             self.index.set_link_keywords(post, self.site.post_url, keywords)
+            # Hugo's related posts read `keywords`, so it follows the new profile
+            terms = parse_profile(self.index.get_link_keywords(post))
+            if terms and terms != post.metadata.get("keywords"):
+                self._write_keywords(post, terms)
             lap("profile")
 
             self._set_spinner_message("Step 2 — Searching similar posts...")
@@ -1806,6 +1823,7 @@ class HuginScreen(Screen):
     def action_list_links(self) -> None:
         if self._state != STATE_BROWSING:
             return
+        self._sync_current_post()
 
         self._clear_action_area()
         post = self.posts[self.current_index]
@@ -1887,6 +1905,7 @@ class HuginScreen(Screen):
     def action_suggest(self) -> None:
         if self._state != STATE_BROWSING:
             return
+        self._sync_current_post()
 
         self._state = STATE_LOADING
         post = self.posts[self.current_index]
@@ -1991,6 +2010,7 @@ class HuginScreen(Screen):
     def action_editor(self) -> None:
         if self._state != STATE_BROWSING:
             return
+        self._sync_current_post()
         self._open_editor_for_post(self.posts[self.current_index], self.current_index)
 
     def action_external_editor(self) -> None:
@@ -2321,6 +2341,10 @@ class HuginScreen(Screen):
         """Re-read a post from disk after it was edited outside the TUI."""
 
         try:
+            post.mtime = post.path.stat().st_mtime
+        except OSError:
+            return
+        try:
             updated = fm.load(str(post.path))
         except (yaml.YAMLError, Exception) as e:
             self.notify(
@@ -2338,6 +2362,27 @@ class HuginScreen(Screen):
         cell = Text(f"[DRAFT] {new_title}", style="dim") if post.metadata.get("draft") else Text(new_title)
         table = self.query_one("#post-table", DataTable)
         table.update_cell(self._row_keys[index], "title", cell)
+
+    def _sync_from_disk(self, index: int) -> bool:
+        """Reload the post at `index` if its file changed since it was read.
+
+        Edits made in another editor while Hugin is open would otherwise be
+        invisible: actions read the in-memory copy.
+        """
+        post = self.posts[index]
+        try:
+            mtime = post.path.stat().st_mtime
+        except OSError:
+            return False
+        if mtime == post.mtime:
+            return False
+        self._reload_post(post, index)
+        return True
+
+    def _sync_current_post(self) -> None:
+        """Pick up outside edits to the selected post before acting on it."""
+        if self._sync_from_disk(self.current_index):
+            self._update_detail_panel()
 
     # === PROJECT SETTINGS ===
 
