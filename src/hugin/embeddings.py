@@ -139,6 +139,30 @@ def _build_text(
     return "query: " + text
 
 
+def _local_snapshot(model_name: str) -> str | None:
+    """The cached copy of a Hub model, as a directory, or None if it is not downloaded.
+
+    Loading by name makes the ONNX backend list the repository's files on the
+    Hub on every start, which fails offline or when the Hub rate-limits (429).
+    A directory is read from disk only.
+    """
+    from huggingface_hub import snapshot_download
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
+    if Path(model_name).is_dir():
+        return None
+    # A bare name is a sentence-transformers model, as SentenceTransformer assumes
+    repo_id = model_name if "/" in model_name else f"sentence-transformers/{model_name}"
+    try:
+        path = Path(snapshot_download(repo_id, local_files_only=True))
+    except (LocalEntryNotFoundError, ValueError, OSError):
+        return None
+    # A partial download (no config or no ONNX weights) goes to the Hub to finish
+    if not (path / "modules.json").is_file() or not any(path.glob("**/*.onnx")):
+        return None
+    return str(path)
+
+
 class EmbeddingIndex:
     """Manages embeddings for a blog directory."""
 
@@ -175,7 +199,7 @@ class EmbeddingIndex:
         session_options = ort.SessionOptions()
         session_options.log_severity_level = 3  # 3 = Error, suppresses Warning-level provider logs
         self._model = SentenceTransformer(
-            self.model_name,
+            _local_snapshot(self.model_name) or self.model_name,
             backend="onnx",
             model_kwargs={"file_name": "model.onnx", "session_options": session_options},
         )
