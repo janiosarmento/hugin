@@ -5,15 +5,14 @@ from pathlib import Path
 import httpx
 import pytest
 
-import hugin.echo as echo
-from hugin.echo import (
-    EchoError,
-    ask_echo,
+import hugin.drafting as drafting
+from hugin.drafting import (
+    DraftError,
     build_message,
     create_draft,
     parse_category,
     pick_category,
-    write_with_fallback,
+    write_draft,
     has_enough_samples,
     select_samples,
     split_title,
@@ -37,9 +36,9 @@ def make_post(tmp_path: Path, name: str, days_ago: int, size: int = 10, draft: b
 @pytest.fixture
 def random_on(monkeypatch):
     """The 3 recent + 3 similar + 1 random mix (N_RANDOM defaults to 0)."""
-    monkeypatch.setattr(echo, "N_SIMILAR", 3)
-    monkeypatch.setattr(echo, "N_RANDOM", 1)
-    monkeypatch.setattr(echo, "MIN_SAMPLES", 7)
+    monkeypatch.setattr(drafting, "N_SIMILAR", 3)
+    monkeypatch.setattr(drafting, "N_RANDOM", 1)
+    monkeypatch.setattr(drafting, "MIN_SAMPLES", 7)
 
 
 class TestSelectSamples:
@@ -63,7 +62,7 @@ class TestSelectSamples:
         names = [p.path.stem for p in select_samples(posts, ranked, random_pick=posts[3])]
         # a is recent; the pinned random pick is ignored when N_RANDOM is 0
         assert names == ["a", "b", "c", "h", "g", "f", "e"]
-        assert echo.N_RANDOM == 0 and echo.N_SIMILAR == 4 and echo.MIN_SAMPLES == 7
+        assert drafting.N_RANDOM == 0 and drafting.N_SIMILAR == 4 and drafting.MIN_SAMPLES == 7
 
     def test_no_ranking_fills_similar_slots_randomly(self, tmp_path):
         names = [p.path.stem for p in select_samples(self._eight(tmp_path))]
@@ -165,47 +164,6 @@ def test_create_draft(tmp_path):
     assert again.name == "cats-rule-1.md"
 
 
-def _patch_client(monkeypatch, handler):
-    real = httpx.AsyncClient
-    monkeypatch.setattr(
-        echo.httpx, "AsyncClient",
-        lambda **kw: real(transport=httpx.MockTransport(handler), **kw),
-    )
-
-
-class TestAskEcho:
-    def test_success_and_request_shape(self, monkeypatch):
-        seen = {}
-
-        def handler(request):
-            seen["auth"] = request.headers["authorization"]
-            seen["body"] = request.read()
-            return httpx.Response(200, json={"choices": [{"message": {"content": " hi "}}]})
-
-        _patch_client(monkeypatch, handler)
-        assert asyncio.run(ask_echo("msg", "Jane Doe", "k123")) == "hi"
-        assert seen["auth"] == "Bearer k123"
-        import json
-        body = json.loads(seen["body"])
-        assert body["persona"] == "Jane Doe"
-        assert body["model"] == "echo"
-        assert len(body["messages"]) == 1 and body["messages"][0]["role"] == "user"
-        content = body["messages"][0]["content"]
-        assert content.startswith("msg")
-        assert "writing samples and author profile you are given" in content
-
-    @pytest.mark.parametrize("status,fragment", [(401, "401"), (500, "500")])
-    def test_http_errors(self, monkeypatch, status, fragment):
-        _patch_client(monkeypatch, lambda r: httpx.Response(status))
-        with pytest.raises(EchoError, match=fragment):
-            asyncio.run(ask_echo("m", "p", "k"))
-
-    def test_malformed_body(self, monkeypatch):
-        _patch_client(monkeypatch, lambda r: httpx.Response(200, json={"nope": 1}))
-        with pytest.raises(EchoError, match="Unexpected"):
-            asyncio.run(ask_echo("m", "p", "k"))
-
-
 CATS = ["Technology", "Cats & Pets", "Life"]
 
 
@@ -229,7 +187,7 @@ class TestCategory:
             seen["prompt"] = prompt
             return "Cats & Pets"
 
-        monkeypatch.setattr(echo, "call_llm", fake)
+        monkeypatch.setattr(drafting, "call_llm", fake)
         got = asyncio.run(pick_category(object(), "T", "body text", CATS))
         assert got == "Cats & Pets"
         assert "- Technology" in seen["prompt"] and "body text" in seen["prompt"]
@@ -242,9 +200,9 @@ class TestCategory:
         async def boom(engine, prompt, system=None):
             raise httpx.ConnectError("down")
 
-        monkeypatch.setattr(echo, "call_llm", nonsense)
+        monkeypatch.setattr(drafting, "call_llm", nonsense)
         assert asyncio.run(pick_category(object(), "T", "b", CATS)) == "Technology"
-        monkeypatch.setattr(echo, "call_llm", boom)
+        monkeypatch.setattr(drafting, "call_llm", boom)
         assert asyncio.run(pick_category(object(), "T", "b", CATS)) == "Technology"
 
     def test_pick_without_categories_is_none(self):
@@ -256,76 +214,43 @@ class TestCategory:
         assert "TBD" not in path.read_text().split("categories:")[1].split("\n")[1]
 
 
-class TestFallback:
+class TestWriteDraft:
     def _engine(self, available=True):
         from hugin.engines import Engine
 
         return Engine("sys", "https://x/v1", "m", 30, "key" if available else None)
 
-    def _setup(self, monkeypatch, echo_result):
-
+    def test_system_llm_writes_with_a_patient_timeout(self, monkeypatch):
         calls = {}
 
-        async def fake_echo(message, persona, key):
-            if isinstance(echo_result, Exception):
-                raise echo_result
-            return echo_result
-
         async def fake_llm(engine, prompt, system=None):
-            calls["engine"] = engine
-            calls["prompt"] = prompt
-            return calls.get("answer", " fallback text ")
+            calls.update(engine=engine, prompt=prompt, system=system)
+            return " the text "
 
-        monkeypatch.setattr(echo, "get_api_key", lambda: "k")
-        monkeypatch.setattr(echo, "ask_echo", fake_echo)
-        monkeypatch.setattr(echo, "call_llm", fake_llm)
-        return calls
-
-    def test_echo_success_skips_fallback(self, monkeypatch):
-        calls = self._setup(monkeypatch, "echo text")
-        assert asyncio.run(write_with_fallback("m", "p", self._engine())) == ("echo text", None)
-        assert calls == {}
-
-    def test_echo_failure_delegates_to_system_llm(self, monkeypatch):
-        calls = self._setup(monkeypatch, EchoError("Echo returned HTTP 402: out of credits"))
-        text, reason = asyncio.run(write_with_fallback("the message", "p", self._engine()))
-        assert text == "fallback text"
-        assert "402" in reason and "out of credits" in reason
+        monkeypatch.setattr(drafting, "call_llm", fake_llm)
+        assert asyncio.run(write_draft("the message", self._engine())) == "the text"
         assert calls["prompt"] == "the message"
-        assert calls["engine"].timeout >= 300  # long-form writing gets a patient timeout
+        assert "writing samples and author profile you are given" in calls["system"]
+        assert calls["engine"].timeout >= 300  # long-form writing outlasts chat timeouts
 
-    def test_missing_key_also_falls_back(self, monkeypatch):
-        self._setup(monkeypatch, "unused")
-
-        def no_key():
-            raise EchoError("Echo API key not found")
-
-        monkeypatch.setattr(echo, "get_api_key", no_key)
-        text, reason = asyncio.run(write_with_fallback("m", "p", self._engine()))
-        assert text == "fallback text" and "not found" in reason
-
-    def test_no_usable_system_llm(self, monkeypatch):
-        self._setup(monkeypatch, EchoError("boom"))
+    def test_no_usable_system_llm(self):
         for engine in (None, self._engine(available=False)):
-            with pytest.raises(EchoError, match="boom.*no system LLM"):
-                asyncio.run(write_with_fallback("m", "p", engine))
+            with pytest.raises(DraftError, match="No usable system LLM"):
+                asyncio.run(write_draft("m", engine))
 
-    def test_both_fail(self, monkeypatch):
-
-        self._setup(monkeypatch, EchoError("echo down"))
-
-        async def bad(engine, prompt, system=None):
+    def test_llm_failure_and_empty_answer(self, monkeypatch):
+        async def down(engine, prompt, system=None):
             raise httpx.ConnectError("llm down")
 
-        monkeypatch.setattr(echo, "call_llm", bad)
-        with pytest.raises(EchoError, match="echo down.*llm down"):
-            asyncio.run(write_with_fallback("m", "p", self._engine()))
+        async def empty(engine, prompt, system=None):
+            return "  "
 
-
-def test_http_error_detail_is_surfaced(monkeypatch):
-    _patch_client(monkeypatch, lambda r: httpx.Response(402, json={"error": {"message": "out of credits"}}))
-    with pytest.raises(EchoError, match="402: out of credits"):
-        asyncio.run(ask_echo("m", "p", "k"))
+        monkeypatch.setattr(drafting, "call_llm", down)
+        with pytest.raises(DraftError, match="sys failed: llm down"):
+            asyncio.run(write_draft("m", self._engine()))
+        monkeypatch.setattr(drafting, "call_llm", empty)
+        with pytest.raises(DraftError, match="returned nothing"):
+            asyncio.run(write_draft("m", self._engine()))
 
 
 def test_create_draft_stores_prompt(tmp_path):
@@ -345,7 +270,7 @@ class TestRefactor:
     def test_mix_is_2_recent_2_prompt_2_original_without_overlap(self, tmp_path):
         posts = self._posts(tmp_path)
         original = posts[4]  # e
-        got = echo.select_refactor_samples(
+        got = drafting.select_refactor_samples(
             posts, original,
             ranked_prompt=self._abs(tmp_path, "h", "a", "g", "i"),
             ranked_original=self._abs(tmp_path, "e", "g", "f", "d", "c"),
@@ -355,7 +280,7 @@ class TestRefactor:
 
     def test_original_is_never_a_sample_and_rankings_are_optional(self, tmp_path):
         posts = self._posts(tmp_path)
-        got = echo.select_refactor_samples(posts, posts[0])
+        got = drafting.select_refactor_samples(posts, posts[0])
         assert len(got) == 6 and posts[0] not in got
         assert len({p.path for p in got}) == 6
 
@@ -387,7 +312,7 @@ class TestInheritedFields:
     def test_takes_category_thumbnail_and_translation_key(self, tmp_path):
         p = self._post(tmp_path, categories=["journaling"], thumbnail="/images/a.avif",
                        translationKey="my-first-pen")
-        assert echo.inherited_fields(p) == {
+        assert drafting.inherited_fields(p) == {
             "category": "journaling", "thumbnail": "/images/a.avif",
             "translation_key": "my-first-pen",
         }
@@ -395,8 +320,8 @@ class TestInheritedFields:
     def test_placeholders_and_missing_are_none(self, tmp_path):
         none = {"category": None, "thumbnail": None, "translation_key": None}
         tbd = self._post(tmp_path, categories=["TBD"], thumbnail="TBD", translationKey="TBD")
-        assert echo.inherited_fields(tbd) == none
-        assert echo.inherited_fields(self._post(tmp_path)) == none
+        assert drafting.inherited_fields(tbd) == none
+        assert drafting.inherited_fields(self._post(tmp_path)) == none
 
     def test_create_draft_uses_thumbnail(self, tmp_path):
         path = create_draft(tmp_path, "T\n\nB.", "r", "journaling", thumbnail="/images/a.avif",
@@ -405,7 +330,7 @@ class TestInheritedFields:
         assert "thumbnail: /images/a.avif" in text and "translationKey: my-first-pen" in text and "- journaling" in text
 
 
-def test_write_with_system_llm_strips_reasoning(monkeypatch):
+def test_write_draft_strips_reasoning(monkeypatch):
     import asyncio
 
     import hugin.llm as llm
@@ -414,11 +339,11 @@ def test_write_with_system_llm_strips_reasoning(monkeypatch):
     async def fake_call_llm(engine, prompt, system=None):
         return llm.strip_reasoning("<|channel>thought\nnotes\n<channel|>Real Title\nBody")
 
-    monkeypatch.setattr(echo, "call_llm", fake_call_llm)
+    monkeypatch.setattr(drafting, "call_llm", fake_call_llm)
     engine = Engine("t", "http://x/v1", "m", 5, "key")
-    text = asyncio.run(echo.write_with_system_llm("msg", engine))
+    text = asyncio.run(drafting.write_draft("msg", engine))
     assert text == "Real Title\nBody"
-    assert echo.parse_answer(text, "req") == ("Real Title", "Body")
+    assert drafting.parse_answer(text, "req") == ("Real Title", "Body")
 
 
 def test_build_message_states_the_target_length_for_new_posts(tmp_path):
@@ -462,7 +387,7 @@ class TestAuthorFilter:
     def test_refactor_samples_follow_the_chosen_author(self, tmp_path):
         posts = self._by_author(tmp_path)
         original = posts[0]  # by Ana
-        picked = echo.select_refactor_samples(posts, original, author="Prof. Silva")
+        picked = drafting.select_refactor_samples(posts, original, author="Prof. Silva")
         assert picked and all(p.filename.startswith("b") for p in picked)
 
     def test_create_draft_records_the_author(self, tmp_path):

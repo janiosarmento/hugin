@@ -116,14 +116,14 @@ class ProjectSettingsScreen(ModalScreen[bool]):
 
             yield Label("Editorial rules", classes="field-label")
             yield Static(
-                "Guidelines sent with every Echo draft of this blog, and per-language overrides.",
+                "Guidelines sent with every LLM draft of this blog, and per-language overrides.",
                 classes="field-hint",
             )
             yield Button("Editorial rules…", id="btn-editorial-rules")
 
             yield Label("Author profiles", classes="field-label")
             yield Static(
-                "Voice and style of each author, sent with their Echo drafts. Not the public author bio.",
+                "Voice and style of each author, sent with their LLM drafts. Not the public author bio.",
                 classes="field-hint",
             )
             yield Button("Author profiles…", id="btn-author-profiles")
@@ -395,7 +395,7 @@ class EditorialRulesScreen(ModalScreen[bool]):
 
             yield Label("Blog rules", classes="field-label")
             yield Static(
-                "Sent with every Echo draft of this blog. Blank = Hugin default.",
+                "Sent with every LLM draft of this blog. Blank = Hugin default.",
                 classes="field-hint",
             )
             yield TextArea(writing.constraints, id="input-constraints")

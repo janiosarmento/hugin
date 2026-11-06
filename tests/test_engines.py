@@ -3,7 +3,7 @@
 from secrets_resolver.exceptions import SecretFileNotFound
 
 import hugin.engines as engines_mod
-from hugin.engines import Engine, _get_api_key, load_engines, load_fulcrum_echo_secret
+from hugin.engines import Engine, _get_api_key, load_engines
 
 
 class TestEngine:
@@ -56,7 +56,7 @@ class TestGetApiKey:
         assert seen["path"] == "custom.path"
 
 
-class TestFulcrumEchoSecret:
+class TestRetiredSection:
     def _use(self, monkeypatch, tmp_path, content=None):
         path = tmp_path / "engines.toml"
         if content is not None:
@@ -66,24 +66,31 @@ class TestFulcrumEchoSecret:
         monkeypatch.setattr(engines_mod, "get_secret", lambda p: None)
         return path
 
-    def test_new_file_gets_default(self, monkeypatch, tmp_path):
-        self._use(monkeypatch, tmp_path)
-        assert load_fulcrum_echo_secret() == "fulcrum_echo.key"
+    def test_new_file_has_no_retired_section(self, monkeypatch, tmp_path):
+        path = self._use(monkeypatch, tmp_path)
+        load_engines()
+        assert "fulcrum" not in path.read_text()
 
-    def test_existing_file_is_migrated(self, monkeypatch, tmp_path):
-        path = self._use(monkeypatch, tmp_path, '[a]\nurl = "http://x/v1"\nmodel = "m"\n')
-        assert load_fulcrum_echo_secret() == "fulcrum_echo.key"
-        assert "[fulcrum_echo]" in path.read_text()
-        assert path.read_text().count("[fulcrum_echo]") == 1
-        load_fulcrum_echo_secret()
-        assert path.read_text().count("[fulcrum_echo]") == 1
+    def test_existing_section_is_removed_and_the_rest_kept(self, monkeypatch, tmp_path):
+        path = self._use(monkeypatch, tmp_path, (
+            '[a]\nurl = "http://x/v1"\nmodel = "m"\n\n'
+            '[fulcrum_echo]  # old\n# Jano key\nsecret = "fulcrum_echo.key"\n'
+            'persona = "Jane Doe"\nlist = [\n  "x",\n]\n\n'
+            '[b]\nurl = "http://y/v1"\nmodel = "n"\n'
+        ))
+        assert [e.id for e in load_engines()] == ["a", "b"]
+        text = path.read_text()
+        assert "fulcrum" not in text and "persona" not in text and '"x"' not in text
+        assert text == '[a]\nurl = "http://x/v1"\nmodel = "m"\n\n[b]\nurl = "http://y/v1"\nmodel = "n"\n'
 
-    def test_custom_value(self, monkeypatch, tmp_path):
-        self._use(monkeypatch, tmp_path, '[fulcrum_echo]\nsecret = "other.key"\n')
-        assert load_fulcrum_echo_secret() == "other.key"
+    def test_section_at_end_of_file(self, monkeypatch, tmp_path):
+        path = self._use(monkeypatch, tmp_path,
+                         '[a]\nurl = "http://x/v1"\nmodel = "m"\n\n[fulcrum_echo]\nsecret = "k"\n')
+        load_engines()
+        assert path.read_text() == '[a]\nurl = "http://x/v1"\nmodel = "m"\n'
 
-    def test_section_is_not_an_engine(self, monkeypatch, tmp_path):
-        self._use(monkeypatch, tmp_path, '[a]\nurl = "http://x/v1"\nmodel = "m"\n')
+    def test_section_without_url_is_not_an_engine(self, monkeypatch, tmp_path):
+        self._use(monkeypatch, tmp_path, '[a]\nurl = "http://x/v1"\nmodel = "m"\n[misc]\nx = 1\n')
         assert [e.id for e in load_engines()] == ["a"]
 
 

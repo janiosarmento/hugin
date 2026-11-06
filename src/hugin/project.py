@@ -18,7 +18,7 @@ AUTHORS_DATA_FILE = Path("data") / "authors.toml"  # Hugo data, at the site root
 DEFAULT_SUMMARY_STYLE = "Write as if telling a friend — direct, with personality"
 DEFAULT_AUTHOR_FIELD = "author"
 
-# Editorial rules sent with every Echo / system-LLM draft request. Per blog,
+# Editorial rules sent with every LLM draft request. Per blog,
 # overridable per detected language (see WritingSettings.for_language).
 DEFAULT_EDITORIAL_CONSTRAINTS = """\
 Write in the voice of the writing samples: their vocabulary, their rhythm, their level of formality.

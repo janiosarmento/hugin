@@ -36,7 +36,7 @@ from hugin.embeddings import EmbeddingIndex
 from hugin.tui.post_picker import PostPickerScreen
 from hugin.tui.affiliates_screen import AffiliatesScreen
 from hugin.tui.broken_links import BrokenLinksScreen
-from hugin.tui.echo_draft import EchoPromptScreen, EchoWaitScreen
+from hugin.tui.draft_screens import DraftPromptScreen, DraftWaitScreen
 from hugin.tui.editor import EditorScreen
 from hugin.tui.engine_picker import EnginePickerScreen
 from hugin.tui.news_ideas import NewsIdeasScreen
@@ -89,7 +89,7 @@ from rich.style import Style
 import numpy as np
 from hugin.authors import ordered_authors
 from hugin.authors import post_author
-from hugin.echo import has_enough_samples
+from hugin.drafting import has_enough_samples
 from hugin.redirects import find_redirects_file
 import httpx
 from hugin.git import pending_changes
@@ -620,8 +620,8 @@ class HuginScreen(Screen):
         Binding("b", "broken_links", "Broken", show=False, tooltip="Check for broken links"),
         Binding("u", "suggest", "Sugg", show=False, tooltip="Suggest new post topics with LLM"),
         Binding("w", "news_ideas", "News", show=False, tooltip="News → post ideas (search Google News, generate drafts)"),
-        Binding("h", "echo_draft", "Echo", show=False, tooltip="Ask Echo to write a new draft post in your voice"),
-        Binding("R", "refactor_post", "Refactor", show=False, tooltip="Rewrite the current post as a new draft with Echo or the system LLM"),
+        Binding("h", "new_draft", "New draft", show=False, tooltip="Have the LLM write a new draft post in your voice"),
+        Binding("R", "refactor_post", "Refactor", show=False, tooltip="Rewrite the current post as a new draft with the LLM"),
         Binding("n", "pick_engine", "Engine", show=False, tooltip="Select LLM engine and model"),
         Binding("c", "clear_caches", "Clr", show=False, tooltip="Clear embedding cache and restart"),
         Binding("r", "redirects", "Redirs", show=False, tooltip="Manage URL redirects (_redirects file)"),
@@ -2097,16 +2097,16 @@ class HuginScreen(Screen):
 
         return post_author(self.posts[self.current_index]) if self.posts else None
 
-    # === ECHO DRAFT ===
+    # === LLM DRAFTS ===
 
-    def action_echo_draft(self) -> None:
-        self._start_echo_draft()
+    def action_new_draft(self) -> None:
+        self._start_draft()
 
     def action_refactor_post(self) -> None:
         """Rewrite the current post as a new draft that points back to it."""
         if self._state != STATE_BROWSING or not self.posts:
             return
-        self._start_echo_draft(original=self.posts[self.current_index])
+        self._start_draft(original=self.posts[self.current_index])
 
     def action_goto_original(self) -> None:
         """Jump to the post the current draft was refactored from."""
@@ -2124,7 +2124,7 @@ class HuginScreen(Screen):
                 self._navigate_to_post(i)
                 return
 
-    def _start_echo_draft(self, original: Post | None = None) -> None:
+    def _start_draft(self, original: Post | None = None) -> None:
         """Prompt, wait, and add the new draft on top; `original` = refactor mode."""
         if self._state != STATE_BROWSING:
             return
@@ -2136,7 +2136,7 @@ class HuginScreen(Screen):
         if not profiles and not any(
             has_enough_samples(self.all_posts, original, a) for a in authors or [None]
         ):
-            self.notify("Not enough published posts to give Echo references.", severity="warning")
+            self.notify("Not enough published posts to use as writing samples.", severity="warning")
             return
         current = self.posts[self.current_index] if self.posts else None
 
@@ -2158,19 +2158,18 @@ class HuginScreen(Screen):
             self._rebuild_post_table()
             self.notify(f"Draft created: {path.name}")
 
-        prompt_screen = EchoPromptScreen(
+        prompt_screen = DraftPromptScreen(
             self.all_posts, self.index, self.engine, original,
             authors=authors, profiles=profiles,
             default_author=post_author(current) if current else None,
         )
 
-        def on_prompt(result: tuple[str, str] | None) -> None:
-            if result:
-                request, writer = result
+        def on_prompt(request: str | None) -> None:
+            if request:
                 self.app.push_screen(
-                    EchoWaitScreen(
+                    DraftWaitScreen(
                         request, list(self.all_posts), self.directory, self.engine,
-                        self.index, prompt_screen.random_pick, writer, original,
+                        self.index, prompt_screen.random_pick, original,
                         words=prompt_screen.target_words,
                         author=prompt_screen.author, profile=prompt_screen.profile,
                     ),

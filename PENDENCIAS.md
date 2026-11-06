@@ -51,10 +51,9 @@ Como retomar numa sessão nova: ler este arquivo, `CLAUDE.md` e `PROJECT.md`, de
 
 ### 7. Generalização do código (auditoria feita, nada alterado)
 Itens específicos do uso do autor encontrados no código:
-- `engines.py`: `DEFAULT_FULCRUM_ECHO_PERSONA = "Janio Sarmento"`, segredo padrão `fulcrum_echo.key` e bloco `[fulcrum_echo]` escrito no `engines.toml` de todo usuário.
 - `engines.py`: `DEFAULT_ENGINES` com um endpoint local `localhost:5555` e o modelo `apple-ai`. Esse endpoint é do Apple Intelligence via Apfel, não do LM Studio.
 - `linker.py` (`_is_affiliate_url`) e `affiliates.py` (exemplo `amzn.to`): afiliados só da Amazon; o atalho `z` insere link da Amazon.
-- `hugo.py`: `DEFAULT_PERMALINK = "/:section/:slug/"` (o blog usa `/:slug/`); leitura de `.pages.yml` para categorias; mensagens que citam "PagesCMS" em `writer.py`, `echo.py` e `echo_draft.py`.
+- `hugo.py`: `DEFAULT_PERMALINK = "/:section/:slug/"` (o blog usa `/:slug/`); leitura de `.pages.yml` para categorias; mensagens que citam "PagesCMS" em `writer.py`, `drafting.py` e `draft_screens.py`.
 - `redirects.py`: supõe `static/_redirects`. `git.py`: `SETTINGS_PATHS` supõe `hugin/config.toml` e `data/authors.toml`.
 - `project.py`: `DEFAULT_AUTHOR_FIELD = "author"`.
 - Testes: fixtures com exemplos de gatos (`cat food`, `litter box`, `arranhador`).
@@ -70,15 +69,15 @@ Itens específicos do uso do autor encontrados no código:
 - Há três arquivos apagados sem commit em `.recall/` (`.capture.json`, `context.md`, `history.md`). Não foram tocados. Decidir se são do usuário e o que fazer com eles.
 - As tags `v0.5.22`, `v0.5.23` e `v0.5.24` nunca foram criadas; só existem os commits de bump.
 
-### 10. Itens migrados do beads (Echo e dependências)
+### 10. Itens migrados do beads (rascunhos por LLM e dependências)
 
 O projeto deixou de usar o beads. Estes eram os itens abertos nele; o texto abaixo é o registro completo.
 
-- **Echo: conjunto de avaliação** (era `hugo-tagger-3a7`, P2, criado em 2026-10-10). Conjunto fixo de pedidos e um motor fixo para comparar as métricas de rascunho antes e depois de mudar o prompt. Adiado porque o usuário decidiu manter os prompts atuais por enquanto.
-- **Echo: detectar tiques de escrita de IA** (era `hugo-tagger-7a5`, P2, 2026-10-10). Medir no código travessões por mil palavras, o padrão "não X, é Y" e a proporção de frases curtas, e avisar no rascunho. Adiado pelo mesmo motivo.
-- **Echo: reduzir as amostras de escrita** (era `hugo-tagger-d34`, P2, 2026-10-10). Usar 2 a 3 posts, truncados, para caber no contexto de modelos fracos. Adiado pelo mesmo motivo.
-- **Echo: checar o tamanho dos rascunhos** (era `hugo-tagger-mi2`, P2, 2026-10-10). Para rascunhos novos, se a saída ficar abaixo de ~70% do alvo, pedir expansão uma vez. Adiado pelo mesmo motivo.
-- **Echo: simplificar o prompt de refatoração** (era `hugo-tagger-wtf`, P2, 2026-10-10). O prompt ainda está longo. Simplificar só se não trouxer de volta as falhas que ele corrige. Adiado pelo mesmo motivo.
+- **Rascunhos (`h`/`R`): conjunto de avaliação** (era `hugo-tagger-3a7`, P2, criado em 2026-10-10). Conjunto fixo de pedidos e um motor fixo para comparar as métricas de rascunho antes e depois de mudar o prompt. Adiado porque o usuário decidiu manter os prompts atuais por enquanto.
+- **Rascunhos (`h`/`R`): detectar tiques de escrita de IA** (era `hugo-tagger-7a5`, P2, 2026-10-10). Medir no código travessões por mil palavras, o padrão "não X, é Y" e a proporção de frases curtas, e avisar no rascunho. Adiado pelo mesmo motivo.
+- **Rascunhos (`h`/`R`): reduzir as amostras de escrita** (era `hugo-tagger-d34`, P2, 2026-10-10). Usar 2 a 3 posts, truncados, para caber no contexto de modelos fracos. Adiado pelo mesmo motivo.
+- **Rascunhos (`h`/`R`): checar o tamanho dos rascunhos** (era `hugo-tagger-mi2`, P2, 2026-10-10). Para rascunhos novos, se a saída ficar abaixo de ~70% do alvo, pedir expansão uma vez. Adiado pelo mesmo motivo.
+- **Rascunhos (`h`/`R`): simplificar o prompt de refatoração** (era `hugo-tagger-wtf`, P2, 2026-10-10). O prompt ainda está longo. Simplificar só se não trouxer de volta as falhas que ele corrige. Adiado pelo mesmo motivo.
 - **Atualizar dependências travadas** (era `hugo-tagger-va3`, P4, criado em 2026-10-07, bloqueado). Estado: `transformers` 4.57.6, `sentence-transformers` 5.7.0, `huggingface-hub` 0.36.2, `tokenizers` 0.22.2 e `optimum` 2.1.0 estão travados (últimas versões: 5.19.0, 6.1.0, 2.1.1, 0.23.2 e 2.3.0). Causa: `optimum-onnx` 0.1.0 exige `optimum~=2.1.0` e `transformers<4.58`, e `src/hugin/embeddings.py` (linha ~176) usa `SentenceTransformer(backend='onnx')`, que depende dele. Opções: (1) esperar um `optimum-onnx` que suporte transformers 5, a opção segura; (2) trocar para `backend='torch'` e remover `optimum`, `optimum-onnx` e `onnx`, medindo antes tempo de carga, velocidade e memória; (3) usar onnxruntime direto, reescrita que não vale a pena. Também: o `uv.lock` está desatualizado porque o `secrets-resolver` deixou de ser pacote local (`../jano`) e hoje vem da tag git; `uv sync` e `uv lock` falham. Para recriar o ambiente, o registro antigo sugeria `uv venv --clear && uv pip install -e ../jano -e '.[dev]' --upgrade`, mas esse comando não reflete mais a dependência por tag: revisar antes de usar. Testar qualquer upgrade num venv separado primeiro.
 
 ## Projeto separado (a tratar em outra sessão)

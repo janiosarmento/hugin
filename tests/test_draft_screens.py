@@ -2,12 +2,15 @@ import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import httpx
 from textual.app import App
 
-import hugin.echo as echo_mod
-import hugin.tui.echo_draft as ed
-from hugin.echo import EchoError
+from hugin import drafting
+import hugin.tui.draft_screens as ed
+from hugin.engines import Engine
 from hugin.scanner import Post
+
+ENGINE = Engine("t", "http://localhost/v1", "m", 30, None)
 
 
 def _posts(tmp_path):
@@ -36,57 +39,53 @@ def _run(screen_factory, keys_fn):
 
 
 def test_prompt_screen_submits_text(monkeypatch):
-    monkeypatch.setattr(ed, "_last_writer", "echo")
     async def keys(app, pilot):
         await pilot.press(*"hello", "ctrl+s")
 
     # No posts, so the profile is the only source of voice
     def profile_only():
-        return ed.EchoPromptScreen([], None, None, authors=["Ana"], profiles={"Ana": "Warm."})
-    assert _run(profile_only, keys) == ("hello", "echo")
+        return ed.DraftPromptScreen([], None, None, authors=["Ana"], profiles={"Ana": "Warm."})
+    assert _run(profile_only, keys) == "hello"
 
 
 def test_prompt_screen_rejects_empty_and_cancels():
     async def keys(app, pilot):
         await pilot.press("ctrl+s")
-        assert isinstance(app.screen, ed.EchoPromptScreen)
+        assert isinstance(app.screen, ed.DraftPromptScreen)
         await pilot.press("escape")
 
-    assert _run(ed.EchoPromptScreen, keys) is None
+    assert _run(ed.DraftPromptScreen, keys) is None
 
 
 def test_wait_screen_creates_draft(tmp_path, monkeypatch):
     seen = {}
 
-    async def fake_ask(message, persona, key):
-        seen.update(message=message, persona=persona, key=key)
-        return "Echo Title\n\nEcho body."
+    async def fake_ask(engine, message, system=None):
+        seen.update(message=message)
+        return "Cat Title\n\nCat body."
 
-    monkeypatch.setattr(echo_mod, "ask_echo", fake_ask)
-    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
-    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "Jane Doe")
+    monkeypatch.setattr(drafting, "call_llm", fake_ask)
 
     async def keys(app, pilot):
         await pilot.pause(0.3)
 
-    path = _run(lambda: ed.EchoWaitScreen("write cats", _posts(tmp_path), tmp_path, None), keys)
-    assert path.name == "echo-title.md"
-    assert "Echo body." in path.read_text()
-    assert seen["persona"] == "Jane Doe" and seen["message"].count("<post>") == 7
+    path = _run(lambda: ed.DraftWaitScreen("write cats", _posts(tmp_path), tmp_path, ENGINE), keys)
+    assert path.name == "cat-title.md"
+    assert "Cat body." in path.read_text()
+    assert seen["message"].count("<post>") == 7
     assert seen["message"].endswith("write cats")
 
 
 def test_wait_screen_error_returns_none(tmp_path, monkeypatch):
-    def boom():
-        raise EchoError("no key")
+    async def down(engine, prompt, system=None):
+        raise httpx.ConnectError("llm down")
 
-    monkeypatch.setattr(echo_mod, "get_api_key", boom)
-    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
+    monkeypatch.setattr(drafting, "call_llm", down)
 
     async def keys(app, pilot):
         await pilot.pause(0.3)
 
-    path = _run(lambda: ed.EchoWaitScreen("write about cats", _posts(tmp_path), tmp_path, None), keys)
+    path = _run(lambda: ed.DraftWaitScreen("write about cats", _posts(tmp_path), tmp_path, ENGINE), keys)
     # The failure still leaves an empty draft that holds the prompt
     assert path.name == "write-about-cats.md"
     import frontmatter
@@ -107,12 +106,10 @@ def test_h_key_creates_draft_in_main_screen(tmp_path, monkeypatch):
     from hugin.engines import Engine
     from hugin.tui.review import HuginScreen
 
-    async def fake_ask(message, persona, key):
-        return "From Echo\n\nText."
+    async def fake_ask(engine, message, system=None):
+        return "From LLM\n\nText."
 
-    monkeypatch.setattr(echo_mod, "ask_echo", fake_ask)
-    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
-    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "Jane Doe")
+    monkeypatch.setattr(drafting, "call_llm", fake_ask)
 
     posts = _posts(tmp_path)
     site = MagicMock()
@@ -140,11 +137,11 @@ def test_h_key_creates_draft_in_main_screen(tmp_path, monkeypatch):
             await pilot.pause()
             await pilot.press("h")
             await pilot.pause()
-            assert isinstance(app.screen, ed.EchoPromptScreen)
+            assert isinstance(app.screen, ed.DraftPromptScreen)
             await pilot.press(*"cats", "ctrl+s")
             await pilot.pause(0.5)
             assert isinstance(app.screen, HuginScreen)
-            assert (tmp_path / "from-echo.md").exists()
+            assert (tmp_path / "from-llm.md").exists()
             assert app.screen.query_one("#post-table", DataTable).row_count == 8
 
     asyncio.run(go())
@@ -200,21 +197,15 @@ def test_wait_screen_assigns_category_from_system_llm(tmp_path, monkeypatch):
         "        type: select\n        options:\n          values:\n            - label: Life Stuff\n              value: life\n"
     )
 
-    async def fake_ask(message, persona, key):
-        return "Title\n\nBody"
-
     async def fake_llm(engine, prompt, system=None):
-        return "life"
+        return "life" if "Pick the single best" in prompt else "Title\n\nBody"
 
-    monkeypatch.setattr(echo_mod, "ask_echo", fake_ask)
-    monkeypatch.setattr(echo_mod, "call_llm", fake_llm)
-    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
-    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
+    monkeypatch.setattr(drafting, "call_llm", fake_llm)
 
     async def keys(app, pilot):
         await pilot.pause(0.3)
 
-    path = _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, object()), keys)
+    path = _run(lambda: ed.DraftWaitScreen("q", _posts(tmp_path), tmp_path, ENGINE), keys)
     text = path.read_text()
     assert "- life" in text and "TBD" not in text.split("description")[0].split("categories:")[1]
 
@@ -227,19 +218,17 @@ def test_wait_screen_uses_semantic_ranking(tmp_path, monkeypatch):
             seen["query"] = text
             return [str((tmp_path / "p5.md").resolve())]
 
-    async def fake_ask(message, persona, key):
+    async def fake_ask(engine, message, system=None):
         seen["message"] = message
         return "T\n\nB"
 
-    monkeypatch.setattr(echo_mod, "ask_echo", fake_ask)
-    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
-    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
+    monkeypatch.setattr(drafting, "call_llm", fake_ask)
     posts = _posts(tmp_path)  # p0..p5, p0 newest; p5 oldest and smallest tie
 
     async def keys(app, pilot):
         await pilot.pause(0.3)
 
-    _run(lambda: ed.EchoWaitScreen("about cats", posts, tmp_path, None, FakeIndex()), keys)
+    _run(lambda: ed.DraftWaitScreen("about cats", posts, tmp_path, ENGINE, FakeIndex()), keys)
     assert seen["query"] == "about cats"
     assert seen["message"].count("<post>") == 7
 
@@ -249,60 +238,21 @@ def test_wait_screen_survives_index_failure(tmp_path, monkeypatch):
         def rank_by_text(self, text):
             raise RuntimeError("model missing")
 
-    async def fake_ask(message, persona, key):
+    async def fake_ask(engine, message, system=None):
         return "T\n\nB"
 
-    monkeypatch.setattr(echo_mod, "ask_echo", fake_ask)
-    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
-    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
+    monkeypatch.setattr(drafting, "call_llm", fake_ask)
 
     async def keys(app, pilot):
         await pilot.pause(0.3)
 
-    path = _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None, BrokenIndex()), keys)
+    path = _run(lambda: ed.DraftWaitScreen("q", _posts(tmp_path), tmp_path, ENGINE, BrokenIndex()), keys)
     assert path is not None and path.name == "t.md"
 
 
-def test_wait_screen_falls_back_and_warns(tmp_path, monkeypatch):
-    from hugin.engines import Engine
-
-    async def echo_down(message, persona, key):
-        raise EchoError("Echo returned HTTP 402: out of credits")
-
-    async def fake_llm(engine, prompt, system=None):
-        return "System Title\n\nSystem body" if "Pick the single best" not in prompt else "x"
-
-    monkeypatch.setattr(echo_mod, "ask_echo", echo_down)
-    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
-    monkeypatch.setattr(echo_mod, "call_llm", fake_llm)
-    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
-    notes = []
-    engine = Engine("sys", "https://x/v1", "m", 30, "key")
-
-    result = {}
-
-    async def go():
-        class Host(App):
-            def notify(self, message, **kw):
-                notes.append(message)
-
-        app = Host()
-        async with app.run_test() as pilot:
-            app.push_screen(
-                ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, engine),
-                lambda r: result.setdefault("v", r),
-            )
-            await pilot.pause(0.5)
-
-    asyncio.run(go())
-    assert result["v"].name == "system-title.md"
-    assert "System body" in result["v"].read_text()
-    assert any("402" in n and "sys" in n for n in notes)
-
-
 def test_prompt_screen_lists_sample_titles_and_updates_similar(tmp_path, monkeypatch):
-    monkeypatch.setattr(echo_mod, "N_SIMILAR", 3)
-    monkeypatch.setattr(echo_mod, "N_RANDOM", 1)
+    monkeypatch.setattr(drafting, "N_SIMILAR", 3)
+    monkeypatch.setattr(drafting, "N_RANDOM", 1)
     posts = _posts(tmp_path)  # P0 newest ... P5 oldest
     odd = Post(tmp_path / "odd.md", {"title": "Odd [markup] title"}, "x", False,
                date=datetime.now() - timedelta(days=99))
@@ -315,7 +265,7 @@ def test_prompt_screen_lists_sample_titles_and_updates_similar(tmp_path, monkeyp
         def rank_by_text(self, text):
             return [str(p.path.resolve()) for p in (odd, posts[5], posts[4], posts[3])]
 
-    class Fast(ed.EchoPromptScreen):
+    class Fast(ed.DraftPromptScreen):
         DEBOUNCE_SECONDS = 0.05
 
     async def go():
@@ -324,14 +274,14 @@ def test_prompt_screen_lists_sample_titles_and_updates_similar(tmp_path, monkeyp
             screen = Fast(posts, FakeIndex())
             app.push_screen(screen)
             await pilot.pause()
-            shown = str(screen.query_one("#echo-samples").render())
+            shown = str(screen.query_one("#draft-samples").render())
             assert shown.count("latest") == 3 and "P0" in shown
             assert "picked when you send" in shown
             assert shown.count("random") == 1 and "P5" in shown
             assert screen.random_pick is posts[5]
             await pilot.press(*"cats")
             await pilot.pause(0.4)
-            shown = str(screen.query_one("#echo-samples").render())
+            shown = str(screen.query_one("#draft-samples").render())
             # odd + P4 + P3 (P5 is the pinned random, so it is skipped in the ranking)
             assert shown.count("similar") == 3
             assert "Odd [markup] title" in shown and "P4" in shown and "P3" in shown
@@ -340,42 +290,11 @@ def test_prompt_screen_lists_sample_titles_and_updates_similar(tmp_path, monkeyp
     asyncio.run(go())
 
 
-def test_prompt_screen_f2_picks_system_writer_and_remembers(monkeypatch):
-    from hugin.engines import Engine
-
-    monkeypatch.setattr(ed, "_last_writer", "echo")
-    engine = Engine("sys", "https://x/v1", "big-model", 30, "k")
-
-    async def keys(app, pilot):
-        await pilot.press(*"hi", "f2", "ctrl+s")
-
-    def profile_only():
-        return ed.EchoPromptScreen(
-        [], None, engine, authors=["Ana"], profiles={"Ana": "Warm."}
-    )
-    assert _run(profile_only, keys) == ("hi", "system")
-    assert ed._last_writer == "system"
-
-    # next time the selector starts on the remembered writer
-    async def keys2(app, pilot):
-        await pilot.press(*"again", "ctrl+s")
-
-    assert _run(profile_only, keys2) == ("again", "system")
-    assert "sys / big-model" in ed.EchoPromptScreen([], None, engine)._system_label()
-
-
-def test_wait_screen_system_writer_skips_echo(tmp_path, monkeypatch):
-    from hugin.engines import Engine
-
-    def echo_must_not_run(*a, **k):
-        raise AssertionError("Echo must not be called")
-
+def test_wait_screen_notifies_who_wrote_the_draft(tmp_path, monkeypatch):
     async def fake_llm(engine, prompt, system=None):
         return "Direct Title\n\nDirect body" if "Pick the single best" not in prompt else "x"
 
-    monkeypatch.setattr(echo_mod, "ask_echo", echo_must_not_run)
-    monkeypatch.setattr(echo_mod, "get_api_key", echo_must_not_run)
-    monkeypatch.setattr(echo_mod, "call_llm", fake_llm)
+    monkeypatch.setattr(drafting, "call_llm", fake_llm)
     notes = []
     engine = Engine("sys", "https://x/v1", "big-model", 30, "key")
     result = {}
@@ -388,7 +307,7 @@ def test_wait_screen_system_writer_skips_echo(tmp_path, monkeypatch):
         app = Host()
         async with app.run_test() as pilot:
             app.push_screen(
-                ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, engine, writer="system"),
+                ed.DraftWaitScreen("q", _posts(tmp_path), tmp_path, engine),
                 lambda r: result.setdefault("v", r),
             )
             await pilot.pause(0.5)
@@ -398,11 +317,11 @@ def test_wait_screen_system_writer_skips_echo(tmp_path, monkeypatch):
     assert "Written by sys / big-model" in notes
 
 
-def test_wait_screen_system_writer_without_engine_fails_cleanly(tmp_path):
+def test_wait_screen_without_engine_fails_cleanly(tmp_path):
     async def keys(app, pilot):
         await pilot.pause(0.3)
 
-    path = _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None, writer="system"), keys)
+    path = _run(lambda: ed.DraftWaitScreen("q", _posts(tmp_path), tmp_path, None), keys)
     assert path.read_text().count("prompt: q") == 1  # failure kept the prompt in an empty draft
 
 
@@ -412,13 +331,13 @@ def test_prompt_screen_without_random_sample(tmp_path):
     async def go():
         app = App()
         async with app.run_test() as pilot:
-            screen = ed.EchoPromptScreen(posts, None)
+            screen = ed.DraftPromptScreen(posts, None)
             app.push_screen(screen)
             await pilot.pause()
-            shown = str(screen.query_one("#echo-samples").render())
+            shown = str(screen.query_one("#draft-samples").render())
             assert "random" not in shown and screen.random_pick is None
             assert "4 closest to your prompt" in shown
-            hint = str(screen.query_one("#echo-hint").render())
+            hint = str(screen.query_one("#draft-hint").render())
             assert "3 latest, 4 similar to your prompt)" in hint
 
     asyncio.run(go())
@@ -435,13 +354,11 @@ def test_R_key_refactors_post_and_goto_original(tmp_path, monkeypatch):
 
     seen = {}
 
-    async def fake_ask(message, persona, key):
+    async def fake_ask(engine, message, system=None):
         seen["message"] = message
         return "Rewritten\n\nNew text."
 
-    monkeypatch.setattr(echo_mod, "ask_echo", fake_ask)
-    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
-    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "Jane Doe")
+    monkeypatch.setattr(drafting, "call_llm", fake_ask)
 
     posts = _posts(tmp_path)
     posts[0].metadata.update(categories=["journaling"], thumbnail="/images/cover.avif", translationKey="p0-key")
@@ -472,7 +389,7 @@ def test_R_key_refactors_post_and_goto_original(tmp_path, monkeypatch):
             assert goto.has_class("hidden")  # p0 is not a refactor
             await pilot.press("R")
             await pilot.pause()
-            assert isinstance(app.screen, ed.EchoPromptScreen)
+            assert isinstance(app.screen, ed.DraftPromptScreen)
             await pilot.press(*"tighter", "ctrl+s")
             await pilot.pause(0.5)
             assert isinstance(app.screen, HuginScreen)
@@ -493,7 +410,7 @@ def test_R_key_refactors_post_and_goto_original(tmp_path, monkeypatch):
 
 
 def test_R_key_warns_without_enough_posts(tmp_path):
-    from hugin.echo import has_enough_samples
+    from hugin.drafting import has_enough_samples
 
     posts = _posts(tmp_path)[:6]
     assert not has_enough_samples(posts, posts[0])
@@ -1013,22 +930,20 @@ def test_esc_after_navigating_acts_on_the_post_under_the_cursor(tmp_path, monkey
 def test_wait_screen_shows_the_cancel_hint_and_esc_cancels(tmp_path, monkeypatch):
     finished = []
 
-    async def slow_ask(message, persona, key):
+    async def slow_ask(engine, message, system=None):
         await asyncio.sleep(30)
         finished.append(True)
         return "T\n\nB"
 
-    monkeypatch.setattr(echo_mod, "ask_echo", slow_ask)
-    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
-    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
+    monkeypatch.setattr(drafting, "call_llm", slow_ask)
     hints = []
 
     async def keys(app, pilot):
         await pilot.pause(0.3)
-        hints.append(str(app.screen.query_one("#echo-wait-hint").render()))
+        hints.append(str(app.screen.query_one("#draft-wait-hint").render()))
         await pilot.press("escape")
 
-    result = _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None), keys)
+    result = _run(lambda: ed.DraftWaitScreen("q", _posts(tmp_path), tmp_path, ENGINE), keys)
     assert result is None
     assert hints == ["Esc to cancel"]
     assert finished == []
@@ -1036,23 +951,21 @@ def test_wait_screen_shows_the_cancel_hint_and_esc_cancels(tmp_path, monkeypatch
 
 
 def test_wait_screen_cancel_hint_is_visible_inside_the_modal(tmp_path, monkeypatch):
-    async def slow_ask(message, persona, key):
+    async def slow_ask(engine, message, system=None):
         await asyncio.sleep(30)
         return "T\n\nB"
 
-    monkeypatch.setattr(echo_mod, "ask_echo", slow_ask)
-    monkeypatch.setattr(echo_mod, "get_api_key", lambda: "k")
-    monkeypatch.setattr(ed, "load_fulcrum_echo_persona", lambda: "x")
+    monkeypatch.setattr(drafting, "call_llm", slow_ask)
     geometry = []
 
     async def keys(app, pilot):
         await pilot.pause(0.3)
-        modal = app.screen.query_one("#echo-wait-modal").region
-        hint = app.screen.query_one("#echo-wait-hint").region
+        modal = app.screen.query_one("#draft-wait-modal").region
+        hint = app.screen.query_one("#draft-wait-hint").region
         geometry.append((modal, hint))
         await pilot.press("escape")
 
-    _run(lambda: ed.EchoWaitScreen("q", _posts(tmp_path), tmp_path, None), keys)
+    _run(lambda: ed.DraftWaitScreen("q", _posts(tmp_path), tmp_path, ENGINE), keys)
     modal, hint = geometry[0]
     assert hint.height > 0
     assert modal.contains_region(hint)
@@ -1065,10 +978,10 @@ def test_length_field_defaults_to_800_for_new_posts_and_is_clamped(tmp_path):
         app = App()
         results = {}
         async with app.run_test(size=(120, 60)) as pilot:
-            screen = ed.EchoPromptScreen([], None, None)
+            screen = ed.DraftPromptScreen([], None, None)
             app.push_screen(screen)
             await pilot.pause()
-            field = screen.query_one("#echo-words", Input)
+            field = screen.query_one("#draft-words", Input)
             results["default"] = field.value
             field.value = "99999"
             results["clamped"] = screen._read_target_words()
@@ -1088,9 +1001,9 @@ def test_refactor_form_has_no_length_field(tmp_path):
     async def go():
         app = App()
         async with app.run_test(size=(120, 60)) as pilot:
-            app.push_screen(ed.EchoPromptScreen(posts, None, None, posts[0]))
+            app.push_screen(ed.DraftPromptScreen(posts, None, None, posts[0]))
             await pilot.pause()
-            assert not app.screen.query("#echo-words")
+            assert not app.screen.query("#draft-words")
             assert app.screen.query(Input) is not None
 
     asyncio.run(go())
@@ -1111,11 +1024,11 @@ def test_prompt_screen_blocks_send_without_samples_or_profile(tmp_path):
 
     async def keys(app, pilot):
         await pilot.press(*"hello", "ctrl+s")
-        assert isinstance(app.screen, ed.EchoPromptScreen)
+        assert isinstance(app.screen, ed.DraftPromptScreen)
         await pilot.press("escape")
 
     def factory():
-        return ed.EchoPromptScreen(posts, None, None, authors=["Ana"], profiles={})
+        return ed.DraftPromptScreen(posts, None, None, authors=["Ana"], profiles={})
     assert _run(factory, keys) is None
 
 
@@ -1126,7 +1039,7 @@ def test_prompt_screen_sends_profile_when_samples_are_short(tmp_path):
         await pilot.press(*"hello", "ctrl+s")
 
     def factory():
-        return ed.EchoPromptScreen(
+        return ed.DraftPromptScreen(
         posts, None, None, authors=["Ana"], profiles={"Ana": "Warm."}
     )
     screen_holder = {}
@@ -1135,7 +1048,7 @@ def test_prompt_screen_sends_profile_when_samples_are_short(tmp_path):
         screen_holder["screen"] = factory()
         return screen_holder["screen"]
 
-    assert _run(make, keys) == ("hello", "echo")
+    assert _run(make, keys) == "hello"
     assert screen_holder["screen"].profile == "Warm."
 
 
@@ -1145,13 +1058,13 @@ def test_prompt_screen_blocks_send_when_profile_is_unchecked(tmp_path):
     posts = _authored(tmp_path, "Ana", 3)
 
     async def keys(app, pilot):
-        app.screen.query_one("#echo-profile", Checkbox).value = False
+        app.screen.query_one("#draft-profile", Checkbox).value = False
         await pilot.press(*"hello", "ctrl+s")
-        assert isinstance(app.screen, ed.EchoPromptScreen)
+        assert isinstance(app.screen, ed.DraftPromptScreen)
         await pilot.press("escape")
 
     def factory():
-        return ed.EchoPromptScreen(
+        return ed.DraftPromptScreen(
         posts, None, None, authors=["Ana"], profiles={"Ana": "Warm."}
     )
     assert _run(factory, keys) is None

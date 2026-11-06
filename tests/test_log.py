@@ -1,6 +1,6 @@
-import hugin.echo as echo
+import hugin.drafting as drafting
 import hugin.log as log
-from hugin.echo import LLM_ERRORS, pick_category
+from hugin.drafting import LLM_ERRORS, pick_category
 
 import asyncio
 import httpx
@@ -42,13 +42,13 @@ def test_pick_category_falls_back_only_on_llm_failures(monkeypatch):
     async def net_down(*a, **k):
         raise httpx.ConnectError("down")
 
-    monkeypatch.setattr(echo, "call_llm", net_down)
+    monkeypatch.setattr(drafting, "call_llm", net_down)
     assert asyncio.run(pick_category(_engine(), "t", "b", ["Cats", "Dogs"])) == "Cats"
 
     async def bug(*a, **k):
         raise NameError("typo")
 
-    monkeypatch.setattr(echo, "call_llm", bug)
+    monkeypatch.setattr(drafting, "call_llm", bug)
     with pytest.raises(NameError):  # a programming error must surface, not hide
         asyncio.run(pick_category(_engine(), "t", "b", ["Cats", "Dogs"]))
 

@@ -1,12 +1,9 @@
-"""Client for echo.fulcrum.inc: writes a post in the author's voice.
+"""Drafts written by the system LLM in the author's voice (no UI).
 
-Echo is stateless and takes writing samples inline: each sample goes in a
-<post> tag in the user message, followed by the actual request. The API key
-is resolved from Jano at call time, using the key name configured in
-engines.toml (see engines.load_fulcrum_echo_secret).
+Writing samples go inline: each sample goes in a <post> tag in the user
+message, followed by the actual request.
 """
 
-import asyncio
 import random
 from datetime import datetime
 from pathlib import Path
@@ -14,21 +11,14 @@ from pathlib import Path
 import httpx
 
 from hugin.authors import post_authors
-from hugin.engines import load_fulcrum_echo_secret
 from hugin.log import log_exception
 from hugin.scanner import Post
-from secrets_resolver import get_secret
-from secrets_resolver.exceptions import SecretsResolverError
-from hugin.llm import strip_reasoning
 from dataclasses import replace
 from hugin.llm import call_llm
 from hugin.hugo import slugify
 from hugin.writer import create_post
 
-ECHO_URL = "https://echo.fulcrum.inc/api/v1/chat/completions"
-ECHO_TIMEOUT = 900  # seconds; Echo's own server-side limit
-
-FALLBACK_MIN_TIMEOUT = 300  # long-form writing outlasts typical chat timeouts
+MIN_WRITER_TIMEOUT = 300  # long-form writing outlasts typical chat timeouts
 
 N_RECENT = 3
 N_SIMILAR = 4
@@ -63,8 +53,8 @@ LLM_ERRORS = (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError)
 EMBEDDING_ERRORS = (OSError, RuntimeError, ValueError, ImportError)
 
 
-class EchoError(Exception):
-    """Raised for any failure talking to Echo; message is user-facing."""
+class DraftError(Exception):
+    """Raised when a draft cannot be written; message is user-facing."""
 
 
 def _is_published(post: Post) -> bool:
@@ -290,103 +280,26 @@ def build_message(
     )
 
 
-def get_api_key() -> str:
-
-    name = load_fulcrum_echo_secret()
-    try:
-        key = get_secret(name)
-    except SecretsResolverError as e:
-        raise EchoError(f"Echo API key not found. Run: set-secret {name}") from e
-    if not key:
-        raise EchoError(f"Echo API key is empty. Run: set-secret {name}")
-    return key
-
-
-def _error_detail(response: httpx.Response) -> str:
-    """Short server-side reason (e.g. 'insufficient credits'), if the body has one."""
-    try:
-        err = response.json().get("error")
-    except (ValueError, AttributeError):
-        return ""  # body is not JSON, or not a JSON object
-    if isinstance(err, dict):
-        err = err.get("message")
-    return f": {str(err)[:200]}" if err else ""
-
-
-async def ask_echo(message: str, persona: str, api_key: str) -> str:
-    payload = {
-        "model": "echo",
-        "persona": persona,
-        # Echo has no system field, so the style guidance rides along in the message
-        "messages": [{"role": "user", "content": f"{message}\n\n{WRITER_SYSTEM_PROMPT}"}],
-    }
-    headers = {"Authorization": f"Bearer {api_key}", "User-Agent": "hugin/0.1"}
-    try:
-        async with httpx.AsyncClient(timeout=ECHO_TIMEOUT) as client:
-            response = await client.post(ECHO_URL, json=payload, headers=headers)
-    except httpx.TimeoutException as e:
-        raise EchoError("Echo did not answer in time") from e
-    except httpx.HTTPError as e:
-        raise EchoError(f"Could not reach Echo: {e}") from e
-    if response.status_code == 401:
-        raise EchoError("Echo rejected the API key (401) — rotate it in Jano?")
-    if response.status_code >= 400:
-        raise EchoError(f"Echo returned HTTP {response.status_code}{_error_detail(response)}")
-    try:
-        text = response.json()["choices"][0]["message"]["content"]
-    except (ValueError, KeyError, IndexError, TypeError) as e:
-        raise EchoError("Unexpected response format from Echo") from e
-
-    text = strip_reasoning(text)
-    if not text:
-        raise EchoError("Echo returned an empty answer")
-    return text
-
-
-async def write_with_system_llm(message: str, engine) -> str:
+async def write_draft(message: str, engine) -> str:
     """Have the system LLM (the engine picked with `n`) write the post."""
     if engine is None or not engine.available:
-        raise EchoError("No usable system LLM (check the selected engine and its key)")
+        raise DraftError("No usable system LLM (check the selected engine and its key)")
 
-
-
-    patient = replace(engine, timeout=max(engine.timeout, FALLBACK_MIN_TIMEOUT))
+    patient = replace(engine, timeout=max(engine.timeout, MIN_WRITER_TIMEOUT))
     try:
         text = await call_llm(patient, message, system=WRITER_SYSTEM_PROMPT)
     except LLM_ERRORS as e:
-        raise EchoError(f"{engine.id} failed: {e}") from e
+        raise DraftError(f"{engine.id} failed: {e}") from e
     if not text or not text.strip():
-        raise EchoError(f"{engine.id} returned nothing")
+        raise DraftError(f"{engine.id} returned nothing")
     return text.strip()
-
-
-async def write_with_fallback(
-    message: str, persona: str, engine
-) -> tuple[str, str | None]:
-    """Ask Echo; if it fails for any reason, delegate to the system LLM.
-
-    Returns (text, echo_error): echo_error is None when Echo answered, else
-    the reason Echo failed (the text then comes from `engine`). Raises
-    EchoError only if the fallback is also impossible or fails too.
-    """
-    try:
-        api_key = await asyncio.to_thread(get_api_key)
-        return await ask_echo(message, persona, api_key), None
-    except EchoError as echo_error:
-        reason = str(echo_error)
-    if engine is None or not engine.available:
-        raise EchoError(f"{reason} (and no system LLM available as fallback)")
-    try:
-        return await write_with_system_llm(message, engine), reason
-    except EchoError as e:
-        raise EchoError(f"{reason}; fallback failed too: {e}") from e
 
 
 MAX_TITLE_CHARS = 120
 
 
 def split_title(text: str, fallback: str) -> tuple[str, str]:
-    """Take the first line of Echo's answer as the title, the rest as the body.
+    """Take the first line of the answer as the title, the rest as the body.
 
     Tolerates stray markup on the title line (leading '#', '**', quotes). If
     the first line is too long to be a title, the whole text is the body and
@@ -400,7 +313,7 @@ def split_title(text: str, fallback: str) -> tuple[str, str]:
 
 
 def parse_answer(text: str, request: str) -> tuple[str, str]:
-    """Split Echo's answer into (title, body); title is quote-safe."""
+    """Split the LLM answer into (title, body); title is quote-safe."""
     fallback = " ".join(request.split()[:8])
     title, body = split_title(text, fallback)
     return title.replace('"', "'"), body
@@ -436,7 +349,7 @@ def parse_category(response: str, categories: list[str]) -> str | None:
 
 
 async def pick_category(engine, title: str, body: str, categories: list[str]) -> str | None:
-    """Ask the system LLM (not Echo: cheaper) for the post's category.
+    """Ask the system LLM for the post's category.
 
     Returns None when there are no categories or the answer matches none.
     Falls back to the first category on LLM failure, since a TBD category
@@ -471,7 +384,7 @@ def create_draft(
 ) -> Path:
 
     title, body = parse_answer(text, request)
-    base = slugify(title) or "echo-draft"
+    base = slugify(title) or "draft"
     slug, n = base, 1
     while (directory / f"{slug}.md").exists():
         slug = f"{base}-{n}"

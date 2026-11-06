@@ -1,5 +1,6 @@
 """Reading and managing the registry of AI engines."""
 
+import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,17 +38,12 @@ timeout = 120
 
 DEFAULT_TIMEOUT = 30
 
-# Not an engine: names the Jano key that holds the echo.fulcrum.inc API key.
-# Lives in engines.toml because the key is machine-wide, not per project.
-FULCRUM_ECHO_SECTION = "fulcrum_echo"
-DEFAULT_FULCRUM_ECHO_SECRET = "fulcrum_echo.key"
-DEFAULT_FULCRUM_ECHO_PERSONA = "Janio Sarmento"
-FULCRUM_ECHO_BLOCK = f"""\
-[{FULCRUM_ECHO_SECTION}]
-# Jano key holding the echo.fulcrum.inc API key (https://echo.fulcrum.inc/dev/)
-secret = "{DEFAULT_FULCRUM_ECHO_SECRET}"
-persona = "{DEFAULT_FULCRUM_ECHO_PERSONA}"  # whose voice Echo writes in
-"""
+# Section once written by Hugin for a retired writing service; stripped from
+# existing files on load.
+RETIRED_SECTION = "fulcrum_echo"
+
+# A TOML table header line, e.g. `[name]` or `[[name]]  # comment`
+TABLE_HEADER = re.compile(r'^\s*\[\[?([A-Za-z0-9_.\-" ]+)\]\]?\s*(?:#.*)?$')
 
 
 class MaskedKey(str):
@@ -86,31 +82,27 @@ class Engine:
         return self.is_local or bool(self.api_key)
 
 
+def strip_section(text: str, name: str) -> str:
+    """`text` without the [name] table (header to the next table or EOF)."""
+    out, skipping = [], False
+    for line in text.splitlines(keepends=True):
+        header = TABLE_HEADER.match(line)
+        if header:
+            skipping = header.group(1).strip() == name
+        if not skipping:
+            out.append(line)
+    return "".join(out).rstrip("\n") + "\n"
+
+
 def _ensure_engines_file() -> Path:
     if not ENGINES_FILE.exists():
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(ENGINES_FILE, DEFAULT_ENGINES + "\n" + FULCRUM_ECHO_BLOCK)
+        atomic_write_text(ENGINES_FILE, DEFAULT_ENGINES)
     else:
         text = ENGINES_FILE.read_text(encoding="utf-8")
-        if f"[{FULCRUM_ECHO_SECTION}]" not in text:
-            sep = "" if text.endswith("\n\n") else "\n" if text.endswith("\n") else "\n\n"
-            atomic_write_text(ENGINES_FILE, text + sep + FULCRUM_ECHO_BLOCK)
+        if f"[{RETIRED_SECTION}]" in text:
+            atomic_write_text(ENGINES_FILE, strip_section(text, RETIRED_SECTION))
     return ENGINES_FILE
-
-
-def _fulcrum_echo_section() -> dict:
-    with open(_ensure_engines_file(), "rb") as f:
-        return tomllib.load(f).get(FULCRUM_ECHO_SECTION, {})
-
-
-def load_fulcrum_echo_secret() -> str:
-    """Name of the Jano key that holds the echo.fulcrum.inc API key."""
-    return _fulcrum_echo_section().get("secret") or DEFAULT_FULCRUM_ECHO_SECRET
-
-
-def load_fulcrum_echo_persona() -> str:
-    """Name Echo is told to write as (required by the Echo API)."""
-    return _fulcrum_echo_section().get("persona") or DEFAULT_FULCRUM_ECHO_PERSONA
 
 
 def _get_api_key(engine_id: str, secret: str | None = None) -> str | None:
@@ -135,8 +127,8 @@ def load_engines() -> list[Engine]:
 
     engines = []
     for engine_id, config in data.items():
-        # Sections without a url (e.g. [fulcrum_echo]) are settings, not engines.
-        if engine_id == FULCRUM_ECHO_SECTION or "url" not in config:
+        # Sections without a url are not engines.
+        if "url" not in config:
             continue
         engines.append(Engine(
             id=engine_id,

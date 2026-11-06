@@ -26,7 +26,7 @@ when a module or a rule changes.
 | `hugo.py` | Hugo config lookup, site root (`find_site_root`), post URL inference |
 | `scanner.py` | Reads posts: front matter, dates, drafts, tags |
 | `writer.py` | Single path for writing front matter; `create_post` |
-| `echo.py` | Echo client and the sample/prompt logic for `h` and `R` (no UI) |
+| `drafting.py` | Sample/prompt logic and the LLM writer for `h` and `R` (no UI) |
 | `llm.py`, `engines.py` | System LLM calls and the engine registry |
 | `embeddings.py` | Sentence embeddings, cache, similar-post ranking |
 | `linker.py` | Internal and affiliate link insertion; anchors that do not break Markdown |
@@ -46,7 +46,7 @@ when a module or a rule changes.
 | --- | --- |
 | `app.py` | The Textual app |
 | `review.py` | Main screen: tags, summaries, links, editing; `h`, `R`, `n`, settings actions. Largest module, see debt |
-| `echo_draft.py` | `h` and `R`: prompt screen (author, profile, length), wait screen, draft creation |
+| `draft_screens.py` | `h` and `R`: prompt screen (author, profile, length), wait screen, draft creation |
 | `news_ideas.py` | `w`: news search, ideas, drafts (author chosen here) |
 | `project_settings.py` | Settings screen; editorial rules; author profiles |
 | `editor.py` | Markdown editor with front matter fields |
@@ -55,10 +55,10 @@ when a module or a rule changes.
 
 ## Where a feature lives
 
-- **Echo drafts (`h`, `R`)**: `review._start_echo_draft` opens `EchoPromptScreen`,
-  then `EchoWaitScreen`, which calls `echo.select_samples` / `select_refactor_samples`,
-  `echo.build_message`, `echo.write_with_fallback` (Echo, then the system LLM),
-  and `echo.create_draft`.
+- **LLM drafts (`h`, `R`)**: `review._start_draft` opens `DraftPromptScreen`,
+  then `DraftWaitScreen`, which calls `drafting.select_samples` / `select_refactor_samples`,
+  `drafting.build_message`, `drafting.write_draft` (the system LLM),
+  and `drafting.create_draft`.
 - **New post (`p`)**: `review.action_new_post` → `NewPostScreen` → `writer.create_post`.
 - **News ideas (`w`)**: `NewsIdeasScreen` → `news.py` and the LLM → `writer.create_post`.
 - **Author list and profiles**: `project.py` (storage), `authors.py` (logic),
@@ -96,20 +96,20 @@ the whole list, or one step, any number of times changes nothing once done.
   settings save and the migrations are separate from post edits.
 - Author matching is exact: the `author` value must equal the name in the list.
   A post without an author is never a sample for an author-filtered request.
-- Echo samples are only published posts (`echo._candidates`); drafts are not used.
+- Draft samples are only published posts (`drafting._candidates`); drafts are not used.
 - Secrets are never committed: `git.secret_files` refuses `.env`, keys and similar files.
 - Persistent writes go through `fsutil.atomic_write_text` or `writer.save_post`.
 
 ## Tests
 
-`tests/` mirrors the modules (`test_echo.py`, `test_echo_screens.py`, `test_project.py`,
+`tests/` mirrors the modules (`test_drafting.py`, `test_draft_screens.py`, `test_project.py`,
 `test_authors.py`, `test_migrations.py`, `test_settings_sync.py`, ...). Run with
 `.venv/bin/python -m pytest -q`. The TUI tests use Textual's `run_test`.
 
 ## Known debt
 
 - `tui/review.py` has about 2,600 lines and handles most screens and actions. Split it by
-  feature (echo actions, new post, settings, redirects) before adding more to it.
+  feature (draft actions, new post, settings, redirects) before adding more to it.
 - `linker.strip_internal_links` and `linker.count_internal_links` have no callers.
 - The legacy settings fallback (`legacy_settings_path`, read by `load_project`) can go once
   every blog has run step 1 of the migrations.

@@ -1,4 +1,4 @@
-"""Echo draft flow: type a prompt, wait for Echo, get a new draft post."""
+"""Draft flow (`h`, `R`): type a prompt, wait for the system LLM, get a new draft post."""
 
 import asyncio
 from pathlib import Path
@@ -8,10 +8,10 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import (
-    Button, Checkbox, Input, Label, LoadingIndicator, RadioButton, RadioSet, Select, Static, TextArea,
+    Button, Checkbox, Input, Label, LoadingIndicator, Select, Static, TextArea,
 )
 
-from hugin.echo import (
+from hugin.drafting import (
     DEFAULT_TARGET_WORDS,
     MAX_TARGET_WORDS,
     MIN_TARGET_WORDS,
@@ -23,7 +23,7 @@ from hugin.echo import (
     R_N_LIKE_ORIGINAL,
     R_N_RECENT,
     R_N_SIMILAR,
-    EchoError,
+    DraftError,
     build_message,
     create_draft,
     has_enough_samples,
@@ -36,11 +36,9 @@ from hugin.echo import (
     pick_similar,
     select_refactor_samples,
     select_samples,
-    write_with_fallback,
-    write_with_system_llm,
+    write_draft,
 )
 from hugin.authors import pick_author, post_author
-from hugin.engines import load_fulcrum_echo_persona
 from hugin.log import log_exception
 from hugin.hugo import load_categories
 from hugin.normalizer import detect_language
@@ -55,18 +53,11 @@ WAIT_TEXT = "Waiting for {who} (can take several minutes)…"
 SIMILAR_PENDING = f"{N_SIMILAR} closest to your prompt (picked when you send)"
 R_SIMILAR_PENDING = f"{R_N_SIMILAR} closest to your prompt (picked when you send)"
 
-WRITER_ECHO = "echo"
-WRITER_SYSTEM = "system"
 
-# Remembered for the rest of the session so an A/B run doesn't need re-picking.
-_last_writer = WRITER_ECHO
+class DraftPromptScreen(ModalScreen[str | None]):
+    """Text area where the user describes the post.
 
-
-class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
-    """Text area where the user describes the post; also picks who writes it.
-
-    Dismisses with (prompt, writer) where writer is WRITER_ECHO or
-    WRITER_SYSTEM, or None when cancelled. With `original` it is the refactor
+    Dismisses with the prompt, or None when cancelled. With `original` it is the refactor
     variant: the samples are 2 latest, 2 closest to the prompt and 2 closest
     to that post.
     """
@@ -74,15 +65,14 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
     BINDINGS = [
         ("escape", "cancel", "Cancel"),
         ("ctrl+s", "submit", "Send"),
-        ("f2", "toggle_writer", "Switch writer"),
     ]
 
     DEFAULT_CSS = """
-    EchoPromptScreen {
+    DraftPromptScreen {
         align: center middle;
     }
 
-    #echo-modal {
+    #draft-modal {
         width: 90%;
         max-width: 110;
         height: auto;
@@ -92,64 +82,52 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         padding: 1 2;
     }
 
-    #echo-title {
+    #draft-title {
         text-style: bold;
     }
 
-    #echo-hint {
+    #draft-hint {
         color: $text-muted;
         margin-bottom: 1;
     }
 
-    #echo-prompt {
+    #draft-prompt {
         height: 10;
         margin-bottom: 1;
     }
 
-    #echo-writer {
-        layout: horizontal;
-        height: auto;
-        border: none;
-        padding: 0;
-        margin-bottom: 1;
-    }
-
-    #echo-writer RadioButton {
-        margin-right: 3;
-    }
-
-    #echo-author-row {
+    #draft-author-row {
         height: auto;
     }
 
-    #echo-author {
+    #draft-author {
         width: 40;
     }
 
-    #echo-profile {
+    #draft-profile {
         margin-bottom: 1;
     }
 
-    #echo-length {
+    #draft-length {
         height: auto;
         margin-bottom: 1;
     }
 
-    #echo-length Input {
+    #draft-length Input {
         width: 14;
     }
 
-    #echo-samples {
+    #draft-samples {
         height: auto;
         color: $text-muted;
         margin-bottom: 1;
     }
 
-    #echo-buttons {
+    #draft-buttons {
         height: auto;
     }
 
-    #echo-buttons Button {
+    #draft-buttons Button {
         margin-right: 1;
     }
     """
@@ -194,9 +172,9 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         return bool(self._profiles.get(self.author or ""))
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="echo-modal"):
+        with Vertical(id="draft-modal"):
             if self._original is None:
-                heading = "Echo — describe the post"
+                heading = "New draft — describe the post"
                 mix = f"{N_RECENT} latest, {N_SIMILAR} similar to your prompt"
                 if N_RANDOM:
                     mix += f", {N_RANDOM} random"
@@ -208,7 +186,7 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
                     f"{R_N_LIKE_ORIGINAL} similar to the original"
                 )
                 count = R_N_RECENT + R_N_SIMILAR + R_N_LIKE_ORIGINAL
-            yield Label(heading, id="echo-title")
+            yield Label(heading, id="draft-title")
             refactor_note = (
                 "The post is rewritten in full to replace the original (not a follow-up): "
                 "say what to change or improve. "
@@ -216,35 +194,32 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
             )
             yield Static(
                 f"{refactor_note}{count} published posts go along as writing samples ({mix}). "
-                "Ctrl+S sends, F2 switches writer, Esc cancels.",
-                id="echo-hint",
+                f"Written by {escape(self._writer_label())}. Ctrl+S sends, Esc cancels.",
+                id="draft-hint",
             )
             if self._authors:
-                with Horizontal(id="echo-author-row"):
+                with Horizontal(id="draft-author-row"):
                     yield Label("Author: ")
                     yield Select(
                         [(a, a) for a in self._authors], value=self.author,
-                        allow_blank=False, id="echo-author",
+                        allow_blank=False, id="draft-author",
                     )
                 yield Checkbox(
                     "Send the author profile", value=self._has_profile(),
-                    disabled=not self._has_profile(), id="echo-profile",
+                    disabled=not self._has_profile(), id="draft-profile",
                 )
-            yield TextArea(id="echo-prompt")
+            yield TextArea(id="draft-prompt")
             if self._original is None:
-                with Horizontal(id="echo-length"):
+                with Horizontal(id="draft-length"):
                     yield Label("Length (words): ")
-                    yield Input(value=str(DEFAULT_TARGET_WORDS), id="echo-words", type="integer")
-            with RadioSet(id="echo-writer"):
-                yield RadioButton("Echo", id="writer-echo", value=_last_writer == WRITER_ECHO)
-                yield RadioButton(self._system_label(), id="writer-system", value=_last_writer == WRITER_SYSTEM)
-            yield Static(self._samples_text(), id="echo-samples")
-            with Horizontal(id="echo-buttons"):
-                yield Button("Send (Ctrl+S)", id="btn-echo-send", variant="primary")
-                yield Button("Cancel", id="btn-echo-cancel")
+                    yield Input(value=str(DEFAULT_TARGET_WORDS), id="draft-words", type="integer")
+            yield Static(self._samples_text(), id="draft-samples")
+            with Horizontal(id="draft-buttons"):
+                yield Button("Send (Ctrl+S)", id="btn-draft-send", variant="primary")
+                yield Button("Cancel", id="btn-draft-cancel")
 
     def on_mount(self) -> None:
-        self.query_one("#echo-prompt", TextArea).focus()
+        self.query_one("#draft-prompt", TextArea).focus()
         self._fit_prompt()
         if self._original is not None:
             self._rank_original()
@@ -256,19 +231,12 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         # Everything but the text area takes ~20 rows (border, title, hint,
         # samples, buttons); give the text area what is left, between 4 and 10.
         room = int(self.size.height * 0.9) - 21
-        self.query_one("#echo-prompt", TextArea).styles.height = max(4, min(10, room))
+        self.query_one("#draft-prompt", TextArea).styles.height = max(4, min(10, room))
 
-    def _system_label(self) -> str:
+    def _writer_label(self) -> str:
         if self._engine is None:
-            return "System LLM"
-        return f"{self._engine.id} / {self._engine.model} (direct)"
-
-    def _writer(self) -> str:
-        return WRITER_SYSTEM if self.query_one("#writer-system", RadioButton).value else WRITER_ECHO
-
-    def action_toggle_writer(self) -> None:
-        target = "#writer-echo" if self._writer() == WRITER_SYSTEM else "#writer-system"
-        self.query_one(target, RadioButton).value = True
+            return "the system LLM"
+        return f"{self._engine.id} / {self._engine.model}"
 
     @staticmethod
     def _title(post: Post) -> str:
@@ -299,16 +267,16 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         return "Writing samples sent along:\n" + "\n".join(lines)
 
     def _refresh_samples(self) -> None:
-        self.query_one("#echo-samples", Static).update(self._samples_text())
+        self.query_one("#draft-samples", Static).update(self._samples_text())
 
     def on_select_changed(self, event: Select.Changed) -> None:
-        if event.select.id != "echo-author" or event.value == self.author:
+        if event.select.id != "draft-author" or event.value == self.author:
             return
         self.author = event.value
         self._recompute_pool()
         self._similar = []
         self._like_original = []
-        profile = self.query_one("#echo-profile", Checkbox)
+        profile = self.query_one("#draft-profile", Checkbox)
         profile.value = self._has_profile()
         profile.disabled = not self._has_profile()
         self._pick_displayed()
@@ -333,7 +301,7 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         try:
             self._ranked_prompt = await asyncio.to_thread(self._index.rank_by_text, text)
         except EMBEDDING_ERRORS:
-            log_exception("echo: rank prompt")
+            log_exception("draft: rank prompt")
             self._ranked_prompt = None
             self._similar = []
             self._similar_note = "random (embeddings unavailable)"
@@ -350,7 +318,7 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
                 self._index.rank_by_text, original_query(self._original)
             )
         except EMBEDDING_ERRORS:
-            log_exception("echo: rank original")
+            log_exception("draft: rank original")
             return  # the wait screen falls back to random posts
         self._pick_displayed()
 
@@ -369,13 +337,13 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         self._refresh_samples()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-echo-send":
+        if event.button.id == "btn-draft-send":
             self.action_submit()
         else:
             self.action_cancel()
 
     def action_submit(self) -> None:
-        text = self.query_one("#echo-prompt", TextArea).text.strip()
+        text = self.query_one("#draft-prompt", TextArea).text.strip()
         if not text:
             self.notify("Write a prompt first.", severity="warning")
             return
@@ -389,18 +357,16 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
             )
             return
         self.target_words = self._read_target_words() if self._original is None else None
-        global _last_writer
-        _last_writer = self._writer()
-        self.dismiss((text, _last_writer))
+        self.dismiss(text)
 
     def _profile_to_send(self) -> str | None:
-        if not self._authors or not self.query_one("#echo-profile", Checkbox).value:
+        if not self._authors or not self.query_one("#draft-profile", Checkbox).value:
             return None
         return self._profiles.get(self.author or "") or None
 
     def _read_target_words(self) -> int:
         """The length typed in the form, clamped; the default when it is not a number."""
-        raw = self.query_one("#echo-words", Input).value.strip()
+        raw = self.query_one("#draft-words", Input).value.strip()
         try:
             words = int(raw)
         except ValueError:
@@ -411,17 +377,17 @@ class EchoPromptScreen(ModalScreen[tuple[str, str] | None]):
         self.dismiss(None)
 
 
-class EchoWaitScreen(ModalScreen[Path | None]):
-    """Spinner while Echo writes; dismisses with the draft path (None on failure)."""
+class DraftWaitScreen(ModalScreen[Path | None]):
+    """Spinner while the system LLM writes; dismisses with the draft path (None on failure)."""
 
     BINDINGS = [("escape", "cancel", "Cancel")]
 
     DEFAULT_CSS = """
-    EchoWaitScreen {
+    DraftWaitScreen {
         align: center middle;
     }
 
-    #echo-wait-modal {
+    #draft-wait-modal {
         width: 60;
         height: auto;
         border: round $accent;
@@ -429,22 +395,22 @@ class EchoWaitScreen(ModalScreen[Path | None]):
         padding: 1 2;
     }
 
-    #echo-wait-modal LoadingIndicator {
+    #draft-wait-modal LoadingIndicator {
         height: 3;
     }
 
-    #echo-wait-status {
+    #draft-wait-status {
         margin-top: 1;
         text-align: center;
     }
 
-    #echo-wait-hint {
+    #draft-wait-hint {
         text-align: center;
         color: $text-muted;
     }
     """
 
-    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, writer: str = WRITER_ECHO, original: Post | None = None, words: int | None = None, author: str | None = None, profile: str | None = None) -> None:
+    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, original: Post | None = None, words: int | None = None, author: str | None = None, profile: str | None = None) -> None:
         super().__init__()
         self._original = original
         self._words = words
@@ -453,19 +419,18 @@ class EchoWaitScreen(ModalScreen[Path | None]):
         self._engine = engine
         self._index = index
         self._random_pick = random_pick
-        self._writer = writer
         self._request = request
         self._posts = posts
         self._directory = directory
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="echo-wait-modal"):
+        with Vertical(id="draft-wait-modal"):
             yield LoadingIndicator()
-            yield Label(self._wait_text(), id="echo-wait-status")
-            yield Label("Esc to cancel", id="echo-wait-hint")
+            yield Label(self._wait_text(), id="draft-wait-status")
+            yield Label("Esc to cancel", id="draft-wait-hint")
 
     def _wait_text(self) -> str:
-        who = "the system LLM" if self._writer == WRITER_SYSTEM else "Echo"
+        who = f"{self._engine.id}" if self._engine is not None else "the system LLM"
         return WAIT_TEXT.format(who=who)
 
     def on_mount(self) -> None:
@@ -476,7 +441,7 @@ class EchoWaitScreen(ModalScreen[Path | None]):
         try:
             ranked = ranked_original = None
             if self._index is not None:
-                self.query_one("#echo-wait-status", Label).update("Finding similar posts…")
+                self.query_one("#draft-wait-status", Label).update("Finding similar posts…")
                 try:
                     ranked = await asyncio.to_thread(self._index.rank_by_text, self._request)
                     if self._original is not None:
@@ -484,9 +449,9 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                             self._index.rank_by_text, original_query(self._original)
                         )
                 except EMBEDDING_ERRORS:
-                    log_exception("echo: rank for samples")
+                    log_exception("draft: rank for samples")
                     ranked = ranked_original = None  # embeddings unavailable: random sample instead
-            self.query_one("#echo-wait-status", Label).update(self._wait_text())
+            self.query_one("#draft-wait-status", Label).update(self._wait_text())
             if self._original is None:
                 samples = select_samples(
                     self._posts, ranked, random_pick=self._random_pick, author=self._author
@@ -496,7 +461,7 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                     self._posts, self._original, ranked, ranked_original, author=self._author
                 )
             if not samples and not self._profile:
-                raise EchoError("No published posts to use as writing samples")
+                raise DraftError("No published posts to use as writing samples")
             project = await asyncio.to_thread(load_project, self._directory)
             writing = project.writing
             language = detect_language(" ".join(p.content for p in samples) or self._request)
@@ -505,27 +470,15 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                 constraints=writing.for_language(language), words=self._words,
                 profile=self._profile,
             )
-            if self._writer == WRITER_SYSTEM:
-                text = await write_with_system_llm(message, self._engine)
-                who = f"{self._engine.id} / {self._engine.model}"
-            else:
-                persona = await asyncio.to_thread(load_fulcrum_echo_persona)
-                text, echo_error = await write_with_fallback(message, persona, self._engine)
-                who = "Echo"
-                if echo_error:
-                    who = f"{self._engine.id} / {self._engine.model} (Echo failed)"
-                    self.notify(
-                        f"Echo failed ({echo_error}); draft written by {self._engine.id} instead.",
-                        severity="warning",
-                        timeout=12,
-                    )
+            text = await write_draft(message, self._engine)
+            who = f"{self._engine.id} / {self._engine.model}"
             title, body = parse_answer(text, self._request)
             # A refactor replaces the original, so it inherits its category,
             # thumbnail and translationKey
             inherited = inherited_fields(self._original) if self._original else {}
             category = inherited.get("category")
             if category is None:
-                self.query_one("#echo-wait-status", Label).update("Picking a category…")
+                self.query_one("#draft-wait-status", Label).update("Picking a category…")
                 categories = await asyncio.to_thread(load_categories, self._directory)
                 if not categories:
                     self.notify(
@@ -542,12 +495,12 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                 author_field=project.authors.author_field,
             )
             self.notify(f"Written by {who}")
-        except EchoError as e:
+        except DraftError as e:
             self.dismiss(self._empty_draft(str(e)))
             return
         except Exception as e:  # UI boundary: report it, keep the traceback in the log
-            log_exception("echo draft")
-            self.dismiss(self._empty_draft(f"Echo draft failed: {e}"))
+            log_exception("draft")
+            self.dismiss(self._empty_draft(f"Draft failed: {e}"))
             return
         self.dismiss(path)
 
@@ -564,7 +517,7 @@ class EchoWaitScreen(ModalScreen[Path | None]):
                 author_field=load_project(self._directory).authors.author_field,
             )
         except (OSError, ValueError):
-            log_exception("echo: empty draft after failure")
+            log_exception("draft: empty draft after failure")
             self.notify(error, severity="error", timeout=10)
             return None
         self.notify(
