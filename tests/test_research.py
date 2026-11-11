@@ -87,6 +87,8 @@ def test_gather_reads_up_to_the_page_limit(httpx_mock):
     assert request.url.params["country"] == "BR"
     assert request.url.params["search_lang"] == "pt-br"
     assert request.url.params["q"] == "cat sleep"
+    page_request = next(r for r in httpx_mock.get_requests() if "site1" in r.url.host)
+    assert "text/html" in page_request.headers["Accept"]
     status = [found.status(r) for r in found.results]
     assert status == [
         "read",
@@ -106,7 +108,7 @@ def test_gather_marks_pages_past_the_limit_as_skipped(httpx_mock, monkeypatch):
 
     found = asyncio.run(web.gather("cat sleep", "key", "English"))
     assert found.pages_read == 2
-    assert found.status(found.results[2]) == "snippet only (page limit of 2)"
+    assert found.status(found.results[2]) == "snippet only (over the page limit)"
 
 
 def test_gather_reports_search_failures(httpx_mock):

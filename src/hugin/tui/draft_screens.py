@@ -15,7 +15,9 @@ from textual.screen import ModalScreen
 from textual.widgets import (
     Button, Checkbox, Input, Label, LoadingIndicator, Select, Static, TextArea,
 )
+from textual.containers import VerticalScroll
 
+from hugin import factcheck as fc
 from hugin import research as web
 
 from hugin.drafting import (
@@ -240,15 +242,21 @@ class DraftPromptScreen(ModalScreen[str | None]):
                     yield Label("Length (words): ")
                     yield Input(value=str(DEFAULT_TARGET_WORDS), id="draft-words", type="integer")
             with Horizontal(id="draft-research-row"):
+                # A refactor checks the original's claims; a new post gets a brief
+                what = (
+                    "Research the web first" if self._original is None
+                    else "Fact-check the original on the web first"
+                )
                 yield Checkbox(
-                    "Research the web first" if self._search_key
-                    else f"Research the web first (no {web.SEARCH_SECRET} in the vault)",
+                    what if self._search_key
+                    else f"{what} (no {web.SEARCH_SECRET} in the vault)",
                     value=False, disabled=not self._search_key, id="draft-research",
                 )
-                yield Input(
-                    placeholder="search query (empty: derived from the prompt)",
-                    id="draft-query", disabled=True,
-                )
+                if self._original is None:
+                    yield Input(
+                        placeholder="search query (empty: derived from the prompt)",
+                        id="draft-query", disabled=True,
+                    )
             yield Static(self._samples_text(), id="draft-samples")
             with Horizontal(id="draft-buttons"):
                 yield Button("Send (Ctrl+S)", id="btn-draft-send", variant="primary")
@@ -306,7 +314,7 @@ class DraftPromptScreen(ModalScreen[str | None]):
         self.query_one("#draft-samples", Static).update(self._samples_text())
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
-        if event.checkbox.id == "draft-research":
+        if event.checkbox.id == "draft-research" and self.query("#draft-query"):
             self.query_one("#draft-query", Input).disabled = not event.value
 
     def on_select_changed(self, event: Select.Changed) -> None:
@@ -397,8 +405,9 @@ class DraftPromptScreen(ModalScreen[str | None]):
             )
             return
         self.target_words = self._read_target_words() if self._original is None else None
+        query = self.query("#draft-query")
         self.research_query = (
-            self.query_one("#draft-query", Input).value.strip()
+            (query.first(Input).value.strip() if query else "")
             if self.query_one("#draft-research", Checkbox).value else None
         )
         self.dismiss(text)
@@ -454,8 +463,9 @@ class DraftWaitScreen(ModalScreen[Path | None]):
     }
     """
 
-    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, original: Post | None = None, words: int | None = None, author: str | None = None, profile: str | None = None, research: "web.Research | None" = None, brief: str | None = None) -> None:
+    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, original: Post | None = None, words: int | None = None, author: str | None = None, profile: str | None = None, research: "web.Research | None" = None, brief: str | None = None, fact_check: "fc.FactCheck | None" = None) -> None:
         super().__init__()
+        self._fact_check = fact_check
         # Approved web research; used only when both are given
         self._research = research if brief and brief.strip() else None
         self._brief = brief
@@ -518,6 +528,7 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                 profile=self._profile,
                 research=web.writer_context(self._brief, self._research)
                 if self._research else None,
+                claims=fc.writer_context(self._fact_check) if self._fact_check else None,
             )
             text = await write_draft(message, self._engine)
             who = f"{self._engine.id} / {self._engine.model}"
@@ -550,14 +561,20 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                 author=self._author,
                 author_field=project.authors.author_field,
             )
-            if self._research is not None:
-                try:
+            try:
+                log = None
+                if self._research is not None:
                     log = await asyncio.to_thread(
                         web.save_log, self._research, self._brief, self._request, path
                     )
+                elif self._fact_check is not None:
+                    log = await asyncio.to_thread(
+                        fc.save_log, self._fact_check, self._request, path
+                    )
+                if log is not None:
                     self.notify(f"Research kept in {log}")
-                except OSError:
-                    log_exception("draft: save research log")
+            except OSError:
+                log_exception("draft: save research log")
             self.notify(f"Written by {who}")
         except DraftError as e:
             self.dismiss(self._empty_draft(str(e)))
@@ -893,3 +910,229 @@ class RefactorCheckScreen(ModalScreen[bool]):
 
     def action_discard(self) -> None:
         self.dismiss(False)
+
+
+class FactCheckScreen(ModalScreen["tuple[fc.FactCheck | None, str] | None"]):
+    """Spinner while Hugin lists the original's claims, searches and weighs them.
+
+    Dismisses with (check, ""), with (None, error) when the check failed
+    (the review screen shows it), or None when cancelled.
+    """
+
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    DEFAULT_CSS = DraftWaitScreen.DEFAULT_CSS.replace("DraftWaitScreen", "FactCheckScreen")
+
+    def __init__(self, original: Post, engine, api_key: str | None, language: str) -> None:
+        super().__init__()
+        self._original = original
+        self._engine = engine
+        self._api_key = api_key
+        self._language = language
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="draft-wait-modal"):
+            yield LoadingIndicator()
+            yield Label("Listing the claims of the original…", id="draft-wait-status")
+            yield Label("Esc to cancel", id="draft-wait-hint")
+
+    def on_mount(self) -> None:
+        self._run()
+
+    def _status(self, text: str) -> None:
+        self.query_one("#draft-wait-status", Label).update(text)
+
+    @work(exclusive=True)
+    async def _run(self) -> None:
+        title = str(self._original.metadata.get("title") or self._original.path.stem)
+        try:
+            if self._engine is None or not self._engine.available:
+                raise web.ResearchError("No usable system LLM for the fact check")
+            if not self._api_key:
+                raise web.ResearchError(f"No Brave Search key in the vault ({web.SEARCH_SECRET})")
+            try:
+                claims = await fc.list_claims(self._engine, title, self._original.content)
+            except LLM_ERRORS as e:
+                raise web.ResearchError(f"{self._engine.id} failed listing the claims: {e}") from e
+            self._status(f"Searching {len(claims)} claims…")
+            check = await fc.gather(
+                claims, self._api_key, self._language,
+                progress=lambda done, total: self._status(
+                    f"Searched {done} of {total} claims…" if done < total
+                    else "Reading the pages found…"
+                ),
+            )
+            self._status(f"Read {check.research.pages_read} pages. "
+                         f"{escape(self._engine.id)} is weighing the claims…")
+            try:
+                await fc.weigh(check, self._engine, title)
+            except LLM_ERRORS as e:
+                raise web.ResearchError(f"{self._engine.id} failed weighing the claims: {e}") from e
+        except web.ResearchError as e:
+            self.dismiss((None, str(e)))
+            return
+        except Exception as e:  # UI boundary: report it, keep the traceback in the log
+            log_exception("fact check")
+            self.dismiss((None, f"Fact check failed: {e}"))
+            return
+        self.dismiss((check, ""))
+
+    def action_cancel(self) -> None:
+        self.workers.cancel_all()
+        self.notify("Cancelled")
+        self.dismiss(None)
+
+
+VERDICT_LABELS = {
+    "keep": "keep",
+    "correct": "correct",
+    "remove": "remove",
+    "unconfirmed": "not confirmed",
+}
+
+
+class ClaimsReviewScreen(ModalScreen["fc.FactCheck | str | None"]):
+    """One row per claim: verdict and correction editable, sources shown.
+
+    Dismisses with the check as edited, WITHOUT_RESEARCH to write without
+    it, or None to cancel. After a failed check only the error is shown.
+    """
+
+    BINDINGS = [
+        ("escape", "cancel", "Cancel"),
+        ("ctrl+s", "submit", "Write draft"),
+    ]
+
+    DEFAULT_CSS = BriefReviewScreen.DEFAULT_CSS.replace("BriefReviewScreen", "ClaimsReviewScreen") + """
+    #claims {
+        height: 1fr;
+        margin-bottom: 1;
+    }
+
+    .claim {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    .claim-text {
+        text-style: bold;
+    }
+
+    .claim-row {
+        height: auto;
+    }
+
+    .claim-row Select {
+        width: 22;
+    }
+
+    .claim-row Input {
+        width: 1fr;
+    }
+
+    .claim-meta {
+        color: $text-muted;
+    }
+    """
+
+    def __init__(self, check: "fc.FactCheck | None", error: str = "") -> None:
+        super().__init__()
+        self._check = check
+        self._error = error
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="brief-modal"):
+            if self._check is None:
+                yield Label("Fact check failed", id="brief-title")
+                yield Static(escape(self._error), id="brief-error")
+                yield Static("You can write the draft without it, or cancel.", id="brief-hint")
+                with Horizontal(id="brief-buttons"):
+                    yield Button("Write without fact check", id="btn-brief-skip", variant="primary")
+                    yield Button("Cancel", id="btn-brief-cancel")
+                return
+            r = self._check.research
+            counts = {v: sum(c.verdict == v for c in self._check.claims) for v in fc.VERDICTS}
+            yield Label(f"Fact check — {len(self._check.claims)} claims", id="brief-title")
+            yield Static(
+                f"{counts['keep']} keep, {counts['correct']} correct, {counts['remove']} remove, "
+                f"{counts['unconfirmed']} not confirmed. Brave Search, {r.pages_read} of "
+                f"{len(r.results)} pages read. Change any decision or correction: the writer "
+                "applies them as you leave them; claims not confirmed stay as the original "
+                "says. Ctrl+S writes the draft, Esc cancels.",
+                id="brief-hint",
+            )
+            with VerticalScroll(id="claims"):
+                for c in self._check.claims:
+                    with Vertical(classes="claim"):
+                        yield Static(f"[{c.n}] {escape(c.text)}", classes="claim-text")
+                        with Horizontal(classes="claim-row"):
+                            yield Select(
+                                [(label, v) for v, label in VERDICT_LABELS.items()],
+                                value=c.verdict, allow_blank=False, id=f"verdict-{c.n}",
+                            )
+                            yield Input(
+                                value=c.correction, id=f"correction-{c.n}",
+                                placeholder="corrected claim (for correct)",
+                            )
+                        yield Static(self._meta(c), classes="claim-meta")
+            yield Static(self._sources_text(), id="brief-sources")
+            with Horizontal(id="brief-buttons"):
+                yield Button("Write draft (Ctrl+S)", id="btn-brief-send", variant="primary")
+                yield Button("Write without fact check", id="btn-brief-skip")
+                yield Button("Cancel", id="btn-brief-cancel")
+
+    def _meta(self, c: "fc.Claim") -> str:
+        parts = []
+        if c.note:
+            parts.append(escape(c.note))
+        if c.cited:
+            parts.append("cites " + " ".join(f"\\[{n}]" for n in c.cited))
+        elif c.sources:
+            parts.append("found " + " ".join(f"\\[{n}]" for n in c.sources))
+        if c.error:
+            parts.append(f"[yellow]{escape(c.error)}[/yellow]")
+        parts.append(f"query: {escape(c.query)}" + (" (English)" if c.english else ""))
+        return "  ·  ".join(parts)
+
+    def _sources_text(self) -> str:
+        r = self._check.research
+        cited = sorted({n for c in self._check.claims for n in c.cited})
+        lines = []
+        for n in cited:
+            result = r.results[n - 1]
+            status = r.status(result)
+            mark = "[green]read[/green]" if status == "read" else f"[yellow]{escape(status)}[/yellow]"
+            lines.append(f"  [b]\\[{n}][/b] {escape(result.title)} — {escape(result.url)}  {mark}")
+        return "Sources cited:\n" + ("\n".join(lines) if lines else "  [i]none[/i]")
+
+    def on_mount(self) -> None:
+        if self._check is None:
+            self.query_one("#btn-brief-skip", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-brief-send":
+            self.action_submit()
+        elif event.button.id == "btn-brief-skip":
+            self.dismiss(WITHOUT_RESEARCH)
+        else:
+            self.action_cancel()
+
+    def action_submit(self) -> None:
+        if self._check is None:
+            return
+        missing = []
+        for c in self._check.claims:
+            c.verdict = self.query_one(f"#verdict-{c.n}", Select).value
+            c.correction = " ".join(self.query_one(f"#correction-{c.n}", Input).value.split())
+            if c.verdict == "correct" and not c.correction:
+                missing.append(c.n)
+        if missing:
+            self.notify(
+                "Write the correction for " + ", ".join(f"[{n}]" for n in missing)
+                + ", or choose another decision.", severity="warning",
+            )
+            return
+        self.dismiss(self._check)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)

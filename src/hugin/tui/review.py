@@ -38,7 +38,8 @@ from hugin.tui.affiliates_screen import AffiliatesScreen
 from hugin.tui.broken_links import BrokenLinksScreen
 from hugin import research as web
 from hugin.tui.draft_screens import (
-    BriefReviewScreen, DraftPromptScreen, DraftWaitScreen, ResearchScreen,
+    BriefReviewScreen, ClaimsReviewScreen, DraftPromptScreen, DraftWaitScreen,
+    FactCheckScreen, ResearchScreen,
 )
 from hugin.tui.editor import EditorScreen
 from hugin.tui.engine_picker import EnginePickerScreen
@@ -2184,14 +2185,14 @@ class HuginScreen(Screen):
             search_key=search_key,
         )
 
-        def write(request: str, found=None, brief: str | None = None) -> None:
+        def write(request: str, found=None, brief: str | None = None, check=None) -> None:
             self.app.push_screen(
                 DraftWaitScreen(
                     request, list(self.all_posts), self.directory, self.engine,
                     self.index, prompt_screen.random_pick, original,
                     words=prompt_screen.target_words,
                     author=prompt_screen.author, profile=prompt_screen.profile,
-                    research=found, brief=brief,
+                    research=found, brief=brief, fact_check=check,
                 ),
                 on_created,
             )
@@ -2203,6 +2204,24 @@ class HuginScreen(Screen):
                 p.content[:1000] for p in self.all_posts[:10]
             )
             language = detect_language(text or request)
+
+            if original is not None:
+                def on_check(outcome) -> None:
+                    if outcome is None:
+                        return
+                    check, error = outcome
+
+                    def on_review(approved) -> None:
+                        if approved is None:
+                            return
+                        write(request, check=approved or None)
+
+                    self.app.push_screen(ClaimsReviewScreen(check, error), on_review)
+
+                self.app.push_screen(
+                    FactCheckScreen(original, self.engine, search_key, language), on_check,
+                )
+                return
 
             def on_research(outcome) -> None:
                 if outcome is None:

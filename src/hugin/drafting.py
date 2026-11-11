@@ -228,6 +228,7 @@ def build_message(
     samples: list[Post], request: str, original: Post | None = None,
     constraints: str | None = None, words: int | None = None,
     profile: str | None = None, research: str | None = None,
+    claims: str | None = None,
 ) -> str:
     blocks = []
     for post in samples:
@@ -306,6 +307,25 @@ def build_message(
             "snippet only: hedge them or leave them out. State a general "
             "caveat (individuals vary, ask a professional) at most once in the "
             "whole post, and spend the rest on specific information."
+        )
+    if claims and claims.strip():
+        extra += (
+            "\n\nFact check of the post to rewrite, made from web searches and "
+            "reviewed by me. Apply every decision:\n"
+            "- KEEP: keep the statement (you may name and link its source).\n"
+            "- CORRECT: replace the statement with the corrected one, naming "
+            "and linking its source.\n"
+            "- REMOVE: take the statement out and adjust the text around it, "
+            "keeping that passage's links and images somewhere fitting.\n"
+            "- UNCONFIRMED: keep it as the original says it, without adding "
+            "certainty or a source.\n"
+            "Statements of the original not in this list stay as they are.\n\n"
+            f"<fact-check>\n{claims.strip()}\n</fact-check>\n\n"
+            "Every fact taken from a source names that source in the sentence "
+            "(the site or organization) and links its URL inline (Markdown); "
+            "never write \"one source says\" or \"some sites\". Never copy "
+            "sentences from the sources. State a general caveat (individuals "
+            "vary, ask a professional) at most once in the whole post."
         )
     rules = (
         f"\n\nGuidelines:\n\n{constraints.strip()}"

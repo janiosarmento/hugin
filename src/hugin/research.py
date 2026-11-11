@@ -42,7 +42,11 @@ MAX_QUERY_CHARS = 120
 
 RESEARCH_DIR = CONFIG_DIR / "research"
 
-_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; Hugin/1.0)"}
+# Without Accept, some sites (Wikipedia among them) answer 403
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; Hugin/1.0)",
+    "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+}
 
 # detect_language() name -> (Brave country, Brave search_lang)
 LOCALES = {
@@ -100,7 +104,7 @@ class Research:
         if page.ok:
             return "read"
         if page.skipped:
-            return f"snippet only (page limit of {N_PAGES})"
+            return "snippet only (over the page limit)"
         return f"snippet only (read failed: {page.error})"
 
     @property
