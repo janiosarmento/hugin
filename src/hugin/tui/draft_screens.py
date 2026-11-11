@@ -19,6 +19,7 @@ from textual.containers import VerticalScroll
 
 from hugin import factcheck as fc
 from hugin import research as web
+from hugin import verify
 
 from hugin.drafting import (
     LLM_ERRORS,
@@ -533,12 +534,11 @@ class DraftWaitScreen(ModalScreen[Path | None]):
             text = await write_draft(message, self._engine)
             who = f"{self._engine.id} / {self._engine.model}"
             title, body = parse_answer(text, self._request)
-            if self._original is not None:
-                losses = refactor_losses(self._original.content, body)
-                if losses and not await self.app.push_screen_wait(RefactorCheckScreen(losses)):
-                    self.notify("Draft discarded")
-                    self.dismiss(None)
-                    return
+            issues = await self._check(body)
+            if issues and not await self.app.push_screen_wait(DraftCheckScreen(issues)):
+                self.notify("Draft discarded")
+                self.dismiss(None)
+                return
             # A refactor replaces the original, so it inherits its category,
             # thumbnail and translationKey
             inherited = inherited_fields(self._original) if self._original else {}
@@ -584,6 +584,28 @@ class DraftWaitScreen(ModalScreen[Path | None]):
             self.dismiss(self._empty_draft(f"Draft failed: {e}"))
             return
         self.dismiss(path)
+
+    async def _check(self, body: str) -> list[tuple[str, str]]:
+        """What to show before saving: losses, unknown links, unsupported statements."""
+        original = self._original.content if self._original is not None else None
+        issues = refactor_losses(original, body) if original is not None else []
+        issues += verify.unknown_links(
+            body, verify.allowed_links(original, self._research, self._fact_check)
+        )
+        # Statements are only checked against references; a plain new post has none
+        if original is None and self._research is None:
+            return issues
+        self.query_one("#draft-wait-status", Label).update(
+            f"{escape(self._engine.id)} is checking the draft…"
+        )
+        found = self._research or (self._fact_check.research if self._fact_check else None)
+        issues += await verify.check_statements(
+            self._engine, body, original,
+            brief=web.writer_context(self._brief, self._research) if self._research else None,
+            decisions=fc.writer_context(self._fact_check) if self._fact_check else None,
+            sources=verify.linked_sources(body, found),
+        )
+        return issues
 
     def _empty_draft(self, error: str) -> Path | None:
         """After a failure, keep the prompt: an empty draft with it in the frontmatter."""
@@ -830,8 +852,8 @@ class BriefReviewScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
-class RefactorCheckScreen(ModalScreen[bool]):
-    """What a refactor lost from the original; dismisses True to save the draft."""
+class DraftCheckScreen(ModalScreen[bool]):
+    """What the checks found in a draft; dismisses True to save it."""
 
     BINDINGS = [
         ("escape", "discard", "Discard"),
@@ -839,7 +861,7 @@ class RefactorCheckScreen(ModalScreen[bool]):
     ]
 
     DEFAULT_CSS = """
-    RefactorCheckScreen {
+    DraftCheckScreen {
         align: center middle;
     }
 
@@ -864,8 +886,12 @@ class RefactorCheckScreen(ModalScreen[bool]):
 
     #check-list {
         height: auto;
-        max-height: 30;
+        max-height: 1fr;
         margin-bottom: 1;
+    }
+
+    #check-buttons {
+        dock: bottom;
     }
 
     #check-buttons {
@@ -883,18 +909,19 @@ class RefactorCheckScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="check-modal"):
-            yield Label("The refactor lost parts of the original", id="check-title")
+            yield Label("Check the draft before saving", id="check-title")
             yield Static(
-                "Some removals can be right (a wrong link, an outdated price). "
-                "Save the draft and fix the rest in the editor, or discard it. "
-                "Ctrl+S saves, Esc discards.",
+                "Losses and links come from a text comparison; claims and "
+                "attributions from a second LLM pass, which can miss problems "
+                "and flag some that are not. Some removals can be right (a "
+                "wrong link, an outdated price). Save the draft and fix the "
+                "rest in the editor, or discard it. Ctrl+S saves, Esc discards.",
                 id="check-hint",
             )
-            yield Static(
-                "\n".join(f"  [b]{escape(kind)}[/b]  {escape(detail)}"
-                          for kind, detail in self._losses),
-                id="check-list",
-            )
+            with VerticalScroll(id="check-list"):
+                yield Static("\n".join(
+                    f"  [b]{escape(kind)}[/b]  {escape(detail)}" for kind, detail in self._losses
+                ))
             with Horizontal(id="check-buttons"):
                 yield Button("Save draft (Ctrl+S)", id="btn-check-save", variant="primary")
                 yield Button("Discard", id="btn-check-discard")

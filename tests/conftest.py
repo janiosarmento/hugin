@@ -35,3 +35,14 @@ def no_search_key(monkeypatch):
     import hugin.research
 
     monkeypatch.setattr(hugin.research, "search_api_key", lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def quiet_verification(monkeypatch):
+    """The draft check's LLM pass finds nothing unless a test says otherwise."""
+    import hugin.verify
+
+    async def nothing(engine, prompt, system=None):
+        return "[]"
+
+    monkeypatch.setattr(hugin.verify, "call_llm", nothing)

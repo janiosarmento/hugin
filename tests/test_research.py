@@ -493,8 +493,8 @@ def test_refactor_with_losses_asks_before_saving(tmp_path, monkeypatch):
 
     async def keys(app, pilot):
         await pilot.pause(0.3)
-        assert isinstance(app.screen, ed.RefactorCheckScreen)
-        shown = str(app.screen.query_one("#check-list").render())
+        assert isinstance(app.screen, ed.DraftCheckScreen)
+        shown = str(app.screen.query_one("#check-list Static").render())
         assert "/cats-for-kids/" in shown and "amzn.to/abc" in shown and "/img/cat.avif" in shown
         await pilot.press("ctrl+s")
 
@@ -510,7 +510,7 @@ def test_refactor_with_losses_can_be_discarded(tmp_path, monkeypatch):
 
     async def keys(app, pilot):
         await pilot.pause(0.3)
-        assert isinstance(app.screen, ed.RefactorCheckScreen)
+        assert isinstance(app.screen, ed.DraftCheckScreen)
         await pilot.press("escape")
 
     posts_dir, path = _refactor_wait(tmp_path, keys)
