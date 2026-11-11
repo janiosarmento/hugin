@@ -1,4 +1,9 @@
-"""Draft flow (`h`, `R`): type a prompt, wait for the system LLM, get a new draft post."""
+"""Draft flow (`h`, `R`): type a prompt, wait for the system LLM, get a new draft post.
+
+With "Research the web first" checked, a search and a brief come before the
+writing: ResearchScreen collects them, BriefReviewScreen lets the author edit
+the brief, and DraftWaitScreen hands the approved brief to the writer.
+"""
 
 import asyncio
 from pathlib import Path
@@ -11,7 +16,10 @@ from textual.widgets import (
     Button, Checkbox, Input, Label, LoadingIndicator, Select, Static, TextArea,
 )
 
+from hugin import research as web
+
 from hugin.drafting import (
+    LLM_ERRORS,
     DEFAULT_TARGET_WORDS,
     MAX_TARGET_WORDS,
     MIN_TARGET_WORDS,
@@ -117,6 +125,19 @@ class DraftPromptScreen(ModalScreen[str | None]):
         width: 14;
     }
 
+    #draft-research-row {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    #draft-research {
+        width: auto;
+    }
+
+    #draft-query {
+        width: 1fr;
+    }
+
     #draft-samples {
         height: auto;
         color: $text-muted;
@@ -138,8 +159,10 @@ class DraftPromptScreen(ModalScreen[str | None]):
         self, posts: list[Post] | None = None, index=None, engine=None,
         original: Post | None = None, authors: list[str] | None = None,
         profiles: dict[str, str] | None = None, default_author: str | None = None,
+        search_key: str | None = None,
     ) -> None:
         super().__init__()
+        self._search_key = search_key
         self._index = index
         self._engine = engine
         self._original = original
@@ -160,6 +183,8 @@ class DraftPromptScreen(ModalScreen[str | None]):
         self.target_words: int | None = None
         # Author profile to send with the request, set when the prompt is sent
         self.profile: str | None = None
+        # Search query when the web research is on ("" = derive it), else None
+        self.research_query: str | None = None
 
     def _recompute_pool(self) -> None:
         """Recent posts and the candidates for the similar ones, for the chosen author."""
@@ -213,6 +238,16 @@ class DraftPromptScreen(ModalScreen[str | None]):
                 with Horizontal(id="draft-length"):
                     yield Label("Length (words): ")
                     yield Input(value=str(DEFAULT_TARGET_WORDS), id="draft-words", type="integer")
+            with Horizontal(id="draft-research-row"):
+                yield Checkbox(
+                    "Research the web first" if self._search_key
+                    else f"Research the web first (no {web.SEARCH_SECRET} in the vault)",
+                    value=False, disabled=not self._search_key, id="draft-research",
+                )
+                yield Input(
+                    placeholder="search query (empty: derived from the prompt)",
+                    id="draft-query", disabled=True,
+                )
             yield Static(self._samples_text(), id="draft-samples")
             with Horizontal(id="draft-buttons"):
                 yield Button("Send (Ctrl+S)", id="btn-draft-send", variant="primary")
@@ -230,7 +265,7 @@ class DraftPromptScreen(ModalScreen[str | None]):
     def _fit_prompt(self) -> None:
         # Everything but the text area takes ~20 rows (border, title, hint,
         # samples, buttons); give the text area what is left, between 4 and 10.
-        room = int(self.size.height * 0.9) - 21
+        room = int(self.size.height * 0.9) - 24
         self.query_one("#draft-prompt", TextArea).styles.height = max(4, min(10, room))
 
     def _writer_label(self) -> str:
@@ -268,6 +303,10 @@ class DraftPromptScreen(ModalScreen[str | None]):
 
     def _refresh_samples(self) -> None:
         self.query_one("#draft-samples", Static).update(self._samples_text())
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.id == "draft-research":
+            self.query_one("#draft-query", Input).disabled = not event.value
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id != "draft-author" or event.value == self.author:
@@ -357,6 +396,10 @@ class DraftPromptScreen(ModalScreen[str | None]):
             )
             return
         self.target_words = self._read_target_words() if self._original is None else None
+        self.research_query = (
+            self.query_one("#draft-query", Input).value.strip()
+            if self.query_one("#draft-research", Checkbox).value else None
+        )
         self.dismiss(text)
 
     def _profile_to_send(self) -> str | None:
@@ -410,8 +453,11 @@ class DraftWaitScreen(ModalScreen[Path | None]):
     }
     """
 
-    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, original: Post | None = None, words: int | None = None, author: str | None = None, profile: str | None = None) -> None:
+    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, original: Post | None = None, words: int | None = None, author: str | None = None, profile: str | None = None, research: "web.Research | None" = None, brief: str | None = None) -> None:
         super().__init__()
+        # Approved web research; used only when both are given
+        self._research = research if brief and brief.strip() else None
+        self._brief = brief
         self._original = original
         self._words = words
         self._author = author
@@ -469,6 +515,8 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                 samples, self._request, self._original,
                 constraints=writing.for_language(language), words=self._words,
                 profile=self._profile,
+                research=web.writer_context(self._brief, self._research)
+                if self._research else None,
             )
             text = await write_draft(message, self._engine)
             who = f"{self._engine.id} / {self._engine.model}"
@@ -494,6 +542,14 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                 author=self._author,
                 author_field=project.authors.author_field,
             )
+            if self._research is not None:
+                try:
+                    log = await asyncio.to_thread(
+                        web.save_log, self._research, self._brief, self._request, path
+                    )
+                    self.notify(f"Research kept in {log}")
+                except OSError:
+                    log_exception("draft: save research log")
             self.notify(f"Written by {who}")
         except DraftError as e:
             self.dismiss(self._empty_draft(str(e)))
@@ -530,4 +586,219 @@ class DraftWaitScreen(ModalScreen[Path | None]):
     def action_cancel(self) -> None:
         self.workers.cancel_all()
         self.notify("Cancelled")
+        self.dismiss(None)
+
+
+class ResearchScreen(ModalScreen["tuple[web.Research | None, str] | None"]):
+    """Spinner while Hugin searches, reads pages and writes the brief.
+
+    Dismisses with (research, brief), with (None, error) when the research
+    failed (the review screen shows it), or None when cancelled.
+    """
+
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    DEFAULT_CSS = DraftWaitScreen.DEFAULT_CSS.replace("DraftWaitScreen", "ResearchScreen")
+
+    def __init__(self, request: str, query: str, engine, api_key: str | None,
+                 language: str, original: Post | None = None) -> None:
+        super().__init__()
+        self._request = request
+        self._query = query
+        self._engine = engine
+        self._api_key = api_key
+        self._language = language
+        self._original = original
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="draft-wait-modal"):
+            yield LoadingIndicator()
+            yield Label("Preparing the search…", id="draft-wait-status")
+            yield Label("Esc to cancel", id="draft-wait-hint")
+
+    def on_mount(self) -> None:
+        self._run()
+
+    def _status(self, text: str) -> None:
+        self.query_one("#draft-wait-status", Label).update(text)
+
+    @work(exclusive=True)
+    async def _run(self) -> None:
+        title = (
+            str(self._original.metadata.get("title") or self._original.path.stem)
+            if self._original is not None else None
+        )
+        try:
+            if self._engine is None or not self._engine.available:
+                raise web.ResearchError("No usable system LLM to write the brief")
+            query = self._query
+            if not query:
+                self._status("Writing a search query…")
+                try:
+                    query = await web.derive_query(self._engine, self._request, self._language, title)
+                except LLM_ERRORS:
+                    log_exception("research: derive query")
+                    query = web.fallback_query(title or self._request)
+            self._status(f"Searching: {escape(query)}")
+            found = await web.gather(query, self._api_key, self._language)
+            self._status(
+                f"Read {found.pages_read} of {len(found.results)} pages. "
+                f"{escape(self._engine.id)} is writing the brief…"
+            )
+            try:
+                brief = await web.write_brief(found, self._request, self._engine, title)
+            except LLM_ERRORS as e:
+                raise web.ResearchError(f"{self._engine.id} failed on the brief: {e}") from e
+        except web.ResearchError as e:
+            self.dismiss((None, str(e)))
+            return
+        except Exception as e:  # UI boundary: report it, keep the traceback in the log
+            log_exception("research")
+            self.dismiss((None, f"Research failed: {e}"))
+            return
+        self.dismiss((found, brief))
+
+    def action_cancel(self) -> None:
+        self.workers.cancel_all()
+        self.notify("Cancelled")
+        self.dismiss(None)
+
+
+# BriefReviewScreen result meaning "write the draft without the research"
+WITHOUT_RESEARCH = ""
+
+
+class BriefReviewScreen(ModalScreen[str | None]):
+    """The brief, editable, with the sources and their read status.
+
+    Dismisses with the edited brief, WITHOUT_RESEARCH to write without it,
+    or None to cancel the draft. After a failed research only the error is
+    shown, with the choice to write without it.
+    """
+
+    BINDINGS = [
+        ("escape", "cancel", "Cancel"),
+        ("ctrl+s", "submit", "Write draft"),
+    ]
+
+    DEFAULT_CSS = """
+    BriefReviewScreen {
+        align: center middle;
+    }
+
+    #brief-modal {
+        width: 95%;
+        max-width: 130;
+        height: 90%;
+        border: round $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #brief-title {
+        text-style: bold;
+    }
+
+    #brief-hint, #brief-sources {
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    #brief-error {
+        color: $error;
+        margin-bottom: 1;
+    }
+
+    #brief-text {
+        height: 1fr;
+        margin-bottom: 1;
+    }
+
+    #brief-sources {
+        height: auto;
+        max-height: 9;
+    }
+
+    #brief-buttons {
+        height: auto;
+    }
+
+    #brief-buttons Button {
+        margin-right: 1;
+    }
+    """
+
+    def __init__(self, research: "web.Research | None", brief: str) -> None:
+        super().__init__()
+        self._research = research
+        self._brief = brief
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="brief-modal"):
+            if self._research is None:
+                yield Label("Web research failed", id="brief-title")
+                yield Static(escape(self._brief), id="brief-error")
+                yield Static("You can write the draft without the research, or cancel.",
+                             id="brief-hint")
+                with Horizontal(id="brief-buttons"):
+                    yield Button("Write without research", id="btn-brief-skip", variant="primary")
+                    yield Button("Cancel", id="btn-brief-cancel")
+                return
+            r = self._research
+            yield Label(f"Research brief — {escape(r.query)}", id="brief-title")
+            yield Static(
+                f"Brave Search, {r.country}/{r.search_lang}, "
+                f"{r.fetched_at:%Y-%m-%d %H:%M}. Read {r.pages_read} of "
+                f"{len(r.results)} pages. Edit the brief: the writer gets it as "
+                "you leave it, plus the source list. Ctrl+S writes the draft, Esc cancels.",
+                id="brief-hint",
+            )
+            unknown = web.unknown_citations(self._brief, r)
+            if unknown:
+                yield Static(
+                    "The brief cites sources that do not exist: "
+                    + ", ".join(f"[{n}]" for n in unknown) + ". Check those facts.",
+                    id="brief-error",
+                )
+            yield TextArea(self._brief, language="markdown", id="brief-text")
+            yield Static(self._sources_text(), id="brief-sources")
+            with Horizontal(id="brief-buttons"):
+                yield Button("Write draft (Ctrl+S)", id="btn-brief-send", variant="primary")
+                yield Button("Write without research", id="btn-brief-skip")
+                yield Button("Cancel", id="btn-brief-cancel")
+
+    def _sources_text(self) -> str:
+        r = self._research
+        lines = []
+        for result in r.results:
+            status = r.status(result)
+            mark = "[green]read[/green]" if status == "read" else f"[yellow]{escape(status)}[/yellow]"
+            lines.append(f"  [b][{result.rank}][/b] {escape(result.title)} — {escape(result.url)}  {mark}")
+        return "Sources:\n" + "\n".join(lines)
+
+    def on_mount(self) -> None:
+        if self._research is not None:
+            self.query_one("#brief-text", TextArea).focus()
+        else:
+            self.query_one("#btn-brief-skip", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-brief-send":
+            self.action_submit()
+        elif event.button.id == "btn-brief-skip":
+            self.dismiss(WITHOUT_RESEARCH)
+        else:
+            self.action_cancel()
+
+    def action_submit(self) -> None:
+        if self._research is None:
+            return
+        brief = self.query_one("#brief-text", TextArea).text.strip()
+        if not brief:
+            self.notify("The brief is empty: write one, or use \"Write without research\".",
+                        severity="warning")
+            return
+        self.dismiss(brief)
+
+    def action_cancel(self) -> None:
         self.dismiss(None)

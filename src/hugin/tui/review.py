@@ -36,7 +36,10 @@ from hugin.embeddings import EmbeddingIndex
 from hugin.tui.post_picker import PostPickerScreen
 from hugin.tui.affiliates_screen import AffiliatesScreen
 from hugin.tui.broken_links import BrokenLinksScreen
-from hugin.tui.draft_screens import DraftPromptScreen, DraftWaitScreen
+from hugin import research as web
+from hugin.tui.draft_screens import (
+    BriefReviewScreen, DraftPromptScreen, DraftWaitScreen, ResearchScreen,
+)
 from hugin.tui.editor import EditorScreen
 from hugin.tui.engine_picker import EnginePickerScreen
 from hugin.tui.news_ideas import NewsIdeasScreen
@@ -76,7 +79,7 @@ from hugin.llm import (
     suggest_summary,
     suggest_tags,
 )
-from hugin.normalizer import normalize_tag, normalize_tags, strip_accents
+from hugin.normalizer import detect_language, normalize_tag, normalize_tags, strip_accents
 from hugin.scanner import Post, format_pool_for_prompt
 from hugin.project import load_project
 from hugin.log import log_exception, log_info
@@ -2158,23 +2161,59 @@ class HuginScreen(Screen):
             self._rebuild_post_table()
             self.notify(f"Draft created: {path.name}")
 
+        search_key = web.search_api_key()
         prompt_screen = DraftPromptScreen(
             self.all_posts, self.index, self.engine, original,
             authors=authors, profiles=profiles,
             default_author=post_author(current) if current else None,
+            search_key=search_key,
         )
 
+        def write(request: str, found=None, brief: str | None = None) -> None:
+            self.app.push_screen(
+                DraftWaitScreen(
+                    request, list(self.all_posts), self.directory, self.engine,
+                    self.index, prompt_screen.random_pick, original,
+                    words=prompt_screen.target_words,
+                    author=prompt_screen.author, profile=prompt_screen.profile,
+                    research=found, brief=brief,
+                ),
+                on_created,
+            )
+
+        def research(request: str) -> None:
+            # The blog's language, not the prompt's: the search must find
+            # pages in the language the post is written in
+            text = original.content if original is not None else " ".join(
+                p.content[:1000] for p in self.all_posts[:10]
+            )
+            language = detect_language(text or request)
+
+            def on_research(outcome) -> None:
+                if outcome is None:
+                    return
+                found, brief = outcome
+
+                def on_review(approved: str | None) -> None:
+                    if approved is None:
+                        return
+                    write(request, found, approved or None)
+
+                self.app.push_screen(BriefReviewScreen(found, brief), on_review)
+
+            self.app.push_screen(
+                ResearchScreen(request, prompt_screen.research_query, self.engine,
+                               search_key, language, original),
+                on_research,
+            )
+
         def on_prompt(request: str | None) -> None:
-            if request:
-                self.app.push_screen(
-                    DraftWaitScreen(
-                        request, list(self.all_posts), self.directory, self.engine,
-                        self.index, prompt_screen.random_pick, original,
-                        words=prompt_screen.target_words,
-                        author=prompt_screen.author, profile=prompt_screen.profile,
-                    ),
-                    on_created,
-                )
+            if not request:
+                return
+            if prompt_screen.research_query is not None:
+                research(request)
+            else:
+                write(request)
 
         self.app.push_screen(prompt_screen, on_prompt)
 

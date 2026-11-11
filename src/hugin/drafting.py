@@ -216,7 +216,7 @@ def select_refactor_samples(
 def build_message(
     samples: list[Post], request: str, original: Post | None = None,
     constraints: str | None = None, words: int | None = None,
-    profile: str | None = None,
+    profile: str | None = None, research: str | None = None,
 ) -> str:
     blocks = []
     for post in samples:
@@ -264,6 +264,21 @@ def build_message(
             "5. The other posts above are only samples of my voice; do not "
             "borrow their content.\n\n"
             "The request below says what to change. "
+        )
+    if research and research.strip():
+        extra += (
+            "\n\nResearch brief for this post (made from a web search and "
+            "reviewed by me; the numbers in brackets point to the sources "
+            "listed at its end):\n\n"
+            f"<research>\n{research.strip()}\n</research>\n\n"
+            "Use the brief to decide what to cover and for facts. Take facts "
+            "only from it and link their source URL inline (Markdown) where it "
+            "reads naturally; never copy sentences from the sources. Keep my "
+            "voice from the samples, not the tone of the sources. Facts marked "
+            "\"(snippet)\" come from a search snippet only: hedge them or leave "
+            "them out."
+            + (" In this refactor the brief's outline is only a suggestion; the "
+               "refactor rules below come first." if original is not None else "")
         )
     rules = (
         f"\n\nGuidelines:\n\n{constraints.strip()}"
