@@ -55,6 +55,10 @@ hugin-profiles ~/blog/content/posts --engine cerebras
 
 ---
 
+### Version
+
+The main screen shows the running version next to the logo, and `hugin --version` prints it: `build 259 · 0f7ec97 · 2026-11-11`. The build number is the commit count of the checkout Hugin runs from, so a higher number is a newer Hugin; the short hash and date identify the commit (compare with `git log -1` in the repository). "local changes" means the checkout has uncommitted edits. The version is read when Hugin starts: after a `git pull`, restart Hugin to run the new code. It is also written to `~/.hugin/hugin.log` at each start.
+
 ## Keybindings
 
 Press `?` at any time on the main screen for a modal listing every keybinding below, including the ones no longer shown in the footer.

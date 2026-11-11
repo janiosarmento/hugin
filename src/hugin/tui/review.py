@@ -37,6 +37,7 @@ from hugin.tui.post_picker import PostPickerScreen
 from hugin.tui.affiliates_screen import AffiliatesScreen
 from hugin.tui.broken_links import BrokenLinksScreen
 from hugin import research as web
+from hugin.version import current as current_version
 from hugin.tui.draft_screens import (
     BriefReviewScreen, ClaimsReviewScreen, DraftPromptScreen, DraftWaitScreen,
     FactCheckScreen, ResearchScreen,
@@ -792,7 +793,9 @@ class HuginScreen(Screen):
         return wpl if wpl > 0 else self.config.links.words_per_link
 
     def compose(self) -> ComposeResult:
-        yield Static(self.BANNER, id="banner")
+        yield Static(
+            f"{self.BANNER}   [dim]{escape(current_version().short())}[/dim]", id="banner"
+        )
 
         with Horizontal(id="review-container"):
             with Vertical(id="post-list-panel"):

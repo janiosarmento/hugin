@@ -10,7 +10,7 @@ import click
 from hugin.config import load_config
 from hugin.embeddings import EmbeddingIndex
 from hugin.engines import get_engine
-from hugin.log import log_exception
+from hugin.log import log_exception, log_info
 from hugin.migrations import fill_keywords_from_profiles, parse_profile, run_migrations
 from hugin.hugo import HugoSite, ensure_ignored_in_hugo
 from hugin.scanner import AGENT_FILES, Post
@@ -27,6 +27,7 @@ from hugin.tui.app import HuginApp
 from hugin.state import get_last_processed
 from hugin.llm import LINK_KEYWORDS_SYSTEM, LINK_KEYWORDS_USER_TEMPLATE, call_llm
 from hugin.writer import write_keywords_block
+from hugin.version import current as current_version
 
 
 def _ignore_ctrl_z() -> None:
@@ -68,6 +69,12 @@ def _missing_author_warning(directory: Path, posts: list[Post]) -> str | None:
     )
 
 
+
+def _print_version(ctx: click.Context) -> None:
+    click.echo(str(current_version()))
+    ctx.exit()
+
+
 @click.command()
 @click.argument(
     "directory",
@@ -79,6 +86,9 @@ def _missing_author_warning(directory: Path, posts: list[Post]) -> str | None:
 @click.option("--engine", "engine_id", default=None, help="ID of the AI engine.")
 @click.option("--model", "model_override", default=None, help="Override the model.")
 @click.option("-c", "--clear-cache", is_flag=True, help="Clear the embedding cache before starting.")
+@click.option("--version", is_flag=True, expose_value=False, is_eager=True,
+              callback=lambda ctx, _param, value: _print_version(ctx) if value else None,
+              help="Show the running version (build number, commit, date) and exit.")
 def main(
     directory: Path,
     batch: int,
@@ -89,6 +99,7 @@ def main(
 ) -> None:
     """hugin: manage Hugo blog posts — tags, summaries, links, and editing."""
     _ignore_ctrl_z()
+    log_info(f"start: {current_version()}")
     directory = directory.resolve()
     config = load_config()
 
