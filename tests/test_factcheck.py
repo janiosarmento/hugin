@@ -317,7 +317,7 @@ def test_claims_review_after_failure_offers_writing_without_it():
     assert _run(lambda: ed.ClaimsReviewScreen(None, "HTTP 429"), keys) == ed.WITHOUT_RESEARCH
 
 
-def test_R_with_fact_check_runs_the_whole_flow(tmp_path, monkeypatch):
+def _R_flow(tmp_path, monkeypatch, review):
     from unittest.mock import MagicMock
 
     from hugin.config import EmbeddingsConfig, FrontmatterConfig, HuginConfig, LinksConfig
@@ -361,12 +361,17 @@ def test_R_with_fact_check_runs_the_whole_flow(tmp_path, monkeypatch):
             await pilot.pause()
             assert not app.screen.query("#draft-query")  # a refactor needs no query
             await pilot.press(*"update")
+            assert app.screen.query_one("#draft-review", Checkbox).disabled
             app.screen.query_one("#draft-research", Checkbox).value = True
+            await pilot.pause()
+            app.screen.query_one("#draft-review", Checkbox).value = review
             await pilot.press("ctrl+s")
             await pilot.pause(0.5)
-            assert isinstance(app.screen, ed.ClaimsReviewScreen)
-            await pilot.press("ctrl+s")
-            await pilot.pause(0.5)
+            if review:
+                assert isinstance(app.screen, ed.ClaimsReviewScreen)
+                await pilot.press("ctrl+s")
+                await pilot.pause(0.5)
+            assert not isinstance(app.screen, ed.ClaimsReviewScreen)
             assert (posts_dir / "rewritten.md").exists()
 
     asyncio.run(go())
@@ -374,3 +379,11 @@ def test_R_with_fact_check_runs_the_whole_flow(tmp_path, monkeypatch):
     assert '<fact-check>\n1. KEEP: "British Shorthairs can have HCM." [1]' in seen["message"]
     assert "<research>" not in seen["message"]
     assert "1. **keep**" in (tmp_path / "research" / "rewritten.md").read_text()
+
+
+def test_R_with_fact_check_writes_without_asking(tmp_path, monkeypatch):
+    _R_flow(tmp_path, monkeypatch, review=False)
+
+
+def test_R_with_fact_check_can_show_the_decisions_first(tmp_path, monkeypatch):
+    _R_flow(tmp_path, monkeypatch, review=True)

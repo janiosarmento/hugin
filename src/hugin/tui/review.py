@@ -2210,6 +2210,11 @@ class HuginScreen(Screen):
                     if outcome is None:
                         return
                     check, error = outcome
+                    # The engine decides each claim; the author sees the
+                    # decisions only when asked to, or when the check failed
+                    if check is not None and not prompt_screen.review_claims:
+                        write(request, check=check)
+                        return
 
                     def on_review(approved) -> None:
                         if approved is None:

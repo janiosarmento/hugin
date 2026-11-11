@@ -191,6 +191,8 @@ class DraftPromptScreen(ModalScreen[str | None]):
         self.profile: str | None = None
         # Search query when the web research is on ("" = derive it), else None
         self.research_query: str | None = None
+        # Refactor: show the fact-check decisions before writing
+        self.review_claims = False
 
     def _recompute_pool(self) -> None:
         """Recent posts and the candidates for the similar ones, for the chosen author."""
@@ -260,6 +262,10 @@ class DraftPromptScreen(ModalScreen[str | None]):
                         placeholder="search query (empty: derived from the prompt)",
                         id="draft-query", disabled=True,
                     )
+                else:
+                    # Off by default: the engine's decisions go straight to the writer
+                    yield Checkbox("Review the decisions before writing", value=False,
+                                   disabled=True, id="draft-review")
             yield Static(self._samples_text(), id="draft-samples")
             with Horizontal(id="draft-buttons"):
                 yield Button("Send (Ctrl+S)", id="btn-draft-send", variant="primary")
@@ -317,8 +323,10 @@ class DraftPromptScreen(ModalScreen[str | None]):
         self.query_one("#draft-samples", Static).update(self._samples_text())
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
-        if event.checkbox.id == "draft-research" and self.query("#draft-query"):
-            self.query_one("#draft-query", Input).disabled = not event.value
+        if event.checkbox.id != "draft-research":
+            return
+        for widget in self.query("#draft-query, #draft-review"):
+            widget.disabled = not event.value
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id != "draft-author" or event.value == self.author:
@@ -413,6 +421,9 @@ class DraftPromptScreen(ModalScreen[str | None]):
             (query.first(Input).value.strip() if query else "")
             if self.query_one("#draft-research", Checkbox).value else None
         )
+        review = self.query("#draft-review")
+        self.review_claims = bool(review and review.first(Checkbox).value
+                                  and self.research_query is not None)
         self.dismiss(text)
 
     def _profile_to_send(self) -> str | None:
@@ -577,6 +588,12 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                     log = await asyncio.to_thread(
                         fc.save_log, self._fact_check, self._request, path
                     )
+                    claims = self._fact_check.claims
+                    counts = ", ".join(
+                        f"{sum(c.verdict == v for c in claims)} {VERDICT_LABELS[v]}"
+                        for v in fc.VERDICTS
+                    )
+                    self.notify(f"Fact check of {len(claims)} claims: {counts}", timeout=15)
                 if log is not None:
                     self.notify(f"Research kept in {log}")
             except OSError:
