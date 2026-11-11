@@ -102,6 +102,9 @@ class RedirectSuggestScreen(ModalScreen[str | None]):
         text-style: bold;
         padding: 0 0 1 0;
     }
+    #replacement-note {
+        color: $warning;
+    }
     .candidate-btn {
         width: 100%;
         margin-bottom: 0;
@@ -119,15 +122,30 @@ class RedirectSuggestScreen(ModalScreen[str | None]):
     }
     """
 
-    def __init__(self, origin: str, candidates: list[dict]) -> None:
+    def __init__(self, origin: str, candidates: list[dict],
+                 replacement: dict | None = None) -> None:
+        """`replacement` ({url, title, draft}) is a refactor of the deleted
+        post: it comes first and fills the destination."""
         super().__init__()
         self._origin = origin
-        self._candidates = candidates[:3]
+        self._replacement = replacement
+        others = [c for c in candidates if not replacement or c.get("url") != replacement["url"]]
+        self._candidates = ([replacement] if replacement else []) + others[:3]
 
     def compose(self) -> ComposeResult:
         with Vertical(id="suggest-modal"):
             yield Label("Post deleted. Add a redirect?")
             yield Static(f"From: {self._origin}", id="origin-display")
+            if self._replacement:
+                note = (
+                    " It is still a draft: the redirect leads nowhere until you publish it."
+                    if self._replacement.get("draft") else ""
+                )
+                yield Static(
+                    f"Replaced by its refactor \"{escape(self._replacement.get('title', ''))}\". "
+                    f"Enter adds the redirect to it.{note}",
+                    id="replacement-note",
+                )
             if self._candidates:
                 yield Label("Suggested destinations (click to select):")
                 for i, c in enumerate(self._candidates):
@@ -136,7 +154,10 @@ class RedirectSuggestScreen(ModalScreen[str | None]):
                     label = f"{url}" + (f"  [dim]{title}[/dim]" if title else "")
                     yield Button(label, id=f"cand-{i}", classes="candidate-btn")
             yield Label("Destination URL:")
-            yield Input(placeholder="/new-destination/", id="input-dest")
+            yield Input(
+                value=self._replacement["url"] if self._replacement else "",
+                placeholder="/new-destination/", id="input-dest",
+            )
             with Horizontal(id="suggest-buttons"):
                 yield Button("Add redirect", id="btn-add", variant="primary")
                 yield Button("Skip", id="btn-skip")

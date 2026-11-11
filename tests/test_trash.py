@@ -82,3 +82,55 @@ def test_X_moves_post_to_trash(tmp_path, monkeypatch):
     asyncio.run(go())
     assert not (posts_dir / "p0.md").exists()
     assert [f.read_text() for f in (tmp_path / "trash").iterdir()] == ["---\ntitle: P0\n---\nbody"]
+
+
+def test_X_on_a_refactored_post_offers_the_redirect_to_its_refactor(tmp_path, monkeypatch):
+    from hugin.tui.redirects_screen import RedirectSuggestScreen
+
+    monkeypatch.setattr(trash, "TRASH_DIR", tmp_path / "trash")
+    (tmp_path / "static").mkdir()
+    posts_dir = tmp_path / "content" / "posts"
+    posts_dir.mkdir(parents=True)
+    original = posts_dir / "old-post.md"
+    original.write_text("---\ntitle: Old\n---\nbody")
+    refactor = posts_dir / "new-post.md"
+    refactor.write_text("---\ntitle: New\ndraft: true\nrefactor_of: old-post.md\n---\nbody")
+    posts = [
+        Post(original, {"title": "Old"}, "body", False),
+        Post(refactor, {"title": "New", "draft": True, "refactor_of": "old-post.md"}, "body", False),
+    ]
+    site = MagicMock()
+    site.post_url.return_value = "/x"
+    site.warnings = []
+    index = MagicMock()
+    index.has_no_outgoing.return_value = False
+    index.get_post_url.side_effect = lambda p: {"old-post": "/old-post/", "new-post": "/new-post/"}[p.path.stem]
+    index.get_link_keywords.return_value = ""
+    index.find_similar.return_value = [{"url": "/other/", "title": "Other"}]
+
+    class Host(App):
+        def on_mount(self):
+            self.push_screen(HuginScreen(
+                posts=posts, all_posts=list(posts),
+                engine=Engine("t", "http://localhost/v1", "m", 30, None),
+                pool={}, state={}, directory=posts_dir,
+                config=HuginConfig(LinksConfig(), EmbeddingsConfig(), FrontmatterConfig()),
+                site=site, index=index,
+            ))
+
+    async def go():
+        app = Host()
+        async with app.run_test(size=(140, 50)) as pilot:
+            await pilot.pause()
+            await pilot.press("X")
+            await pilot.pause()
+            await pilot.click("#btn-delete")
+            await pilot.pause()
+            assert isinstance(app.screen, RedirectSuggestScreen)
+            note = str(app.screen.query_one("#replacement-note").render())
+            assert "New" in note and "still a draft" in note
+            await pilot.press("enter")
+            await pilot.pause()
+
+    asyncio.run(go())
+    assert (tmp_path / "static" / "_redirects").read_text() == "/old-post/ /new-post/ 301\n"

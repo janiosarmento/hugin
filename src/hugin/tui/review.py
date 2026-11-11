@@ -2292,7 +2292,7 @@ class HuginScreen(Screen):
         # Collect similar posts BEFORE removing from index
         existing_urls = extract_existing_links(post.content)
         candidates = self.index.find_similar(post, n=3, exclude_urls=existing_urls)
-
+        replacement = self._replacement_for(post)
 
         def on_confirm(confirmed: bool) -> None:
             if not confirmed:
@@ -2354,7 +2354,8 @@ class HuginScreen(Screen):
                 self.notify(f"Redirect: {post_url} → {dest}")
 
             self.app.push_screen(
-                RedirectSuggestScreen(origin=post_url, candidates=candidates),
+                RedirectSuggestScreen(origin=post_url, candidates=candidates,
+                                      replacement=replacement),
                 on_redirect,
             )
 
@@ -2365,6 +2366,26 @@ class HuginScreen(Screen):
             ),
             on_confirm,
         )
+
+    def _replacement_for(self, post: Post) -> dict | None:
+        """The newest refactor of `post` (refactor_of = its file), as a redirect target."""
+        refactors = [
+            p for p in self.all_posts
+            if p.path != post.path and p.metadata.get("refactor_of") == post.filename
+        ]
+        if not refactors:
+            return None
+        newest = max(refactors, key=lambda p: (p.date is not None, str(p.date or "")))
+        url = self.index.get_post_url(newest) or self.site.post_url(
+            newest.metadata, newest.filename
+        )
+        if not url:
+            return None
+        return {
+            "url": url,
+            "title": str(newest.metadata.get("title") or newest.filename),
+            "draft": bool(newest.metadata.get("draft")),
+        }
 
     def _open_editor_for_post(self, post: Post, index: int) -> None:
 
