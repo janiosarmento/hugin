@@ -5,7 +5,8 @@ from pathlib import Path
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Select, Static, TextArea
+from textual.widgets import Button, Input, Label, Select, Static
+from hugin.tui.widgets import TextArea
 
 from hugin.git import SETTINGS_PUSHED, commit_settings
 from hugin.hugo import find_site_root

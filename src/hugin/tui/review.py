@@ -26,8 +26,8 @@ from textual.widgets import (
     Label,
     Select,
     Static,
-    TextArea,
 )
+from hugin.tui.widgets import TextArea
 
 from hugin.affiliates import load_affiliates
 from hugin.authors import pick_author

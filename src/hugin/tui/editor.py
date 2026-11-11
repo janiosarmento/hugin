@@ -16,8 +16,8 @@ from textual.widgets import (
     Input,
     Label,
     Static,
-    TextArea,
 )
+from hugin.tui.widgets import TextArea
 
 from hugin.scanner import Post
 from hugin.tui.date_picker import DatePickerScreen, format_frontmatter_date, parse_frontmatter_date

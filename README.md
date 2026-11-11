@@ -118,6 +118,7 @@ Hidden from the footer to keep it uncluttered, but still active — press `?` to
 | `Ctrl+L` | Convert HTML links (`<a href="...">`) to Markdown links |
 | `Escape` | Back (confirms if unsaved changes) |
 | `Tab` | Navigate between fields |
+| `Ctrl+A` | Select all the text of a text box (every text box in Hugin, not only the editor) |
 
 ---
 

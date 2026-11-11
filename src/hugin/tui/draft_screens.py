@@ -13,8 +13,9 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import (
-    Button, Checkbox, Input, Label, LoadingIndicator, Select, Static, TextArea,
+    Button, Checkbox, Input, Label, LoadingIndicator, Select, Static,
 )
+from hugin.tui.widgets import TextArea
 from textual.containers import VerticalScroll
 
 from hugin import factcheck as fc

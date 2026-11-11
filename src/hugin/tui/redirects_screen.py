@@ -7,8 +7,9 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
 from textual.widgets import (
-    Button, DataTable, Footer, Input, Label, RadioButton, RadioSet, Static, TextArea,
+    Button, DataTable, Footer, Input, Label, RadioButton, RadioSet, Static,
 )
+from hugin.tui.widgets import TextArea
 
 from rich.markup import escape
 
