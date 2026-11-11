@@ -561,3 +561,52 @@ def test_refactor_draft_drops_links_the_writer_kept(tmp_path, monkeypatch):
     assert "](/" not in body.replace("](/img/cat.avif)", "")
     assert "amzn.to" not in body
     assert "[club](https://club.example/stats)" in body
+
+
+# --- search cache -----------------------------------------------------------
+
+
+def _search_once():
+    async def go():
+        async with httpx.AsyncClient() as client:
+            return await web.brave_search(client, "cat sleep", "key", "US", "en")
+
+    return asyncio.run(go())
+
+
+def test_a_repeated_search_comes_from_the_cache(httpx_mock):
+    httpx_mock.add_response(url=re.compile(r"https://api\.search\.brave\.com/.*"), json=_brave(2))
+    first = _search_once()
+    # pytest-httpx refuses a second request: the cache must answer it
+    assert _search_once() == first
+    assert len(httpx_mock.get_requests()) == 1
+    assert web.cached_search("cat sleep", "US", "en") is not None
+    assert web.cached_search("cat sleep", "BR", "pt-br") is None  # other parameters
+
+
+def test_the_cache_expires_after_a_day(httpx_mock, monkeypatch):
+    httpx_mock.add_response(url=re.compile(r"https://api\.search\.brave\.com/.*"), json=_brave(1),
+                            is_reusable=True)
+    _search_once()
+    now = web.time.time()
+    monkeypatch.setattr(web.time, "time", lambda: now + web.SEARCH_CACHE_SECONDS + 1)
+    assert web.cached_search("cat sleep", "US", "en") is None
+    _search_once()
+    assert len(httpx_mock.get_requests()) == 2
+
+
+def test_failures_are_not_cached(httpx_mock):
+    httpx_mock.add_response(url=re.compile(r"https://api\.search\.brave\.com/.*"), status_code=429)
+    with pytest.raises(httpx.HTTPStatusError):
+        _search_once()
+    assert web.cached_search("cat sleep", "US", "en") is None
+
+
+def test_a_corrupt_cache_entry_is_ignored(httpx_mock):
+    httpx_mock.add_response(url=re.compile(r"https://api\.search\.brave\.com/.*"), json=_brave(1),
+                            is_reusable=True)
+    _search_once()
+    for entry in web.SEARCH_CACHE_DIR.iterdir():
+        entry.write_text("{not json")
+    assert web.cached_search("cat sleep", "US", "en") is None
+    assert [r.rank for r in _search_once()] == [1]

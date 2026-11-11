@@ -190,9 +190,13 @@ async def gather(
     own = client is None
     client = client or httpx.AsyncClient()
     try:
+        searched = False  # whether the last search went to Brave (not the cache)
         for i, claim in enumerate(claims):
-            if i:
+            locale = ENGLISH if claim.english else (country, search_lang)
+            cached = web.cached_search(claim.query, *locale, CLAIM_RESULTS) is not None
+            if searched and not cached:
                 await asyncio.sleep(SEARCH_INTERVAL)
+            searched = not cached
             try:
                 found = await _search(client, claim, api_key, (country, search_lang))
             except httpx.HTTPStatusError as e:

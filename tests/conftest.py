@@ -46,3 +46,11 @@ def quiet_verification(monkeypatch):
         return "[]"
 
     monkeypatch.setattr(hugin.verify, "call_llm", nothing)
+
+
+@pytest.fixture(autouse=True)
+def isolated_search_cache(tmp_path_factory, monkeypatch):
+    """Tests never read or fill the real Brave cache in ~/.hugin."""
+    import hugin.research
+
+    monkeypatch.setattr(hugin.research, "SEARCH_CACHE_DIR", tmp_path_factory.mktemp("brave"))

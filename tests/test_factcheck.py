@@ -387,3 +387,24 @@ def test_R_with_fact_check_writes_without_asking(tmp_path, monkeypatch):
 
 def test_R_with_fact_check_can_show_the_decisions_first(tmp_path, monkeypatch):
     _R_flow(tmp_path, monkeypatch, review=True)
+
+
+def test_cached_claims_skip_the_wait_between_searches(httpx_mock, monkeypatch):
+    waits = []
+
+    async def sleep(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr(fc, "SEARCH_INTERVAL", 1.1)
+    monkeypatch.setattr(fc.asyncio, "sleep", sleep)
+    httpx_mock.add_response(url=re.compile(BRAVE.format("hcm")), json=_brave("https://vet.example/hcm"))
+    httpx_mock.add_response(url=re.compile(BRAVE.format("history")), json=_brave("https://gccf.example/b"))
+    httpx_mock.add_response(url="https://vet.example/hcm", html=PAGE, is_reusable=True)
+    httpx_mock.add_response(url="https://gccf.example/b", html=PAGE, is_reusable=True)
+
+    asyncio.run(fc.gather(_claims(), "key", "Portuguese"))
+    assert waits == [1.1]  # between the two real searches
+    waits.clear()
+    asyncio.run(fc.gather(_claims(), "key", "Portuguese"))
+    assert waits == []  # both from the cache: no wait, no request
+    assert sum("brave" in r.url.host for r in httpx_mock.get_requests()) == 2

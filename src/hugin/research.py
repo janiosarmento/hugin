@@ -13,7 +13,10 @@ never presents a page that could not be read as verified.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from html.parser import HTMLParser
@@ -23,6 +26,7 @@ import httpx
 
 from hugin.engines import CONFIG_DIR, _get_api_key
 from hugin.fsutil import atomic_write_text
+from hugin.log import log_exception
 from hugin.llm import call_llm
 
 BRAVE_URL = "https://api.search.brave.com/res/v1/web/search"
@@ -41,6 +45,11 @@ PAGE_TIMEOUT = 15
 MAX_QUERY_CHARS = 120
 
 RESEARCH_DIR = CONFIG_DIR / "research"
+
+# Brave answers kept on disk, so repeated searches (tests, retries, the same
+# post refactored twice) do not spend the monthly quota
+SEARCH_CACHE_DIR = CONFIG_DIR / "cache" / "brave"
+SEARCH_CACHE_SECONDS = 24 * 60 * 60
 
 # Without Accept, some sites (Wikipedia among them) answer 403
 _HEADERS = {
@@ -148,18 +157,54 @@ def parse_brave(data: dict, count: int = N_RESULTS) -> list[SearchResult]:
     return results
 
 
+def _cache_path(params: dict) -> Path:
+    key = json.dumps(params, sort_keys=True, ensure_ascii=False)
+    return SEARCH_CACHE_DIR / f"{hashlib.sha256(key.encode()).hexdigest()[:32]}.json"
+
+
+def _search_params(query: str, country: str, search_lang: str, count: int) -> dict:
+    return {"q": query, "count": count, "country": country, "search_lang": search_lang}
+
+
+def cached_search(query: str, country: str, search_lang: str, count: int = N_RESULTS) -> dict | None:
+    """The Brave answer saved for these parameters, when under SEARCH_CACHE_SECONDS old."""
+    path = _cache_path(_search_params(query, country, search_lang, count))
+    try:
+        entry = json.loads(path.read_text(encoding="utf-8"))
+        if time.time() - float(entry["saved_at"]) < SEARCH_CACHE_SECONDS:
+            return entry["data"]
+    except (OSError, ValueError, KeyError, TypeError):
+        pass  # missing, unreadable or corrupt: search again
+    return None
+
+
+def _save_search(params: dict, data: dict) -> None:
+    try:
+        SEARCH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(_cache_path(params), json.dumps(
+            {"saved_at": time.time(), "params": params, "data": data}, ensure_ascii=False,
+        ))
+    except OSError:
+        log_exception("brave search cache")  # a cache that cannot be written is not an error
+
+
 async def brave_search(
     client: httpx.AsyncClient, query: str, api_key: str,
     country: str, search_lang: str, count: int = N_RESULTS,
 ) -> list[SearchResult]:
-    response = await client.get(
-        BRAVE_URL,
-        params={"q": query, "count": count, "country": country, "search_lang": search_lang},
-        headers={"Accept": "application/json", "X-Subscription-Token": api_key},
-        timeout=SEARCH_TIMEOUT,
-    )
-    response.raise_for_status()
-    return parse_brave(response.json(), count)
+    """Search results, from the 24-hour cache when the same search was made."""
+    params = _search_params(query, country, search_lang, count)
+    data = cached_search(query, country, search_lang, count)
+    if data is None:
+        response = await client.get(
+            BRAVE_URL, params=params,
+            headers={"Accept": "application/json", "X-Subscription-Token": api_key},
+            timeout=SEARCH_TIMEOUT,
+        )
+        response.raise_for_status()
+        data = response.json()
+        _save_search(params, data)
+    return parse_brave(data, count)
 
 
 # --- page reading -----------------------------------------------------------
