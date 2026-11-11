@@ -91,7 +91,7 @@ Hidden from the footer to keep it uncluttered, but still active — press `?` to
 | `m` | Open tag manager |
 | `c` | Clear embedding cache and restart |
 | `r` | Manage URL redirects (`_redirects` file) |
-| `X` | Delete the current post (with confirmation; the file is moved to `~/.hugin/trash/`, not erased). Then offers a redirect from its URL; when a draft refactored from it exists (`refactor_of`), the redirect to that draft comes pre-filled and Enter adds it |
+| `X` | Delete the current post (with confirmation; the file is moved to `~/.hugin/trash/`, not erased). Then offers a redirect from its URL; when a draft refactored from it exists (`refactor_of`), that draft comes preselected. The redirect is optional ("No redirect" is the default otherwise; Ctrl+S confirms, Esc skips), and is not offered for drafts, which were never published |
 | `,` (comma) | Project settings |
 
 ### Tag manager keybindings

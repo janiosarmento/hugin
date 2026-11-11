@@ -59,14 +59,14 @@ class DraftError(Exception):
     """Raised when a draft cannot be written; message is user-facing."""
 
 
-def _is_published(post: Post) -> bool:
+def is_published(post: Post) -> bool:
     if post.metadata.get("draft"):
         return False
     return post.date is None or post.date <= datetime.now(post.date.tzinfo)
 
 
 def published_posts(posts: list[Post]) -> list[Post]:
-    return [p for p in posts if _is_published(p)]
+    return [p for p in posts if is_published(p)]
 
 
 def _candidates(

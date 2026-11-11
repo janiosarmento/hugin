@@ -129,8 +129,114 @@ def test_X_on_a_refactored_post_offers_the_redirect_to_its_refactor(tmp_path, mo
             assert isinstance(app.screen, RedirectSuggestScreen)
             note = str(app.screen.query_one("#replacement-note").render())
             assert "New" in note and "still a draft" in note
-            await pilot.press("enter")
+            await pilot.press("ctrl+s")
             await pilot.pause()
 
     asyncio.run(go())
     assert (tmp_path / "static" / "_redirects").read_text() == "/old-post/ /new-post/ 301\n"
+
+
+def _suggest(keys_fn, replacement=None):
+    from hugin.tui.redirects_screen import RedirectSuggestScreen
+
+    result = {}
+
+    async def go():
+        app = App()
+        async with app.run_test(size=(100, 24)) as pilot:
+            app.push_screen(
+                RedirectSuggestScreen("/old/", [{"url": "/a/", "title": "A"}, {"url": "/b/", "title": "B"}],
+                                      replacement=replacement),
+                lambda r: result.setdefault("v", r),
+            )
+            await pilot.pause()
+            await keys_fn(app, pilot)
+            await pilot.pause()
+
+    asyncio.run(go())
+    return result.get("v", "unset")
+
+
+def test_redirect_is_optional_and_defaults_to_none():
+    async def keys(app, pilot):
+        await pilot.press("ctrl+s")
+
+    assert _suggest(keys) is None
+
+
+def test_redirect_buttons_fit_a_small_terminal():
+    async def keys(app, pilot):
+        await pilot.click("#btn-skip")  # fails when the button is off screen
+
+    assert _suggest(keys, replacement={"url": "/new/", "title": "New", "draft": True}) is None
+
+
+def test_redirect_to_the_refactor_is_preselected_under_the_cursor():
+    async def keys(app, pilot):
+        await pilot.press("enter")  # Enter on the highlighted choice keeps it
+        await pilot.press("ctrl+s")
+
+    assert _suggest(keys, replacement={"url": "/new/", "title": "New", "draft": False}) == "/new/"
+
+
+def test_redirect_picks_one_suggestion():
+    from textual.widgets import RadioButton
+
+    async def keys(app, pilot):
+        app.screen.query_one("#choice-1", RadioButton).value = True
+        await pilot.pause()
+        assert not app.screen.query_one("#choice-none", RadioButton).value
+        await pilot.press("ctrl+s")
+
+    assert _suggest(keys) == "/b/"
+
+
+def test_typing_a_url_selects_other():
+    async def keys(app, pilot):
+        await pilot.click("#input-dest")
+        await pilot.press(*"new-place", "enter")
+
+    assert _suggest(keys) == "/new-place"
+
+
+def test_X_on_a_draft_asks_no_redirect(tmp_path, monkeypatch):
+    from hugin.tui.redirects_screen import RedirectSuggestScreen
+
+    monkeypatch.setattr(trash, "TRASH_DIR", tmp_path / "trash")
+    (tmp_path / "static").mkdir()
+    posts_dir = tmp_path / "content" / "posts"
+    posts_dir.mkdir(parents=True)
+    draft = posts_dir / "draft.md"
+    draft.write_text("---\ntitle: D\ndraft: true\n---\nbody")
+    posts = [Post(draft, {"title": "D", "draft": True}, "body", False)]
+    site = MagicMock()
+    site.post_url.return_value = "/x"
+    site.warnings = []
+    index = MagicMock()
+    index.has_no_outgoing.return_value = False
+    index.get_post_url.return_value = "/draft/"
+    index.get_link_keywords.return_value = ""
+    index.find_similar.return_value = []
+
+    class Host(App):
+        def on_mount(self):
+            self.push_screen(HuginScreen(
+                posts=posts, all_posts=list(posts),
+                engine=Engine("t", "http://localhost/v1", "m", 30, None),
+                pool={}, state={}, directory=posts_dir,
+                config=HuginConfig(LinksConfig(), EmbeddingsConfig(), FrontmatterConfig()),
+                site=site, index=index,
+            ))
+
+    async def go():
+        app = Host()
+        async with app.run_test(size=(140, 50)) as pilot:
+            await pilot.pause()
+            await pilot.press("X")
+            await pilot.pause()
+            await pilot.click("#btn-delete")
+            await pilot.pause()
+            assert not isinstance(app.screen, RedirectSuggestScreen)
+
+    asyncio.run(go())
+    assert not draft.exists()

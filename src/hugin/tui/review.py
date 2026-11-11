@@ -94,7 +94,7 @@ from rich.style import Style
 import numpy as np
 from hugin.authors import ordered_authors
 from hugin.authors import post_author
-from hugin.drafting import has_enough_samples
+from hugin.drafting import has_enough_samples, is_published
 from hugin.redirects import find_redirects_file
 import httpx
 from hugin.git import pending_changes
@@ -2354,8 +2354,9 @@ class HuginScreen(Screen):
 
             self.notify(f"{filename} moved to {trashed}", timeout=10)
 
-            # Offer redirect only if we know the URL
-            if not post_url:
+            # Offer a redirect only for a URL readers may have seen: a draft
+            # or a post scheduled for later was never published
+            if not post_url or not is_published(post):
                 return
 
             redirects_path = find_redirects_file(self.directory)

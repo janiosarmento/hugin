@@ -4,9 +4,11 @@ from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen, Screen
-from textual.widgets import Button, DataTable, Footer, Input, Label, Static, TextArea
+from textual.widgets import (
+    Button, DataTable, Footer, Input, Label, RadioButton, RadioSet, Static, TextArea,
+)
 
 from rich.markup import escape
 
@@ -78,24 +80,34 @@ class ConfirmDeleteScreen(ModalScreen[bool]):
 
 
 class RedirectSuggestScreen(ModalScreen[str | None]):
-    """Offer a redirect destination after a post is deleted."""
+    """Offer a redirect after a post is deleted; never required.
 
-    BINDINGS = [("escape", "skip", "Skip")]
+    One choice among: no redirect, the post's refactor, similar posts, or a
+    URL typed in. "No redirect" is the default unless the post has a
+    refactor, which is then preselected. Dismisses with the destination, or
+    None for no redirect.
+    """
+
+    BINDINGS = [
+        ("escape", "skip", "No redirect"),
+        ("ctrl+s", "submit", "Confirm"),
+    ]
 
     DEFAULT_CSS = """
     RedirectSuggestScreen {
         align: center middle;
     }
     #suggest-modal {
-        width: 72;
+        width: 80;
         height: auto;
-        max-height: 80%;
+        max-height: 90%;
         border: round $accent;
         background: $surface;
         padding: 1 2;
     }
-    #suggest-modal Label {
-        margin-top: 1;
+    #suggest-body {
+        height: auto;
+        max-height: 1fr;
     }
     #origin-display {
         color: $accent;
@@ -104,16 +116,16 @@ class RedirectSuggestScreen(ModalScreen[str | None]):
     }
     #replacement-note {
         color: $warning;
+        margin-bottom: 1;
     }
-    .candidate-btn {
+    #suggest-choices {
         width: 100%;
-        margin-bottom: 0;
     }
     #input-dest {
         margin-top: 1;
-        margin-bottom: 1;
     }
     #suggest-buttons {
+        dock: bottom;
         height: auto;
         margin-top: 1;
     }
@@ -122,10 +134,13 @@ class RedirectSuggestScreen(ModalScreen[str | None]):
     }
     """
 
+    NONE = "none"
+    OTHER = "other"
+
     def __init__(self, origin: str, candidates: list[dict],
                  replacement: dict | None = None) -> None:
         """`replacement` ({url, title, draft}) is a refactor of the deleted
-        post: it comes first and fills the destination."""
+        post: it comes first and is preselected."""
         super().__init__()
         self._origin = origin
         self._replacement = replacement
@@ -134,55 +149,70 @@ class RedirectSuggestScreen(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="suggest-modal"):
-            yield Label("Post deleted. Add a redirect?")
-            yield Static(f"From: {self._origin}", id="origin-display")
-            if self._replacement:
-                note = (
-                    " It is still a draft: the redirect leads nowhere until you publish it."
-                    if self._replacement.get("draft") else ""
-                )
-                yield Static(
-                    f"Replaced by its refactor \"{escape(self._replacement.get('title', ''))}\". "
-                    f"Enter adds the redirect to it.{note}",
-                    id="replacement-note",
-                )
-            if self._candidates:
-                yield Label("Suggested destinations (click to select):")
-                for i, c in enumerate(self._candidates):
-                    url = c["url"]
-                    title = c.get("title", "")
-                    label = f"{url}" + (f"  [dim]{title}[/dim]" if title else "")
-                    yield Button(label, id=f"cand-{i}", classes="candidate-btn")
-            yield Label("Destination URL:")
-            yield Input(
-                value=self._replacement["url"] if self._replacement else "",
-                placeholder="/new-destination/", id="input-dest",
-            )
+            with VerticalScroll(id="suggest-body"):
+                yield Label("Post deleted. Add a redirect? (optional)")
+                yield Static(f"From: {escape(self._origin)}", id="origin-display")
+                if self._replacement:
+                    note = (
+                        " It is still a draft: the redirect leads nowhere until you publish it."
+                        if self._replacement.get("draft") else ""
+                    )
+                    yield Static(
+                        f"Replaced by its refactor \"{escape(self._replacement.get('title', ''))}\", "
+                        f"selected below.{note}",
+                        id="replacement-note",
+                    )
+                # The preselected choice comes first, so the cursor starts on it
+                choices = [
+                    RadioButton(
+                        escape(c["url"]) + (f"  [dim]{escape(c['title'])}[/dim]"
+                                            if c.get("title") else ""),
+                        value=bool(self._replacement) and i == 0, id=f"choice-{i}",
+                    )
+                    for i, c in enumerate(self._candidates)
+                ]
+                none = RadioButton("No redirect", value=not self._replacement, id="choice-none")
+                choices.insert(1 if self._replacement else 0, none)
+                with RadioSet(id="suggest-choices"):
+                    yield from choices
+                    yield RadioButton("Other URL (type it below)", id="choice-other")
+                yield Input(placeholder="/new-destination/", id="input-dest")
             with Horizontal(id="suggest-buttons"):
-                yield Button("Add redirect", id="btn-add", variant="primary")
-                yield Button("Skip", id="btn-skip")
+                yield Button("Confirm (Ctrl+S)", id="btn-add", variant="primary")
+                yield Button("No redirect (Esc)", id="btn-skip")
 
     def on_mount(self) -> None:
-        self.query_one("#input-dest", Input).focus()
+        self.query_one("#suggest-choices", RadioSet).focus()
+
+    def _choice(self) -> str:
+        pressed = self.query_one("#suggest-choices", RadioSet).pressed_button
+        return (pressed.id or "choice-none").removeprefix("choice-") if pressed else self.NONE
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        # Typing a URL picks "Other URL"
+        if event.value.strip() and self._choice() != self.OTHER:
+            self.query_one("#choice-other", RadioButton).value = True
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        bid = event.button.id or ""
-        if bid == "btn-add":
-            self._submit()
-        elif bid == "btn-skip":
+        if event.button.id == "btn-add":
+            self.action_submit()
+        elif event.button.id == "btn-skip":
             self.dismiss(None)
-        elif bid.startswith("cand-"):
-            idx = int(bid[5:])
-            if idx < len(self._candidates):
-                self.query_one("#input-dest", Input).value = self._candidates[idx]["url"]
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        self._submit()
+        self.action_submit()
 
-    def _submit(self) -> None:
+    def action_submit(self) -> None:
+        choice = self._choice()
+        if choice == self.NONE:
+            self.dismiss(None)
+            return
+        if choice != self.OTHER:
+            self.dismiss(self._candidates[int(choice)]["url"])
+            return
         dest = self.query_one("#input-dest", Input).value.strip()
         if not dest:
-            self.notify("Enter a destination URL.", severity="warning")
+            self.notify("Type the URL, or choose another option.", severity="warning")
             return
         if not dest.startswith("/") and not dest.startswith("http"):
             dest = "/" + dest
