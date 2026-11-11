@@ -133,15 +133,14 @@ class DraftPromptScreen(ModalScreen[str | None]):
 
     #draft-research-row {
         height: auto;
-        margin-bottom: 1;
     }
 
-    #draft-research {
+    #draft-research, #draft-review {
         width: auto;
     }
 
     #draft-query {
-        width: 1fr;
+        margin-bottom: 1;
     }
 
     #draft-samples {
@@ -151,7 +150,13 @@ class DraftPromptScreen(ModalScreen[str | None]):
     }
 
     #draft-buttons {
+        dock: bottom;
         height: auto;
+    }
+
+    #draft-body {
+        height: auto;
+        max-height: 1fr;
     }
 
     #draft-buttons Button {
@@ -191,8 +196,8 @@ class DraftPromptScreen(ModalScreen[str | None]):
         self.profile: str | None = None
         # Search query when the web research is on ("" = derive it), else None
         self.research_query: str | None = None
-        # Refactor: show the fact-check decisions before writing
-        self.review_claims = False
+        # Show the brief (new post) or the fact-check decisions (refactor) before writing
+        self.review_research = False
 
     def _recompute_pool(self) -> None:
         """Recent posts and the candidates for the similar ones, for the chosen author."""
@@ -206,67 +211,70 @@ class DraftPromptScreen(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="draft-modal"):
-            if self._original is None:
-                heading = "New draft — describe the post"
-                mix = f"{N_RECENT} latest, {N_SIMILAR} similar to your prompt"
-                if N_RANDOM:
-                    mix += f", {N_RANDOM} random"
-                count = MIN_SAMPLES
-            else:
-                heading = f"Refactor — {self._title(self._original)}"
-                mix = (
-                    f"{R_N_RECENT} latest, {R_N_SIMILAR} similar to your prompt, "
-                    f"{R_N_LIKE_ORIGINAL} similar to the original"
-                )
-                count = R_N_RECENT + R_N_SIMILAR + R_N_LIKE_ORIGINAL
-            yield Label(heading, id="draft-title")
-            refactor_note = (
-                "The post is rewritten in full to replace the original (not a follow-up): "
-                "say what to change or improve. "
-                if self._original is not None else ""
-            )
-            yield Static(
-                f"{refactor_note}{count} published posts go along as writing samples ({mix}). "
-                f"Written by {escape(self._writer_label())}. Ctrl+S sends, Esc cancels.",
-                id="draft-hint",
-            )
-            if self._authors:
-                with Horizontal(id="draft-author-row"):
-                    yield Label("Author: ")
-                    yield Select(
-                        [(a, a) for a in self._authors], value=self.author,
-                        allow_blank=False, id="draft-author",
+            with VerticalScroll(id="draft-body"):
+                if self._original is None:
+                    heading = "New draft — describe the post"
+                    mix = f"{N_RECENT} latest, {N_SIMILAR} similar to your prompt"
+                    if N_RANDOM:
+                        mix += f", {N_RANDOM} random"
+                    count = MIN_SAMPLES
+                else:
+                    heading = f"Refactor — {self._title(self._original)}"
+                    mix = (
+                        f"{R_N_RECENT} latest, {R_N_SIMILAR} similar to your prompt, "
+                        f"{R_N_LIKE_ORIGINAL} similar to the original"
                     )
-                yield Checkbox(
-                    "Send the author profile", value=self._has_profile(),
-                    disabled=not self._has_profile(), id="draft-profile",
+                    count = R_N_RECENT + R_N_SIMILAR + R_N_LIKE_ORIGINAL
+                yield Label(heading, id="draft-title")
+                refactor_note = (
+                    "The post is rewritten in full to replace the original (not a follow-up): "
+                    "say what to change or improve. "
+                    if self._original is not None else ""
                 )
-            yield TextArea(id="draft-prompt")
-            if self._original is None:
-                with Horizontal(id="draft-length"):
-                    yield Label("Length (words): ")
-                    yield Input(value=str(DEFAULT_TARGET_WORDS), id="draft-words", type="integer")
-            with Horizontal(id="draft-research-row"):
-                # A refactor checks the original's claims; a new post gets a brief
-                what = (
-                    "Research the web first" if self._original is None
-                    else "Fact-check the original on the web first"
+                yield Static(
+                    f"{refactor_note}{count} published posts go along as writing samples ({mix}). "
+                    f"Written by {escape(self._writer_label())}. Ctrl+S sends, Esc cancels.",
+                    id="draft-hint",
                 )
-                yield Checkbox(
-                    what if self._search_key
-                    else f"{what} (no {web.SEARCH_SECRET} in the vault)",
-                    value=False, disabled=not self._search_key, id="draft-research",
-                )
+                if self._authors:
+                    with Horizontal(id="draft-author-row"):
+                        yield Label("Author: ")
+                        yield Select(
+                            [(a, a) for a in self._authors], value=self.author,
+                            allow_blank=False, id="draft-author",
+                        )
+                    yield Checkbox(
+                        "Send the author profile", value=self._has_profile(),
+                        disabled=not self._has_profile(), id="draft-profile",
+                    )
+                yield TextArea(id="draft-prompt")
+                if self._original is None:
+                    with Horizontal(id="draft-length"):
+                        yield Label("Length (words): ")
+                        yield Input(value=str(DEFAULT_TARGET_WORDS), id="draft-words", type="integer")
+                with Horizontal(id="draft-research-row"):
+                    # A refactor checks the original's claims; a new post gets a brief
+                    what = (
+                        "Research the web first" if self._original is None
+                        else "Fact-check the original on the web first"
+                    )
+                    yield Checkbox(
+                        what if self._search_key
+                        else f"{what} (no {web.SEARCH_SECRET} in the vault)",
+                        value=False, disabled=not self._search_key, id="draft-research",
+                    )
+                    # Off by default: the brief or the decisions go straight to the writer
+                    yield Checkbox(
+                        "Review the brief before writing" if self._original is None
+                        else "Review the decisions before writing",
+                        value=False, disabled=True, id="draft-review",
+                    )
                 if self._original is None:
                     yield Input(
                         placeholder="search query (empty: derived from the prompt)",
                         id="draft-query", disabled=True,
                     )
-                else:
-                    # Off by default: the engine's decisions go straight to the writer
-                    yield Checkbox("Review the decisions before writing", value=False,
-                                   disabled=True, id="draft-review")
-            yield Static(self._samples_text(), id="draft-samples")
+                yield Static(self._samples_text(), id="draft-samples")
             with Horizontal(id="draft-buttons"):
                 yield Button("Send (Ctrl+S)", id="btn-draft-send", variant="primary")
                 yield Button("Cancel", id="btn-draft-cancel")
@@ -281,9 +289,9 @@ class DraftPromptScreen(ModalScreen[str | None]):
         self._fit_prompt()
 
     def _fit_prompt(self) -> None:
-        # Everything but the text area takes ~20 rows (border, title, hint,
+        # Everything but the text area takes ~27 rows (border, title, hint, research,
         # samples, buttons); give the text area what is left, between 4 and 10.
-        room = int(self.size.height * 0.9) - 24
+        room = int(self.size.height * 0.9) - 28
         self.query_one("#draft-prompt", TextArea).styles.height = max(4, min(10, room))
 
     def _writer_label(self) -> str:
@@ -422,7 +430,7 @@ class DraftPromptScreen(ModalScreen[str | None]):
             if self.query_one("#draft-research", Checkbox).value else None
         )
         review = self.query("#draft-review")
-        self.review_claims = bool(review and review.first(Checkbox).value
+        self.review_research = bool(review and review.first(Checkbox).value
                                   and self.research_query is not None)
         self.dismiss(text)
 

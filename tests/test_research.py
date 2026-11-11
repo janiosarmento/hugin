@@ -380,7 +380,7 @@ def test_wait_screen_sends_the_brief_and_keeps_the_research(tmp_path, monkeypatc
     assert frontmatter.load(str(path)).content == "Cat body."
 
 
-def test_h_key_with_research_runs_the_whole_flow(tmp_path, monkeypatch):
+def _h_flow(tmp_path, monkeypatch, review):
     from unittest.mock import MagicMock
 
     from hugin.config import EmbeddingsConfig, FrontmatterConfig, HuginConfig, LinksConfig
@@ -432,20 +432,33 @@ def test_h_key_with_research_runs_the_whole_flow(tmp_path, monkeypatch):
             await pilot.press("h")
             await pilot.pause()
             await pilot.press(*"cats")
+            assert app.screen.query_one("#draft-review", Checkbox).disabled
             app.screen.query_one("#draft-research", Checkbox).value = True
             app.screen.query_one("#draft-query", Input).value = "cat sleep"
+            await pilot.pause()
+            app.screen.query_one("#draft-review", Checkbox).value = review
             await pilot.press("ctrl+s")
             await pilot.pause(0.5)
-            assert isinstance(app.screen, ed.BriefReviewScreen)
-            assert app.screen.query_one("#btn-brief-send", Button)
-            await pilot.press("ctrl+s")
-            await pilot.pause(0.5)
+            if review:
+                assert isinstance(app.screen, ed.BriefReviewScreen)
+                assert app.screen.query_one("#btn-brief-send", Button)
+                await pilot.press("ctrl+s")
+                await pilot.pause(0.5)
+            assert not isinstance(app.screen, ed.BriefReviewScreen)
             assert (posts_dir / "from-research.md").exists()
 
     asyncio.run(go())
     assert seen["query"] == "cat sleep"
     assert "<research>\n## Facts\n- Cats sleep [1]" in seen["message"]
     assert (tmp_path / "research" / "from-research.md").exists()
+
+
+def test_h_key_with_research_writes_without_asking(tmp_path, monkeypatch):
+    _h_flow(tmp_path, monkeypatch, review=False)
+
+
+def test_h_key_with_research_can_show_the_brief_first(tmp_path, monkeypatch):
+    _h_flow(tmp_path, monkeypatch, review=True)
 
 
 # --- refactor check ---------------------------------------------------------
