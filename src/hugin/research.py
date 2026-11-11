@@ -27,7 +27,7 @@ from hugin.llm import call_llm
 
 BRAVE_URL = "https://api.search.brave.com/res/v1/web/search"
 # Vault path of the Brave Search key (secrets-resolver), like `<engine>.api_key`
-SEARCH_SECRET = "brave.api_key"
+SEARCH_SECRET = "brave.search"
 
 # Working limits for a first version; tune after trying real posts.
 N_RESULTS = 5
