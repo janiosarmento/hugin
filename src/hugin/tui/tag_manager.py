@@ -16,7 +16,7 @@ from textual.widgets import (
     Static,
 )
 
-from hugin.normalizer import find_similar_tags, normalize_tag, sort_key
+from hugin.normalizer import MAX_TAG_WORDS, find_similar_tags, is_valid_tag, normalize_tag, sort_key
 from hugin.scanner import Post
 from hugin.writer import write_tags
 from hugin.normalizer import strip_accents
@@ -189,7 +189,9 @@ class RenameScreen(ModalScreen[str | None]):
 
     def _submit(self) -> None:
         new_name = normalize_tag(self.query_one("#rename-input", Input).value, strip_articles=False)
-        if new_name and new_name != self.tag:
+        if new_name and not is_valid_tag(new_name):
+            self.notify(f"Tags can have at most {MAX_TAG_WORDS} words", severity="warning")
+        elif new_name and new_name != self.tag:
             self.dismiss(new_name)
         elif new_name == self.tag:
             self.dismiss(None)

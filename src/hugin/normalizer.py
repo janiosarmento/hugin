@@ -69,7 +69,22 @@ ARTICLES = {
 }
 
 
+# Longest tag accepted, in hyphen-separated words. Longer tags are refused,
+# never cut: a cut tag ("british-short-hair" -> "british-short") says
+# something else.
+MAX_TAG_WORDS = 3
+
+
+def is_valid_tag(tag: str) -> bool:
+    """A normalized tag Hugin accepts: not empty, at most MAX_TAG_WORDS words."""
+    return bool(tag) and len(tag.split("-")) <= MAX_TAG_WORDS
+
+
 def normalize_tag(tag: str, strip_articles: bool = True) -> str:
+    """Lowercase, hyphen-separated tag without leading articles.
+
+    Length is not enforced here; check is_valid_tag().
+    """
     tag = tag.strip().lower()
     tag = re.sub(r"\s+", "-", tag)
 
@@ -79,12 +94,6 @@ def normalize_tag(tag: str, strip_articles: bool = True) -> str:
         while parts and parts[0] in ARTICLES:
             parts.pop(0)
         tag = "-".join(parts)
-
-    # Truncar a 3 palavras
-    parts = tag.split("-")
-    if len(parts) > 3:
-        parts = parts[:3]
-    tag = "-".join(parts)
 
     # Remove duplicate hyphens and hyphens at the ends
     tag = re.sub(r"-+", "-", tag).strip("-")
@@ -96,7 +105,13 @@ def normalize_tags(
     raw_tags: list[str],
     existing_tags: list[str],
     pool: dict[str, int],
+    rejected: list[str] | None = None,
 ) -> list[str]:
+    """Suggested tags ready to offer: pool spelling, no duplicates.
+
+    Tags over MAX_TAG_WORDS words that map to no pool tag are left out and
+    appended to `rejected` when it is given.
+    """
     pool_lower = {t.lower(): t for t in pool}
     existing_lower = {t.lower() for t in existing_tags}
 
@@ -120,6 +135,11 @@ def normalize_tags(
                 if tag_parts[:len(pool_parts)] == pool_parts and len(tag_parts) > len(pool_parts):
                     tag = pool_tag
                     break
+
+        if not is_valid_tag(tag):
+            if rejected is not None and tag not in rejected:
+                rejected.append(tag)
+            continue
 
         # Dedup against the post's existing tags
         if tag.lower() in existing_lower:

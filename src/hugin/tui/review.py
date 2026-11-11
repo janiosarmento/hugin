@@ -79,7 +79,9 @@ from hugin.llm import (
     suggest_summary,
     suggest_tags,
 )
-from hugin.normalizer import detect_language, normalize_tag, normalize_tags, strip_accents
+from hugin.normalizer import (
+    MAX_TAG_WORDS, detect_language, is_valid_tag, normalize_tag, normalize_tags, strip_accents,
+)
 from hugin.scanner import Post, format_pool_for_prompt
 from hugin.project import load_project
 from hugin.log import log_exception, log_info
@@ -1116,8 +1118,14 @@ class HuginScreen(Screen):
             raw_tags = await suggest_tags(
                 self.engine, post.metadata, post.content, pool_str,
             )
-            normalized = normalize_tags(raw_tags, post.tags, self.pool)
+            rejected: list[str] = []
+            normalized = normalize_tags(raw_tags, post.tags, self.pool, rejected)
             self._display_tags(normalized)
+            if rejected:
+                self.notify(
+                    f"Refused (more than {MAX_TAG_WORDS} words): " + ", ".join(rejected),
+                    severity="warning", timeout=10,
+                )
         except Exception as e:  # UI boundary: show it, keep the traceback in the log
             log_exception("llm request")
             self._display_error(self._format_error(e))
@@ -1176,6 +1184,13 @@ class HuginScreen(Screen):
             if t.strip()
         ]
         manual = [t for t in manual if t]
+        too_long = [t for t in manual if not is_valid_tag(t)]
+        if too_long:
+            self.notify(
+                f"Tags can have at most {MAX_TAG_WORDS} words: " + ", ".join(too_long),
+                severity="warning", timeout=10,
+            )
+            return
 
         final_tags = kept + added + manual
 
