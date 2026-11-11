@@ -349,7 +349,9 @@ Bullet list of the topics, terms and entities that the results cover.
 Bullet list of the questions the results answer or raise.
 
 ## Gaps
-What the results miss or treat poorly, that my post could cover better.
+Specific information the results miss or treat poorly, that my post could \
+cover better. Not generic caveats (individuals vary, consult a \
+professional): name the missing facts.
 
 ## Facts
 Bullet list of concrete facts, numbers and dates useful for my post. End \

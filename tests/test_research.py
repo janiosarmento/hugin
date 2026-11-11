@@ -199,9 +199,19 @@ def test_build_message_adds_the_brief_only_when_given():
     assert "<research>" not in plain
     message = drafting.build_message([], "write it", research="## Facts\n- x [1]")
     assert "<research>\n## Facts\n- x [1]\n</research>" in message
-    assert "link their source URL" in message
+    assert "names that source in the sentence" in message
+    assert "at most once" in message
+    assert "Take facts only from it" in message
     assert message.endswith("write it")
     assert "refactor rules below come first" not in message
+
+
+def test_refactor_with_research_keeps_facts_the_sources_do_not_mention(tmp_path):
+    original = Post(tmp_path / "old.md", {"title": "Old"}, "Cats get HCM.", False)
+    message = drafting.build_message([], "update it", original, research="## Facts\n- x [1]")
+    assert "Take facts only from it" not in message
+    assert "is not a reason to cut it" in message
+    assert "refactor rules below come first" in message
 
 
 # --- screens ----------------------------------------------------------------
@@ -434,3 +444,73 @@ def test_h_key_with_research_runs_the_whole_flow(tmp_path, monkeypatch):
     assert seen["query"] == "cat sleep"
     assert "<research>\n## Facts\n- Cats sleep [1]" in seen["message"]
     assert (tmp_path / "research" / "from-research.md").exists()
+
+
+# --- refactor check ---------------------------------------------------------
+
+ORIGINAL_BODY = (
+    "Intro with [old breeds](/5-old-breeds/) and [treats](https://amzn.to/abc \"treats\").\n\n"
+    "![a cat](/img/cat.avif)\n\n"
+    "See the [club](https://club.example/stats) and [kids](/cats-for-kids/).\n\n"
+    + "word " * 100
+)
+
+
+def test_refactor_losses_lists_what_went_missing():
+    new = "Intro with [old breeds](/5-old-breeds/).\n\n![a cat](/img/cat.avif)\n\n" + "word " * 50
+    assert drafting.refactor_losses(ORIGINAL_BODY, new) == [
+        ("affiliate link", "https://amzn.to/abc  “treats”"),
+        ("external link", "https://club.example/stats  “club”"),
+        ("internal link", "/cats-for-kids/  “kids”"),
+        ("length", "56 words; the original has 114"),
+    ]
+    assert drafting.refactor_losses(ORIGINAL_BODY, ORIGINAL_BODY) == []
+
+
+def _refactor_wait(tmp_path, keys_fn):
+    posts_dir = tmp_path / "posts"
+    posts_dir.mkdir()
+    posts = _posts(posts_dir)
+    original = Post(posts_dir / "old.md", {"title": "Old", "image": "/img/cover.avif",
+                                           "categories": ["Breeds"]},
+                    ORIGINAL_BODY, False)
+    return posts_dir, _run(lambda: ed.DraftWaitScreen(
+        "update it", posts, posts_dir, ENGINE, original=original,
+    ), keys_fn)
+
+
+def _short_answer(monkeypatch):
+    async def fake_ask(engine, message, system=None):
+        return "New Title\n\nShort text without links."
+
+    monkeypatch.setattr(drafting, "call_llm", fake_ask)
+
+
+def test_refactor_with_losses_asks_before_saving(tmp_path, monkeypatch):
+    _short_answer(monkeypatch)
+
+    async def keys(app, pilot):
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, ed.RefactorCheckScreen)
+        shown = str(app.screen.query_one("#check-list").render())
+        assert "/cats-for-kids/" in shown and "amzn.to/abc" in shown and "/img/cat.avif" in shown
+        await pilot.press("ctrl+s")
+
+    posts_dir, path = _refactor_wait(tmp_path, keys)
+    assert path.name == "new-title.md"
+    meta = frontmatter.load(str(path)).metadata
+    assert meta["image"] == "/img/cover.avif"
+    assert "thumbnail" not in meta
+
+
+def test_refactor_with_losses_can_be_discarded(tmp_path, monkeypatch):
+    _short_answer(monkeypatch)
+
+    async def keys(app, pilot):
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, ed.RefactorCheckScreen)
+        await pilot.press("escape")
+
+    posts_dir, path = _refactor_wait(tmp_path, keys)
+    assert path is None
+    assert not (posts_dir / "new-title.md").exists()

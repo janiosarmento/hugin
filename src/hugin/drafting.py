@@ -5,6 +5,7 @@ message, followed by the actual request.
 """
 
 import random
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from hugin.scanner import Post
 from dataclasses import replace
 from hugin.llm import call_llm
 from hugin.hugo import slugify
+from hugin.linker import _is_affiliate_url
 from hugin.writer import create_post
 
 MIN_WRITER_TIMEOUT = 300  # long-form writing outlasts typical chat timeouts
@@ -90,11 +92,16 @@ def original_query(original: Post) -> str:
     return f"{original.metadata.get('title', '')}\n\n{original.content}"
 
 
-def inherited_fields(original: Post) -> dict[str, str | None]:
+# Frontmatter fields Hugo themes use for a post's cover image
+COVER_FIELDS = ("thumbnail", "image", "cover", "featured_image", "featureImage")
+
+
+def inherited_fields(original: Post) -> dict:
     """Fields a refactor takes from the post it replaces.
 
     Keys are create_draft keyword names. Placeholders ("TBD") and empty
-    values count as missing (None).
+    values count as missing (None). "cover" holds every cover-image field
+    the original has, whatever its name.
     """
     def real(value) -> str | None:
         value = str(value).strip() if value else ""
@@ -106,6 +113,10 @@ def inherited_fields(original: Post) -> dict[str, str | None]:
         "category": real(first),
         "thumbnail": real(original.metadata.get("thumbnail")),
         "translation_key": real(original.metadata.get("translationKey")),
+        "cover": {
+            name: real(original.metadata.get(name))
+            for name in COVER_FIELDS if real(original.metadata.get(name))
+        } or None,
     }
 
 
@@ -266,19 +277,35 @@ def build_message(
             "The request below says what to change. "
         )
     if research and research.strip():
+        if original is None:
+            use = (
+                "Use the brief to decide what to cover and for facts. Take facts "
+                "only from it."
+            )
+        else:
+            use = (
+                "Use the brief to check and update the original. A fact of the "
+                "original stays as written unless a source in the brief "
+                "contradicts it: then correct it with the source. A fact the "
+                "sources do not mention is not a reason to cut it; keep it. Add "
+                "facts from the brief where the request asks for them. The "
+                "brief's outline is only a suggestion; the refactor rules below "
+                "come first."
+            )
         extra += (
             "\n\nResearch brief for this post (made from a web search and "
             "reviewed by me; the numbers in brackets point to the sources "
             "listed at its end):\n\n"
             f"<research>\n{research.strip()}\n</research>\n\n"
-            "Use the brief to decide what to cover and for facts. Take facts "
-            "only from it and link their source URL inline (Markdown) where it "
-            "reads naturally; never copy sentences from the sources. Keep my "
-            "voice from the samples, not the tone of the sources. Facts marked "
-            "\"(snippet)\" come from a search snippet only: hedge them or leave "
-            "them out."
-            + (" In this refactor the brief's outline is only a suggestion; the "
-               "refactor rules below come first." if original is not None else "")
+            f"{use} Every fact taken from a source names that source in the "
+            "sentence (the site or organization) and links its URL inline "
+            "(Markdown); never write \"one source says\" or \"some sites\". "
+            "When sources disagree, say which says what. Never copy sentences "
+            "from the sources. Keep my voice from the samples, not the tone of "
+            "the sources. Facts marked \"(snippet)\" come from a search "
+            "snippet only: hedge them or leave them out. State a general "
+            "caveat (individuals vary, ask a professional) at most once in the "
+            "whole post, and spend the rest on specific information."
         )
     rules = (
         f"\n\nGuidelines:\n\n{constraints.strip()}"
@@ -308,6 +335,46 @@ async def write_draft(message: str, engine) -> str:
     if not text or not text.strip():
         raise DraftError(f"{engine.id} returned nothing")
     return text.strip()
+
+
+# Markdown link or image: ![alt](url "title") / [text](url)
+MD_TARGET = re.compile(r"(!?)\[([^\]]*)\]\(\s*<?([^)\s>]+)")
+# Below this share of the original's words, a refactor is reported as shorter
+REFACTOR_MIN_WORDS = 0.9
+
+
+def _targets(body: str) -> dict[str, tuple[bool, str]]:
+    """url -> (is image, text of its first link), in order of appearance."""
+    out: dict[str, tuple[bool, str]] = {}
+    for bang, text, url in MD_TARGET.findall(body):
+        out.setdefault(url, (bool(bang), " ".join(text.split())))
+    return out
+
+
+def refactor_losses(original: str, new: str) -> list[tuple[str, str]]:
+    """What the original body has and the refactored one lost, as (kind, detail).
+
+    Kinds: "image", "internal link", "affiliate link", "external link",
+    "length". A pure text check: no LLM involved.
+    """
+    kept = _targets(new)
+    losses = []
+    for url, (image, text) in _targets(original).items():
+        if url in kept:
+            continue
+        if image:
+            kind = "image"
+        elif _is_affiliate_url(url):
+            kind = "affiliate link"
+        elif url.startswith("/") or url.startswith("#"):
+            kind = "internal link"
+        else:
+            kind = "external link"
+        losses.append((kind, f"{url}" + (f"  “{text}”" if text and not image else "")))
+    old_words, new_words = len(original.split()), len(new.split())
+    if old_words and new_words < old_words * REFACTOR_MIN_WORDS:
+        losses.append(("length", f"{new_words} words; the original has {old_words}"))
+    return losses
 
 
 MAX_TITLE_CHARS = 120
@@ -396,6 +463,7 @@ def create_draft(
     translation_key: str | None = None,
     author: str | None = None,
     author_field: str = "author",
+    cover: dict[str, str] | None = None,
 ) -> Path:
 
     title, body = parse_answer(text, request)
@@ -407,5 +475,6 @@ def create_draft(
     path = directory / f"{slug}.md"
     create_post(path, title=title, slug=slug, category=category, body=body,
                 prompt=request, refactor_of=refactor_of, thumbnail=thumbnail,
-                translation_key=translation_key, author=author, author_field=author_field)
+                translation_key=translation_key, author=author, author_field=author_field,
+                cover=cover)
     return path

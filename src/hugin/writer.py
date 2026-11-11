@@ -109,6 +109,7 @@ def create_post(
     translation_key: str | None = None,
     author: str | None = None,
     author_field: str = "author",
+    cover: dict[str, str] | None = None,
 ) -> frontmatter.Post:
     """Create a new post with a complete frontmatter skeleton.
 
@@ -120,6 +121,8 @@ def create_post(
     `prompt` (LLM-generated posts) is kept in the frontmatter for reference.
     `refactor_of` is the filename of the post this one rewrites.
     `author` is the post's author (multi-author blogs).
+    `cover` holds cover-image fields copied as they are (e.g. {"image": ...});
+    when given, it replaces the "thumbnail" placeholder.
     """
     metadata = {
         "title": title,
@@ -133,6 +136,15 @@ def create_post(
         "description": "TBD",
         "tags": ["TBD"],
     }
+    if cover:
+        # The cover takes the placeholder's place, keeping the field order
+        placed = {}
+        for key, value in metadata.items():
+            if key == "thumbnail":
+                placed.update(cover)
+            else:
+                placed[key] = value
+        metadata = placed
     if author:
         metadata[author_field] = [author] if author_field == "authors" else author
     if prompt:

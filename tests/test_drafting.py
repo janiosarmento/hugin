@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import frontmatter
 import httpx
 import pytest
 
@@ -314,14 +315,23 @@ class TestInheritedFields:
                        translationKey="my-first-pen")
         assert drafting.inherited_fields(p) == {
             "category": "journaling", "thumbnail": "/images/a.avif",
-            "translation_key": "my-first-pen",
+            "translation_key": "my-first-pen", "cover": {"thumbnail": "/images/a.avif"},
         }
 
     def test_placeholders_and_missing_are_none(self, tmp_path):
-        none = {"category": None, "thumbnail": None, "translation_key": None}
+        none = {"category": None, "thumbnail": None, "translation_key": None, "cover": None}
         tbd = self._post(tmp_path, categories=["TBD"], thumbnail="TBD", translationKey="TBD")
         assert drafting.inherited_fields(tbd) == none
         assert drafting.inherited_fields(self._post(tmp_path)) == none
+
+    def test_a_cover_in_another_field_replaces_the_thumbnail_placeholder(self, tmp_path):
+        p = self._post(tmp_path, image="/wp-content/uploads/a.avif")
+        inherited = drafting.inherited_fields(p)
+        assert inherited["cover"] == {"image": "/wp-content/uploads/a.avif"}
+        path = create_draft(tmp_path, "T\n\nB.", "r", cover=inherited["cover"])
+        meta = list(frontmatter.load(str(path)).metadata)
+        assert "thumbnail" not in meta
+        assert meta.index("image") == meta.index("date") + 1
 
     def test_create_draft_uses_thumbnail(self, tmp_path):
         path = create_draft(tmp_path, "T\n\nB.", "r", "journaling", thumbnail="/images/a.avif",

@@ -42,6 +42,7 @@ from hugin.drafting import (
     original_query,
     pick_category,
     pick_similar,
+    refactor_losses,
     select_refactor_samples,
     select_samples,
     write_draft,
@@ -521,6 +522,12 @@ class DraftWaitScreen(ModalScreen[Path | None]):
             text = await write_draft(message, self._engine)
             who = f"{self._engine.id} / {self._engine.model}"
             title, body = parse_answer(text, self._request)
+            if self._original is not None:
+                losses = refactor_losses(self._original.content, body)
+                if losses and not await self.app.push_screen_wait(RefactorCheckScreen(losses)):
+                    self.notify("Draft discarded")
+                    self.dismiss(None)
+                    return
             # A refactor replaces the original, so it inherits its category,
             # thumbnail and translationKey
             inherited = inherited_fields(self._original) if self._original else {}
@@ -539,6 +546,7 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                 refactor_of=self._original.filename if self._original else None,
                 thumbnail=inherited.get("thumbnail"),
                 translation_key=inherited.get("translation_key"),
+                cover=inherited.get("cover"),
                 author=self._author,
                 author_field=project.authors.author_field,
             )
@@ -569,6 +577,7 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                 refactor_of=self._original.filename if self._original else None,
                 thumbnail=inherited.get("thumbnail"),
                 translation_key=inherited.get("translation_key"),
+                cover=inherited.get("cover"),
                 author=self._author,
                 author_field=load_project(self._directory).authors.author_field,
             )
@@ -802,3 +811,85 @@ class BriefReviewScreen(ModalScreen[str | None]):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+
+class RefactorCheckScreen(ModalScreen[bool]):
+    """What a refactor lost from the original; dismisses True to save the draft."""
+
+    BINDINGS = [
+        ("escape", "discard", "Discard"),
+        ("ctrl+s", "save", "Save draft"),
+    ]
+
+    DEFAULT_CSS = """
+    RefactorCheckScreen {
+        align: center middle;
+    }
+
+    #check-modal {
+        width: 90%;
+        max-width: 120;
+        height: auto;
+        max-height: 85%;
+        border: round $warning;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #check-title {
+        text-style: bold;
+    }
+
+    #check-hint {
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    #check-list {
+        height: auto;
+        max-height: 30;
+        margin-bottom: 1;
+    }
+
+    #check-buttons {
+        height: auto;
+    }
+
+    #check-buttons Button {
+        margin-right: 1;
+    }
+    """
+
+    def __init__(self, losses: list[tuple[str, str]]) -> None:
+        super().__init__()
+        self._losses = losses
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="check-modal"):
+            yield Label("The refactor lost parts of the original", id="check-title")
+            yield Static(
+                "Some removals can be right (a wrong link, an outdated price). "
+                "Save the draft and fix the rest in the editor, or discard it. "
+                "Ctrl+S saves, Esc discards.",
+                id="check-hint",
+            )
+            yield Static(
+                "\n".join(f"  [b]{escape(kind)}[/b]  {escape(detail)}"
+                          for kind, detail in self._losses),
+                id="check-list",
+            )
+            with Horizontal(id="check-buttons"):
+                yield Button("Save draft (Ctrl+S)", id="btn-check-save", variant="primary")
+                yield Button("Discard", id="btn-check-discard")
+
+    def on_mount(self) -> None:
+        self.query_one("#btn-check-save", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "btn-check-save")
+
+    def action_save(self) -> None:
+        self.dismiss(True)
+
+    def action_discard(self) -> None:
+        self.dismiss(False)
