@@ -247,7 +247,7 @@ def build_message(
         title = original.metadata.get("title", original.path.stem)
         extra = (
             "\n\nHere is the post to rewrite:\n\n"
-            f"<original>\n# {title}\n\n{original.content.strip()}\n</original>"
+            f"<original>\n# {title}\n\n{unlink_internal(original.content).strip()}\n</original>"
         )
         words = len(original.content.split())
         task = (
@@ -258,8 +258,10 @@ def build_message(
             "1. Edit, do not summarize. Start from the original text and "
             "revise it. Keep its structure, sections, anecdotes, jokes, "
             "details and explanations, and keep every markdown image and "
-            "link exactly as written (same URLs). Rewrite only what the "
-            "request makes necessary.\n"
+            "every link to an external source exactly as written (same "
+            "URLs). Links to my own posts and affiliate links were taken out "
+            "of the original on purpose; I add them back later, so do not "
+            "add any. Rewrite only what the request makes necessary.\n"
             f"2. Length: the original has about {words} words. The new post "
             f"must have at least {int(words * 0.9)}, and more if the request "
             "adds material. A shorter result is a failure.\n"
@@ -316,7 +318,7 @@ def build_message(
             "- CORRECT: replace the statement with the corrected one, naming "
             "and linking its source.\n"
             "- REMOVE: take the statement out and adjust the text around it, "
-            "keeping that passage's links and images somewhere fitting.\n"
+            "keeping that passage's images and source links somewhere fitting.\n"
             "- UNCONFIRMED: keep it as the original says it, without adding "
             "certainty or a source.\n"
             "Statements of the original not in this list stay as they are.\n\n"
@@ -371,25 +373,44 @@ def _targets(body: str) -> dict[str, tuple[bool, str]]:
     return out
 
 
+# A whole Markdown link (not an image): [text](url "title")
+MD_LINK = re.compile(r'(?<!!)\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)')
+
+
+def _recreatable(url: str) -> bool:
+    """A link the author adds back after a refactor: to an own post, or affiliate."""
+    return url.startswith("/") or _is_affiliate_url(url)
+
+
+def unlink_internal(body: str) -> str:
+    """`body` with links to own posts and affiliate links turned into their text.
+
+    A refactor keeps only links to external sources; the author recreates
+    the others afterwards (`o`, `d`, `z`). Images are kept.
+    """
+    return MD_LINK.sub(lambda m: m.group(1) if _recreatable(m.group(2)) else m.group(0), body)
+
+
+def recreatable_links(body: str) -> tuple[int, int]:
+    """(links to own posts, affiliate links) in `body`."""
+    urls = [m.group(2) for m in MD_LINK.finditer(body)]
+    affiliate = sum(1 for u in urls if _is_affiliate_url(u))
+    return sum(1 for u in urls if u.startswith("/") and not _is_affiliate_url(u)), affiliate
+
+
 def refactor_losses(original: str, new: str) -> list[tuple[str, str]]:
     """What the original body has and the refactored one lost, as (kind, detail).
 
-    Kinds: "image", "internal link", "affiliate link", "external link",
-    "length". A pure text check: no LLM involved.
+    Kinds: "image", "external link", "length". Links to own posts and
+    affiliate links are left out on purpose (see unlink_internal). A pure
+    text check: no LLM involved.
     """
     kept = _targets(new)
     losses = []
     for url, (image, text) in _targets(original).items():
-        if url in kept:
+        if url in kept or (not image and _recreatable(url)):
             continue
-        if image:
-            kind = "image"
-        elif _is_affiliate_url(url):
-            kind = "affiliate link"
-        elif url.startswith("/") or url.startswith("#"):
-            kind = "internal link"
-        else:
-            kind = "external link"
+        kind = "image" if image else "external link"
         losses.append((kind, f"{url}" + (f"  “{text}”" if text and not image else "")))
     old_words, new_words = len(original.split()), len(new.split())
     if old_words and new_words < old_words * REFACTOR_MIN_WORDS:

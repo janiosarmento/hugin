@@ -460,10 +460,9 @@ ORIGINAL_BODY = (
 
 def test_refactor_losses_lists_what_went_missing():
     new = "Intro with [old breeds](/5-old-breeds/).\n\n![a cat](/img/cat.avif)\n\n" + "word " * 50
+    # Links to own posts and affiliate links are left out on purpose
     assert drafting.refactor_losses(ORIGINAL_BODY, new) == [
-        ("affiliate link", "https://amzn.to/abc  “treats”"),
         ("external link", "https://club.example/stats  “club”"),
-        ("internal link", "/cats-for-kids/  “kids”"),
         ("length", "56 words; the original has 114"),
     ]
     assert drafting.refactor_losses(ORIGINAL_BODY, ORIGINAL_BODY) == []
@@ -495,7 +494,8 @@ def test_refactor_with_losses_asks_before_saving(tmp_path, monkeypatch):
         await pilot.pause(0.3)
         assert isinstance(app.screen, ed.DraftCheckScreen)
         shown = str(app.screen.query_one("#check-list Static").render())
-        assert "/cats-for-kids/" in shown and "amzn.to/abc" in shown and "/img/cat.avif" in shown
+        assert "club.example" in shown and "/img/cat.avif" in shown
+        assert "/cats-for-kids/" not in shown and "amzn.to/abc" not in shown
         await pilot.press("ctrl+s")
 
     posts_dir, path = _refactor_wait(tmp_path, keys)
@@ -516,3 +516,35 @@ def test_refactor_with_losses_can_be_discarded(tmp_path, monkeypatch):
     posts_dir, path = _refactor_wait(tmp_path, keys)
     assert path is None
     assert not (posts_dir / "new-title.md").exists()
+
+
+def test_unlink_internal_keeps_images_and_source_links():
+    assert drafting.unlink_internal(ORIGINAL_BODY).startswith(
+        "Intro with old breeds and treats.\n\n![a cat](/img/cat.avif)\n\n"
+        "See the [club](https://club.example/stats) and kids."
+    )
+    assert drafting.recreatable_links(ORIGINAL_BODY) == (2, 1)
+
+
+def test_refactor_writer_never_sees_own_or_affiliate_links(tmp_path):
+    original = Post(tmp_path / "old.md", {"title": "Old"}, ORIGINAL_BODY, False)
+    message = drafting.build_message([], "update it", original)
+    assert "/5-old-breeds/" not in message and "amzn.to" not in message
+    assert "](https://club.example/stats)" in message and "](/img/cat.avif)" in message
+    assert "do not add any" in message
+
+
+def test_refactor_draft_drops_links_the_writer_kept(tmp_path, monkeypatch):
+    async def fake_ask(engine, message, system=None):
+        return ("New Title\n\n" + ORIGINAL_BODY.replace("Intro", "Intro [new](/invented/)"))
+
+    monkeypatch.setattr(drafting, "call_llm", fake_ask)
+
+    async def keys(app, pilot):
+        await pilot.pause(0.3)
+
+    posts_dir, path = _refactor_wait(tmp_path, keys)
+    body = frontmatter.load(str(path)).content
+    assert "](/" not in body.replace("](/img/cat.avif)", "")
+    assert "amzn.to" not in body
+    assert "[club](https://club.example/stats)" in body

@@ -45,7 +45,9 @@ from hugin.drafting import (
     original_query,
     pick_category,
     pick_similar,
+    recreatable_links,
     refactor_losses,
+    unlink_internal,
     select_refactor_samples,
     select_samples,
     write_draft,
@@ -534,6 +536,10 @@ class DraftWaitScreen(ModalScreen[Path | None]):
             text = await write_draft(message, self._engine)
             who = f"{self._engine.id} / {self._engine.model}"
             title, body = parse_answer(text, self._request)
+            if self._original is not None:
+                # Only source links stay; the author recreates the others
+                body = unlink_internal(body)
+                text = f"{title}\n\n{body}"
             issues = await self._check(body)
             if issues and not await self.app.push_screen_wait(DraftCheckScreen(issues)):
                 self.notify("Draft discarded")
@@ -576,6 +582,14 @@ class DraftWaitScreen(ModalScreen[Path | None]):
             except OSError:
                 log_exception("draft: save research log")
             self.notify(f"Written by {who}")
+            if self._original is not None:
+                own, affiliate = recreatable_links(self._original.content)
+                if own or affiliate:
+                    self.notify(
+                        f"Left out of the refactor: {own} link(s) to your posts and "
+                        f"{affiliate} affiliate link(s). Add them back with o, d and z.",
+                        timeout=15,
+                    )
         except DraftError as e:
             self.dismiss(self._empty_draft(str(e)))
             return
