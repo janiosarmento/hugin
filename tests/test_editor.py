@@ -193,3 +193,26 @@ def test_picker_opened_from_the_editor_shows_the_current_time_and_fits(tmp_path)
 
     asyncio.run(go())
     assert seen == {"picker": "DatePickerScreen", "time": "11:30", "inside": True}
+
+
+def test_fields_past_the_panel_height_scroll_into_view(tmp_path):
+    """On a short terminal the panel scrolls, so a focused field is never cut off."""
+    post = _post(tmp_path, "")
+    seen = {}
+
+    async def go():
+        app = App()
+        async with app.run_test(size=(100, 30)) as pilot:
+            screen = EditorScreen(post)
+            app.push_screen(screen)
+            await pilot.pause()
+            panel = screen.query_one("#frontmatter-panel")
+            field = screen.query_one("#field-description", Input)
+            field.focus()
+            await pilot.pause()
+            seen["panel"] = panel.content_region
+            seen["field"] = field.parent.region
+
+    asyncio.run(go())
+    panel, field = seen["panel"], seen["field"]
+    assert field.y >= panel.y and field.bottom <= panel.bottom

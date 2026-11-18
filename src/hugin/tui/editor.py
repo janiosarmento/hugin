@@ -6,7 +6,7 @@ import frontmatter
 import yaml
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import ModalScreen, Screen
 from textual.widgets import (
@@ -196,7 +196,7 @@ class EditorScreen(Screen[bool]):
     #frontmatter-panel {
         height: auto;
         max-height: 40%;
-        padding: 1;
+        padding: 0 1;
         border-bottom: solid $accent;
     }
 
@@ -266,7 +266,8 @@ class EditorScreen(Screen[bool]):
                     id="raw-editor",
                 )
 
-            with Vertical(id="frontmatter-panel"):
+            # Scrolls: on a short terminal the fields don't all fit in its max height
+            with VerticalScroll(id="frontmatter-panel"):
                 meta = self.post.metadata
 
                 # Editable fields
