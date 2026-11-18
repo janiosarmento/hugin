@@ -90,10 +90,10 @@ def test_toc_shares_the_draft_row_and_lastmod_is_not_shown(tmp_path):
             app.push_screen(screen)
             await pilot.pause()
             seen["toc"] = screen._field_inputs["toc"]
-            # Each checkbox sits in its own titled Field; both Fields share the row
-            seen["row"] = screen._field_inputs["draft"].parent.parent
-            seen["toc_row"] = screen._field_inputs["toc"].parent.parent
-            seen["titles"] = [screen._field_inputs[f].parent.border_title for f in ("draft", "toc")]
+            seen["row"] = screen._field_inputs["draft"].parent
+            seen["toc_row"] = screen._field_inputs["toc"].parent
+            # The checkbox carries its own label, beside the box
+            seen["titles"] = [str(screen._field_inputs[f].label) for f in ("draft", "toc")]
             seen["fields"] = set(screen._field_inputs)
 
     asyncio.run(go())

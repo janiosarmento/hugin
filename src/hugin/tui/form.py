@@ -41,14 +41,7 @@ class Field(Vertical):
     Field > Select {
         width: 1fr;
     }
-    /* Checkboxes and read-only text keep the one-line height of an Input. */
-    Field > Checkbox, Field > Checkbox:focus {
-        border: none;
-        height: 1;
-        padding: 0 1;
-        width: 1fr;
-        background: $surface;
-    }
+    /* Read-only text keeps the one-line height of an Input. */
     Field > Static {
         width: 1fr;
         padding: 0 1;

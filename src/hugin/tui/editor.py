@@ -204,6 +204,16 @@ class EditorScreen(Screen[bool]):
         height: auto;
     }
 
+    /* Checkboxes keep their label beside the box, on one compact line */
+    .field-row Checkbox, .field-row Checkbox:focus {
+        width: auto;
+        height: 1;
+        border: none;
+        padding: 0 1;
+        margin-right: 2;
+        background: transparent;
+    }
+
     .field-readonly {
         color: $text-muted;
     }
@@ -265,14 +275,16 @@ class EditorScreen(Screen[bool]):
                         for field_name in row:
                             if field_name in BOOLEAN_FIELDS:
                                 widget = Checkbox(
-                                    "", value=_as_bool(meta.get(field_name)),
+                                    field_name, value=_as_bool(meta.get(field_name)),
                                     id=f"field-{field_name}",
                                 )
-                            else:
-                                widget = Input(
-                                    value=_as_text(meta.get(field_name)),
-                                    id=f"field-{field_name}",
-                                )
+                                self._field_inputs[field_name] = widget
+                                yield widget
+                                continue
+                            widget = Input(
+                                value=_as_text(meta.get(field_name)),
+                                id=f"field-{field_name}",
+                            )
                             self._field_inputs[field_name] = widget
                             parts = [widget]
                             if field_name in DATE_FIELDS:
