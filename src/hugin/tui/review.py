@@ -686,7 +686,7 @@ class HuginScreen(Screen):
         margin-bottom: 1;
     }
 
-    #manual-tags-input {
+    #review-container Field.manual-tags {
         margin-top: 1;
     }
 
@@ -797,11 +797,11 @@ class HuginScreen(Screen):
                     yield Button("Go to original", id="btn-goto-original", classes="hidden")
                 yield Label("", classes="section-label", id="section-header")
                 yield Vertical(id="suggested-tags-container")
-                yield Input(
-                    placeholder="Manual tags (comma-separated)",
+                # The Field is what gets hidden, or its empty border would stay on screen
+                yield titled("Manual tags", Input(
+                    placeholder="comma-separated",
                     id="manual-tags-input",
-                    classes="hidden",
-                )
+                ), classes="manual-tags hidden")
                 with Horizontal(id="review-buttons", classes="hidden"):
                     yield Button("Apply", id="btn-apply", variant="primary")
                     yield Button("Skip", id="btn-skip")
@@ -1050,7 +1050,7 @@ class HuginScreen(Screen):
         self.query_one("#section-header", Label).update("")
         manual_input = self.query_one("#manual-tags-input", Input)
         manual_input.value = ""
-        manual_input.add_class("hidden")
+        manual_input.parent.add_class("hidden")
         self.query_one("#review-buttons").add_class("hidden")
         self.query_one("#btn-apply", Button).variant = "primary"
 
@@ -1149,8 +1149,8 @@ class HuginScreen(Screen):
 
         self.query_one("#section-header", Label).update("")
         manual_input = self.query_one("#manual-tags-input", Input)
-        manual_input.placeholder = "Manual tags (comma-separated)"
-        manual_input.remove_class("hidden")
+        manual_input.placeholder = "comma-separated"
+        manual_input.parent.remove_class("hidden")
         self.query_one("#review-buttons").remove_class("hidden")
         self.query_one("#btn-apply", Button).label = "Apply"
         self.query_one("#btn-apply", Button).focus()

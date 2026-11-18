@@ -108,8 +108,7 @@ class DraftPromptScreen(ModalScreen[str | None]):
     }
 
     #draft-prompt {
-        height: 10;
-        margin-bottom: 1;
+        height: 8;
     }
 
     #draft-body Field.narrow {
@@ -133,7 +132,7 @@ class DraftPromptScreen(ModalScreen[str | None]):
         width: auto;
     }
 
-    #draft-query {
+    #draft-body Field.query {
         margin-bottom: 1;
     }
 
@@ -239,7 +238,7 @@ class DraftPromptScreen(ModalScreen[str | None]):
                         "Send the author profile", value=self._has_profile(),
                         disabled=not self._has_profile(), id="draft-profile",
                     )
-                yield TextArea(id="draft-prompt")
+                yield titled("Prompt", TextArea(id="draft-prompt"))
                 if self._original is None:
                     yield titled(
                         "Length (words)",
@@ -264,10 +263,10 @@ class DraftPromptScreen(ModalScreen[str | None]):
                         value=False, disabled=True, id="draft-review",
                     )
                 if self._original is None:
-                    yield Input(
-                        placeholder="search query (empty: derived from the prompt)",
+                    yield titled("Search query", Input(
+                        placeholder="empty: derived from the prompt",
                         id="draft-query", disabled=True,
-                    )
+                    ), classes="query")
                 yield Static(self._samples_text(), id="draft-samples")
             with Horizontal(id="draft-buttons"):
                 yield Button("Send (Ctrl+S)", id="btn-draft-send", variant="primary")
@@ -284,9 +283,10 @@ class DraftPromptScreen(ModalScreen[str | None]):
 
     def _fit_prompt(self) -> None:
         # Everything but the text area takes ~27 rows (border, title, hint, research,
-        # samples, buttons); give the text area what is left, between 4 and 10.
+        # samples, buttons); give the prompt field what is left, between 4 and 10.
+        # The field's own border takes 2 of those rows.
         room = int(self.size.height * 0.9) - 28
-        self.query_one("#draft-prompt", TextArea).styles.height = max(4, min(10, room))
+        self.query_one("#draft-prompt", TextArea).styles.height = max(4, min(10, room)) - 2
 
     def _writer_label(self) -> str:
         if self._engine is None:
@@ -1082,12 +1082,8 @@ class ClaimsReviewScreen(ModalScreen["fc.FactCheck | str | None"]):
         height: auto;
     }
 
-    .claim-row Select {
-        width: 22;
-    }
-
-    .claim-row Input {
-        width: 1fr;
+    .claim-row Field.verdict {
+        width: 24;
     }
 
     .claim-meta {
@@ -1126,14 +1122,14 @@ class ClaimsReviewScreen(ModalScreen["fc.FactCheck | str | None"]):
                     with Vertical(classes="claim"):
                         yield Static(f"[{c.n}] {escape(c.text)}", classes="claim-text")
                         with Horizontal(classes="claim-row"):
-                            yield Select(
+                            yield titled("Verdict", Select(
                                 [(label, v) for v, label in VERDICT_LABELS.items()],
                                 value=c.verdict, allow_blank=False, id=f"verdict-{c.n}",
-                            )
-                            yield Input(
+                            ), classes="verdict")
+                            yield titled("Correction", Input(
                                 value=c.correction, id=f"correction-{c.n}",
                                 placeholder="corrected claim (for correct)",
-                            )
+                            ))
                         yield Static(self._meta(c), classes="claim-meta")
             yield Static(self._sources_text(), id="brief-sources")
             with Horizontal(id="brief-buttons"):

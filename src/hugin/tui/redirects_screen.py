@@ -123,7 +123,7 @@ class RedirectSuggestScreen(ModalScreen[str | None]):
     #suggest-choices {
         width: 100%;
     }
-    #input-dest {
+    #suggest-body Field {
         margin-top: 1;
     }
     #suggest-buttons {
@@ -178,7 +178,7 @@ class RedirectSuggestScreen(ModalScreen[str | None]):
                 with RadioSet(id="suggest-choices"):
                     yield from choices
                     yield RadioButton("Other URL (type it below)", id="choice-other")
-                yield Input(placeholder="/new-destination/", id="input-dest")
+                yield titled("Other URL", Input(placeholder="/new-destination/", id="input-dest"))
             with Horizontal(id="suggest-buttons"):
                 yield Button("Confirm (Ctrl+S)", id="btn-add", variant="primary")
                 yield Button("No redirect (Esc)", id="btn-skip")
