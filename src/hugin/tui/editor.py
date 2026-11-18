@@ -17,6 +17,7 @@ from textual.widgets import (
     Label,
     Static,
 )
+from hugin.tui.form import titled
 from hugin.tui.widgets import TextArea
 
 from hugin.scanner import Post
@@ -201,33 +202,10 @@ class EditorScreen(Screen[bool]):
 
     .field-row {
         height: auto;
-        margin-bottom: 0;
-    }
-
-    .field-label {
-        width: 15;
-        text-style: bold;
-        padding-top: 1;
-    }
-
-    .field-input {
-        width: 1fr;
-    }
-
-    .field-check {
-        width: auto;
-        margin-right: 2;
-    }
-
-    .pick-button {
-        width: 8;
-        min-width: 8;
     }
 
     .field-readonly {
-        width: 1fr;
         color: $text-muted;
-        padding-top: 1;
     }
 
     #body-panel {
@@ -285,21 +263,21 @@ class EditorScreen(Screen[bool]):
                 for row in FIELD_ROWS:
                     with Horizontal(classes="field-row"):
                         for field_name in row:
-                            yield Label(field_name, classes="field-label")
                             if field_name in BOOLEAN_FIELDS:
                                 widget = Checkbox(
                                     "", value=_as_bool(meta.get(field_name)),
-                                    id=f"field-{field_name}", classes="field-check",
+                                    id=f"field-{field_name}",
                                 )
                             else:
                                 widget = Input(
                                     value=_as_text(meta.get(field_name)),
-                                    id=f"field-{field_name}", classes="field-input",
+                                    id=f"field-{field_name}",
                                 )
                             self._field_inputs[field_name] = widget
-                            yield widget
+                            parts = [widget]
                             if field_name in DATE_FIELDS:
-                                yield Button("Pick", id=f"pick-{field_name}", classes="pick-button")
+                                parts.append(Button("\U000F00ED", id=f"pick-{field_name}"))
+                            yield titled(field_name, *parts)
 
                 # Read-only fields
                 for field_name in READONLY_FIELDS:
@@ -309,9 +287,7 @@ class EditorScreen(Screen[bool]):
                     else:
                         display = str(value) if value else ""
 
-                    with Horizontal(classes="field-row"):
-                        yield Label(field_name, classes="field-label")
-                        yield Static(f"[dim]{display}[/dim]", classes="field-readonly")
+                    yield titled(field_name, Static(display, classes="field-readonly", markup=False))
 
                 # Track extra fields not in EDITABLE_FIELDS or READONLY_FIELDS
                 known = set(EDITABLE_FIELDS) | set(READONLY_FIELDS)

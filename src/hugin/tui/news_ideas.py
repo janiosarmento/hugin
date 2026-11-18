@@ -16,6 +16,7 @@ from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, LoadingIndicator, Select, Static
 
+from hugin.tui.form import titled
 from hugin.authors import pick_author
 from hugin.hugo import slugify as _slugify
 from hugin.hugo import load_categories
@@ -52,11 +53,7 @@ class NewsIdeasScreen(Screen):
         background: $panel;
     }
 
-    #search-box Label {
-        margin-bottom: 1;
-    }
-
-    #search-input {
+    #search-box Field {
         margin-bottom: 1;
     }
 
@@ -76,11 +73,7 @@ class NewsIdeasScreen(Screen):
         display: none;
     }
 
-    #ideas-author-row {
-        height: auto;
-    }
-
-    #ideas-author {
+    #results-phase Field {
         width: 40;
     }
 
@@ -135,8 +128,7 @@ class NewsIdeasScreen(Screen):
         # Phase 1: search input
         with Vertical(id="search-phase"):
             with Vertical(id="search-box"):
-                yield Label("Search term for news:")
-                yield Input(placeholder="e.g. gatos, felinos, pets...", id="search-input")
+                yield titled("Search term for news", Input(placeholder="e.g. gatos, felinos, pets...", id="search-input"))
                 yield Button("Search", id="btn-search", variant="primary")
 
         # Phase 2: loading
@@ -148,12 +140,10 @@ class NewsIdeasScreen(Screen):
         with Vertical(id="results-phase"):
             yield Label("", id="results-header")
             if self._authors:
-                with Horizontal(id="ideas-author-row"):
-                    yield Label("Author of the drafts: ")
-                    yield Select(
-                        [(a, a) for a in self._authors], value=self._author,
-                        allow_blank=False, id="ideas-author",
-                    )
+                yield titled("Author of the drafts", Select(
+                    [(a, a) for a in self._authors], value=self._author,
+                    allow_blank=False, id="ideas-author",
+                ))
             yield ScrollableContainer(id="ideas-container")
             with Horizontal(id="results-footer"):
                 yield Button("Create drafts (Ctrl+S)", id="btn-create", variant="primary")

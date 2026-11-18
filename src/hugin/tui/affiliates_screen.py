@@ -8,6 +8,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Input, Label
 
+from hugin.tui.form import titled
 from hugin.affiliates import (
     AFFILIATES_PATH,
     load_affiliates,
@@ -39,12 +40,9 @@ class AffiliateEditScreen(ModalScreen[tuple[str, str] | None]):
         background: $surface;
         padding: 1 2;
     }
-    #aff-modal Label {
-        margin-top: 1;
-    }
     #aff-title {
         text-style: bold;
-        margin-top: 0;
+        margin-bottom: 1;
     }
     #aff-hint {
         color: $text-muted;
@@ -70,10 +68,9 @@ class AffiliateEditScreen(ModalScreen[tuple[str, str] | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="aff-modal"):
             yield Label("Edit affiliate link" if self._editing else "Add affiliate link", id="aff-title")
-            yield Label("The text that gets linked when it appears in a post (whole word, any case):", id="aff-hint")
-            yield Input(self._keyword, placeholder="litter box", id="input-keyword")
-            yield Label("Affiliate URL:")
-            yield Input(self._url, placeholder="https://amzn.to/...", id="input-url")
+            yield titled("Keyword", Input(self._keyword, placeholder="litter box", id="input-keyword"))
+            yield Label("The text that gets linked when it appears in a post (whole word, any case).", id="aff-hint")
+            yield titled("Affiliate URL", Input(self._url, placeholder="https://amzn.to/...", id="input-url"))
             with Horizontal(id="aff-buttons"):
                 yield Button("Save", id="btn-save", variant="primary")
                 yield Button("Cancel", id="btn-cancel")

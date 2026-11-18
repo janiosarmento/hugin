@@ -9,6 +9,7 @@ from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button, DataTable, Footer, Input, Label, RadioButton, RadioSet, Static,
 )
+from hugin.tui.form import titled
 from hugin.tui.widgets import TextArea
 
 from rich.markup import escape
@@ -239,10 +240,8 @@ class AddRedirectScreen(ModalScreen[tuple[str, str] | None]):
         background: $surface;
         padding: 1 2;
     }
-    #add-modal Label {
-        margin-top: 1;
-    }
-    #add-modal Input {
+    #add-title {
+        text-style: bold;
         margin-bottom: 1;
     }
     #add-buttons {
@@ -257,10 +256,8 @@ class AddRedirectScreen(ModalScreen[tuple[str, str] | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="add-modal"):
             yield Label("Add redirect", id="add-title")
-            yield Label("Origin:")
-            yield Input(placeholder="/old-post/", id="input-origin")
-            yield Label("Destination:")
-            yield Input(placeholder="/new-post/", id="input-dest")
+            yield titled("Origin", Input(placeholder="/old-post/", id="input-origin"))
+            yield titled("Destination", Input(placeholder="/new-post/", id="input-dest"))
             with Horizontal(id="add-buttons"):
                 yield Button("Add", id="btn-add", variant="primary")
                 yield Button("Cancel", id="btn-cancel")

@@ -15,6 +15,7 @@ from textual.screen import ModalScreen
 from textual.widgets import (
     Button, Checkbox, Input, Label, LoadingIndicator, Select, Static,
 )
+from hugin.tui.form import titled
 from hugin.tui.widgets import TextArea
 from textual.containers import VerticalScroll
 
@@ -111,11 +112,7 @@ class DraftPromptScreen(ModalScreen[str | None]):
         margin-bottom: 1;
     }
 
-    #draft-author-row {
-        height: auto;
-    }
-
-    #draft-author {
+    #draft-body Field.narrow {
         width: 40;
     }
 
@@ -123,13 +120,9 @@ class DraftPromptScreen(ModalScreen[str | None]):
         margin-bottom: 1;
     }
 
-    #draft-length {
-        height: auto;
+    #draft-body Field.short {
+        width: 20;
         margin-bottom: 1;
-    }
-
-    #draft-length Input {
-        width: 14;
     }
 
     #draft-research-row {
@@ -238,21 +231,21 @@ class DraftPromptScreen(ModalScreen[str | None]):
                     id="draft-hint",
                 )
                 if self._authors:
-                    with Horizontal(id="draft-author-row"):
-                        yield Label("Author: ")
-                        yield Select(
-                            [(a, a) for a in self._authors], value=self.author,
-                            allow_blank=False, id="draft-author",
-                        )
+                    yield titled("Author", Select(
+                        [(a, a) for a in self._authors], value=self.author,
+                        allow_blank=False, id="draft-author",
+                    ), classes="narrow")
                     yield Checkbox(
                         "Send the author profile", value=self._has_profile(),
                         disabled=not self._has_profile(), id="draft-profile",
                     )
                 yield TextArea(id="draft-prompt")
                 if self._original is None:
-                    with Horizontal(id="draft-length"):
-                        yield Label("Length (words): ")
-                        yield Input(value=str(DEFAULT_TARGET_WORDS), id="draft-words", type="integer")
+                    yield titled(
+                        "Length (words)",
+                        Input(value=str(DEFAULT_TARGET_WORDS), id="draft-words", type="integer"),
+                        classes="short",
+                    )
                 with Horizontal(id="draft-research-row"):
                     # A refactor checks the original's claims; a new post gets a brief
                     what = (

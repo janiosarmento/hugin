@@ -6,6 +6,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Select, Static
+from hugin.tui.form import titled
 from hugin.tui.widgets import TextArea
 
 from hugin.git import SETTINGS_PUSHED, commit_settings
@@ -49,10 +50,6 @@ class ProjectSettingsScreen(ModalScreen[bool]):
         padding: 1 2;
     }
 
-    #settings-modal Label {
-        margin-bottom: 0;
-    }
-
     .settings-title {
         text-style: bold;
         margin-bottom: 1;
@@ -65,7 +62,6 @@ class ProjectSettingsScreen(ModalScreen[bool]):
 
     .field-hint {
         color: $text-muted;
-        margin-bottom: 0;
     }
 
     #settings-buttons {
@@ -92,28 +88,25 @@ class ProjectSettingsScreen(ModalScreen[bool]):
         with VerticalScroll(id="settings-modal"):
             yield Label("Project Settings", classes="settings-title")
 
-            yield Label("Summary words", classes="field-label")
-            yield Static("Target word count for generated summaries", classes="field-hint")
-            yield Input(
+            yield titled("Summary words", Input(
                 value=str(self._config.summary.words),
                 id="input-words",
                 type="integer",
-            )
+            ))
+            yield Static("Target word count for generated summaries", classes="field-hint")
 
-            yield Label("Summary style", classes="field-label")
-            yield Static("Tone instruction appended to the summary prompt", classes="field-hint")
-            yield Input(
+            yield titled("Summary style", Input(
                 value=self._config.summary.style,
                 id="input-style",
-            )
+            ))
+            yield Static("Tone instruction appended to the summary prompt", classes="field-hint")
 
-            yield Label("Words per link", classes="field-label")
-            yield Static(f"1 link per N words (0 = use global default: {self._global_wpl})", classes="field-hint")
-            yield Input(
+            yield titled("Words per link", Input(
                 value=str(self._config.links.words_per_link),
                 id="input-words-per-link",
                 type="integer",
-            )
+            ))
+            yield Static(f"1 link per N words (0 = use global default: {self._global_wpl})", classes="field-hint")
 
             yield Label("Editorial rules", classes="field-label")
             yield Static(
@@ -204,26 +197,21 @@ class AuthorProfilesScreen(ModalScreen[bool]):
         margin-bottom: 1;
     }
 
-    #profiles-modal .field-label {
-        margin-top: 1;
-        text-style: bold;
-    }
-
     #profiles-modal .field-hint {
         color: $text-muted;
     }
 
-    #select-profile-author {
+    #profiles-modal Field.narrow {
         width: 50;
     }
 
-    #input-profile-name {
-        width: 50;
+    #profiles-modal Field.grow {
+        height: 1fr;
     }
 
     #input-profile-text {
         height: 1fr;
-        min-height: 4;
+        min-height: 2;
     }
 
     #profiles-buttons {
@@ -250,27 +238,33 @@ class AuthorProfilesScreen(ModalScreen[bool]):
         with Vertical(id="profiles-modal"):
             yield Label("Author profiles", classes="settings-title")
 
-            yield Label("Author", classes="field-label")
+            yield titled("Author", Select(
+                [(a, a) for a in self._authors],
+                value=self._loaded or Select.NULL,
+                allow_blank=True,
+                id="select-profile-author",
+            ), classes="narrow")
+            yield titled(
+                "Author name",
+                Input(value=self._loaded, placeholder="Author name", id="input-profile-name"),
+                classes="narrow",
+            )
             yield Static(
                 "Pick an author to edit, or leave blank to add a new one. "
                 "The name must match the author front matter of the posts.",
                 classes="field-hint",
             )
-            yield Select(
-                [(a, a) for a in self._authors],
-                value=self._loaded or Select.NULL,
-                allow_blank=True,
-                id="select-profile-author",
-            )
-            yield Input(value=self._loaded, placeholder="Author name", id="input-profile-name")
 
-            yield Label("Profile", classes="field-label")
+            yield titled(
+                "Profile",
+                TextArea(self._profiles.get(self._loaded, ""), id="input-profile-text"),
+                classes="grow",
+            )
             yield Static(
                 "Voice and style to write in, e.g. formal and academic, or warm and informal. "
                 "Blank removes this author's profile.",
                 classes="field-hint",
             )
-            yield TextArea(self._profiles.get(self._loaded, ""), id="input-profile-text")
 
             with Horizontal(id="profiles-buttons"):
                 yield Button("Save", id="btn-save-profile", variant="primary")
@@ -352,22 +346,21 @@ class EditorialRulesScreen(ModalScreen[bool]):
         margin-bottom: 1;
     }
 
-    #rules-modal .field-label {
-        margin-top: 1;
-        text-style: bold;
-    }
-
     #rules-modal .field-hint {
         color: $text-muted;
     }
 
+    #rules-modal Field.grow {
+        height: 1fr;
+    }
+
     #input-constraints {
         height: 1fr;
-        min-height: 3;
+        min-height: 1;
     }
 
     #input-override-rules {
-        height: 4;
+        height: 2;
     }
 
     #rules-buttons {
@@ -394,23 +387,26 @@ class EditorialRulesScreen(ModalScreen[bool]):
         with Vertical(id="rules-modal"):
             yield Label("Editorial rules", classes="settings-title")
 
-            yield Label("Blog rules", classes="field-label")
+            yield titled(
+                "Blog rules", TextArea(writing.constraints, id="input-constraints"), classes="grow",
+            )
             yield Static(
                 "Sent with every LLM draft of this blog. Blank = Hugin default.",
                 classes="field-hint",
             )
-            yield TextArea(writing.constraints, id="input-constraints")
 
-            yield Label("Language override", classes="field-label")
+            yield titled(
+                "Language override",
+                Input(value=self._loaded_language, id="input-override-language"),
+            )
+            yield titled("Override rules", TextArea(
+                writing.by_language.get(self._loaded_language, ""),
+                id="input-override-rules",
+            ))
             yield Static(
                 "Language as detected from the posts (Portuguese, English, Spanish, French). "
                 "Blank rules remove the override. Current overrides: " + overrides,
                 classes="field-hint",
-            )
-            yield Input(value=self._loaded_language, id="input-override-language")
-            yield TextArea(
-                writing.by_language.get(self._loaded_language, ""),
-                id="input-override-rules",
             )
 
             with Horizontal(id="rules-buttons"):

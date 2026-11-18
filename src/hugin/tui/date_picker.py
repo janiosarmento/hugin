@@ -8,7 +8,9 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Static
+from textual.widgets import Button, Input, Static
+
+from hugin.tui.form import titled
 
 WEEKDAYS = "Su Mo Tu We Th Fr Sa"
 
@@ -79,22 +81,6 @@ class DatePickerScreen(ModalScreen[datetime | None]):
         margin-bottom: 1;
     }
 
-    #picker-time {
-        height: 1;
-    }
-
-    #picker-time Label {
-        width: auto;
-        padding-right: 1;
-    }
-
-    #picker-time Input {
-        width: 8;
-        height: 1;
-        border: none;
-        padding: 0;
-    }
-
     #picker-buttons {
         height: 1;
         margin-top: 1;
@@ -122,9 +108,7 @@ class DatePickerScreen(ModalScreen[datetime | None]):
         with Vertical(id="picker-modal"):
             yield Static("", id="picker-month")
             yield Static("", id="picker-grid")
-            with Horizontal(id="picker-time"):
-                yield Label("Time")
-                yield Input(self._time.strftime("%H:%M"), id="picker-time-input")
+            yield titled("Time", Input(self._time.strftime("%H:%M"), id="picker-time-input"))
             yield Static("←→↑↓ day  PgUp/PgDn month", id="picker-hint")
             with Horizontal(id="picker-buttons"):
                 yield Button("Use", id="btn-use", variant="primary")

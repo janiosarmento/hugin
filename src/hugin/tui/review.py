@@ -27,8 +27,8 @@ from textual.widgets import (
     Select,
     Static,
 )
+from hugin.tui.form import titled
 from hugin.tui.widgets import TextArea
-
 from hugin.affiliates import load_affiliates
 from hugin.authors import pick_author
 from hugin.config import HuginConfig
@@ -367,20 +367,6 @@ class NewPostScreen(ModalScreen[tuple[str, str | None] | None]):
         padding: 1 2;
     }
 
-    #newpost-modal Label {
-        text-style: bold;
-        margin-bottom: 1;
-    }
-
-    #newpost-input {
-        margin-bottom: 1;
-    }
-
-    #newpost-author {
-        width: 100%;
-        margin-bottom: 1;
-    }
-
     #newpost-buttons {
         height: auto;
         margin-top: 1;
@@ -398,14 +384,12 @@ class NewPostScreen(ModalScreen[tuple[str, str | None] | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="newpost-modal"):
-            yield Label("New post — enter filename:")
-            yield Input(placeholder="my-new-post.md", id="newpost-input")
+            yield titled("New post filename", Input(placeholder="my-new-post.md", id="newpost-input"))
             if self._authors:
-                yield Label("Author:")
-                yield Select(
+                yield titled("Author", Select(
                     [(a, a) for a in self._authors], value=self._author,
                     allow_blank=False, id="newpost-author",
-                )
+                ))
             with Horizontal(id="newpost-buttons"):
                 yield Button("Create", id="btn-create", variant="primary")
                 yield Button("Cancel", id="btn-cancel-new")
@@ -1293,12 +1277,11 @@ class HuginScreen(Screen):
             container.mount(Static(""))
             container.mount(Static(f"[dim]{current_desc} ({len(str(current_desc))} chars)[/dim]"))
 
-        container.mount(Label("Edit summary:", classes="section-label"))
         ta = TextArea(summary, id="summary-editor")
         ta.styles.height = "auto"
-        ta.styles.min_height = 3
-        ta.styles.max_height = 6
-        container.mount(ta)
+        ta.styles.min_height = 1
+        ta.styles.max_height = 4
+        container.mount(titled("Edit summary", ta))
         container.mount(Static(f"({len(summary)} chars)", id="summary-char-count", classes="meta-desc"))
 
         self.query_one("#section-header", Label).update("")
