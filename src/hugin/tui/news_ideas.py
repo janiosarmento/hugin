@@ -21,7 +21,8 @@ from hugin.authors import pick_author
 from hugin.hugo import slugify as _slugify
 from hugin.hugo import load_categories
 import asyncio
-from hugin.llm import NEWS_IDEAS_PROMPT, call_llm, parse_news_ideas
+from hugin import prompts
+from hugin.llm import call_llm, parse_news_ideas
 from hugin.log import log_exception
 from hugin.news import fetch_news
 from hugin.writer import create_post
@@ -208,16 +209,14 @@ class NewsIdeasScreen(Screen):
             )
             if self._categories:
                 cats_list = ", ".join(f'"{c}"' for c in self._categories)
-                categories_instruction = (
-                    f"Available categories: {cats_list}\n"
-                    f"Assign the single most fitting category to each idea."
-                )
+                categories_instruction = prompts.render("news.categories", categories=cats_list)
                 category_field = ', "category": "one of the available categories"'
             else:
                 categories_instruction = ""
                 category_field = ""
 
-            prompt = NEWS_IDEAS_PROMPT.format(
+            prompt = prompts.render(
+                "news.ideas",
                 query=query,
                 news_items=news_text,
                 n_ideas=8,

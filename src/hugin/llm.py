@@ -6,35 +6,10 @@ import re
 
 import httpx
 
+from hugin import prompts
 from hugin.engines import Engine
 from hugin.normalizer import detect_language
 from collections import Counter
-
-TAG_SYSTEM_PROMPT = """\
-You are a blog post tag generator. Analyze the following blog post and suggest relevant tags.
-
-CRITICAL: You MUST pick tags from the EXISTING POOL below whenever possible. Creating a new tag is a LAST RESORT — only when absolutely no existing tag covers the topic. If in doubt, use the existing tag.
-
-RULES:
-- Tags must be lowercase
-- Multi-word tags use hyphens as separator (e.g., "self-hosted")
-- Maximum 3 words per tag
-- No articles (a, the, o, um, os, as, les, etc.)
-- Keep tags as short as possible
-- Suggest between 3 and 7 tags per post
-- Tags must be in the same language as the post content
-- PRESERVE accents and diacritics (e.g., "automação" not "automacao", "réseau" not "reseau")
-- EVERY tag you suggest should ideally already exist in the pool below
-- A new tag is acceptable ONLY if the post covers a topic with zero coverage in the existing pool
-
-Respond with a JSON array of strings, nothing else. Example: ["tag-one", "tag-two", "tag-three"]"""
-
-TAG_USER_TEMPLATE = """\
-EXISTING TAGS IN THIS BLOG (use these, most popular first):
-{pool}
-
-POST CONTENT:
-{content}"""
 
 TOKEN_ESTIMATE_DIVISOR = 4
 MAX_TOKENS_CONTENT = 4000
@@ -69,7 +44,7 @@ def _truncate_post(metadata: dict, content: str) -> str:
 def build_prompt(metadata: dict, content: str, pool_str: str) -> str:
     if _estimate_tokens(content) > MAX_TOKENS_CONTENT:
         content = _truncate_post(metadata, content)
-    return TAG_USER_TEMPLATE.format(pool=pool_str, content=content)
+    return prompts.render("tags.user", pool=pool_str, content=content)
 
 
 def _unwrap_nested_list_item(item: str) -> list[str] | None:
@@ -208,23 +183,13 @@ async def suggest_tags(
     pool_str: str,
 ) -> list[str]:
     prompt = build_prompt(metadata, content, pool_str)
-    response_text = await call_llm(engine, prompt, system=TAG_SYSTEM_PROMPT)
+    response_text = await call_llm(engine, prompt, system=prompts.text("tags.system"))
     return parse_response(response_text)
 
 
 MAX_SUMMARY_CHARS = 160
 MAX_SUMMARY_WORDS = 25
 MAX_SHORTEN_RETRIES = 1
-
-SUMMARY_PROMPT_TEMPLATE = """\
-Write a meta description for this blog post. {language} only. {words_range} words, one sentence, no quotes.
-
-NO "Descubra", "Aprenda", "Saiba", "Discover", "Learn". {style}
-
-{current_desc}POST:
-{content}"""
-
-
 
 def build_summary_prompt(
     metadata: dict,
@@ -239,14 +204,15 @@ def build_summary_prompt(
 
     current = metadata.get("description", "")
     if current:
-        current_desc = f"CURRENT DESCRIPTION (improve or replace):\n{current}\n\n"
+        current_desc = prompts.render("summary.current", description=current).strip() + "\n\n"
     else:
         current_desc = ""
 
     low = max(words - 5, 5)
     words_range = f"{low}-{words}"
 
-    return SUMMARY_PROMPT_TEMPLATE.format(
+    return prompts.render(
+        "summary.prompt",
         language=language, current_desc=current_desc, content=content,
         words_range=words_range, style=style,
     )
@@ -260,13 +226,6 @@ def parse_summary_response(text: str) -> str:
     # Strip surrounding quotes
     text = text.strip().strip('"').strip("'")
     return text
-
-
-SHORTEN_PROMPT = """\
-Rewrite in at most {max_words} words. {language}. Only the text, nothing else.
-
-{summary}"""
-
 
 
 async def suggest_summary(
@@ -286,7 +245,8 @@ async def suggest_summary(
     for _ in range(MAX_SHORTEN_RETRIES):
         if word_count <= words and len(summary) <= MAX_SUMMARY_CHARS:
             break
-        shorten_prompt = SHORTEN_PROMPT.format(
+        shorten_prompt = prompts.render(
+            "summary.shorten",
             max_words=words,
             language=language, summary=summary,
         )
@@ -306,116 +266,17 @@ async def suggest_summary(
     return summary
 
 
-# --- Link prompts (from Munin) ---
-
-ANCHOR_SYSTEM_PROMPT = """\
-You are a technical blog editor. You add internal links from a blog post to related posts.
-
-Each candidate post comes with its target_url and its keywords: the topics that post covers.
-For each candidate, choose a phrase from the post body that a reader would naturally click to
-read that post.
-
-Rules:
-- The anchor_text must appear verbatim in the post body, exactly as written.
-- Choose a phrase that names one of the topics in the candidate's keywords. Do not choose a
-  word just because it appears in the keywords.
-- Use between 1 and {max_anchor_words} words. Never use a full sentence.
-- Do not start or end the anchor with an article, preposition or conjunction.
-- Do not anchor inside headings, code blocks, inline code, images, or existing links.
-- Suggest at most one anchor per candidate post.
-- Omit candidates for which no natural anchor exists; do not force one.
-- Return a JSON array and nothing else. No preamble, no markdown fences."""
-
-ANCHOR_USER_TEMPLATE = """\
-Post body:
-{body}
-
-Candidate posts (suggest an anchor for each where natural):
-{candidates_json}
-
-Return format:
-[{{"target_url": "/posts/foo/", "anchor_text": "exact phrase from body"}}]"""
-
-SUGGEST_PROMPT = """\
-You are a blog content strategist. Based on the following blog post, suggest 5 to 10 topics \
-for NEW posts that would complement this one. These should be topics that a reader of this \
-post would naturally want to read next.
-
-RULES:
-- Each suggestion should be a specific, actionable post title
-- Titles must be in the same language as the post content
-- Be specific — not "more about X" but a concrete angle or question
-- Return a JSON array of strings, nothing else
-{existing}
-POST TITLE: {title}
-
-POST CONTENT:
-{content}
-
-Return format: ["Post title 1", "Post title 2", ...]"""
-
-SUGGEST_EXISTING_BLOCK = """- The blog already has the posts listed below. Do not suggest topics they already \
-cover; go to angles they leave open
-
-EXISTING POSTS ON THE BLOG:
-{titles}
-"""
-
 SUGGEST_N_SIMILAR = 5  # titles only, so a generous number is cheap
 
 
 def build_suggest_prompt(title: str, content: str, similar_titles: list[str]) -> str:
-    """SUGGEST_PROMPT, telling the LLM which related posts already exist."""
+    """The topics prompt, telling the LLM which related posts already exist."""
     existing = ""
     if similar_titles:
-        existing = SUGGEST_EXISTING_BLOCK.format(
-            titles="\n".join(f"- {t}" for t in similar_titles)
-        )
-    return SUGGEST_PROMPT.format(title=title, content=content, existing=existing)
-
-RERANK_SYSTEM = """\
-You are a blog editor. Given a blog post and a list of candidate posts, select the \
-candidates that are related to the post content. A post is related if a reader of the \
-current post would benefit from reading it — topical overlap, shared concepts, \
-complementary information, or direct references.
-
-Be INCLUSIVE rather than strict: keep candidates with meaningful topical overlap, \
-even if indirect or partial. Only reject posts that are clearly unrelated to the topic. \
-When in doubt, keep the candidate — a human editor will make the final call.
-
-Return a JSON array with ONLY the URLs of relevant candidates, nothing else.
-Example: ["/posts/foo/", "/posts/bar/"]"""
-
-RERANK_USER_TEMPLATE = """\
-POST TITLE: {title}
-
-POST BODY (first 2000 chars):
-{body}
-
-CANDIDATES:
-{candidates_json}"""
-
-LINK_KEYWORDS_SYSTEM = """\
-Extract 10 to 15 keywords and key concepts from a blog post to help find related posts \
-for internal linking. Focus on: main topic, specific subjects mentioned (breeds, conditions, \
-products, techniques), and core concepts discussed. Avoid generic words.
-
-Return keywords in the same language as the post content.
-Return only a comma-separated list of keywords, nothing else."""
-
-LINK_KEYWORDS_USER_TEMPLATE = """\
-POST TITLE: {title}
-
-POST CONTENT:
-{content}"""
-
-RETRY_PROMPT = """\
-The phrase '{anchor_text}' does not appear verbatim in the post body.
-Choose a phrase from the body that exists exactly as written and would
-naturally link to a post about: {keywords} ({url})
-
-Post body:
-{body}"""
+        existing = prompts.render(
+            "links.suggest_existing", titles="\n".join(f"- {t}" for t in similar_titles)
+        ).strip() + "\n"
+    return prompts.render("links.suggest", title=title, content=content, existing=existing)
 
 
 def parse_rerank_response(text: str) -> list[str]:
@@ -476,22 +337,6 @@ def parse_suggestions(text: str) -> list[str]:
             pass
 
     return []
-
-
-NEWS_IDEAS_PROMPT = """\
-You are a content strategist. Based on the news items below about "{query}", \
-generate blog post ideas.
-
-NEWS ITEMS:
-{news_items}
-
-Generate {n_ideas} engaging post ideas inspired by these news. \
-Each idea should be a topic readers actively search for — not a news summary.
-
-{categories_instruction}
-
-Return a JSON array only, no explanation:
-[{{"title": "Post title here", "description": "1-2 sentences on what the post covers"{category_field}}}]"""
 
 
 def parse_news_ideas(text: str) -> list[dict]:

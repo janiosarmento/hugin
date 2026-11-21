@@ -11,6 +11,7 @@ from pathlib import Path
 
 import httpx
 
+from hugin import prompts
 from hugin.authors import post_authors
 from hugin.log import log_exception
 from hugin.scanner import Post
@@ -39,23 +40,6 @@ R_N_RECENT = 2
 R_N_SIMILAR = 2  # closest to the prompt
 R_N_LIKE_ORIGINAL = 2  # closest to the post being rewritten
 R_MIN_SAMPLES = R_N_RECENT + R_N_SIMILAR + R_N_LIKE_ORIGINAL
-
-
-WRITER_SYSTEM_PROMPT = (
-    "You are a blog author. Write in the voice of the writing samples and author profile you are given. "
-    "The samples show how the author writes, not what happened to them: never invent the author's "
-    "experiences."
-)
-
-# Samples give the voice, never the author's biography (an invented "after I
-# ruined my pen..." opening reads true to readers)
-NO_INVENTED_EXPERIENCE = (
-    "The samples show how I write, not what happened to me. Never invent "
-    "an experience of mine: something I did, bought, owned, broke, tried, "
-    "felt or saw. Use only the experiences {where} states; when an opening "
-    "or a passage wants a personal hook and none is given, use a general "
-    "observation or a question instead. "
-)
 
 
 # What a failed LLM call can raise: network/HTTP problems, a repetition loop
@@ -246,118 +230,49 @@ def build_message(
     for post in samples:
         title = post.metadata.get("title", post.path.stem)
         blocks.append(f"<post>\n# {title}\n\n{post.content.strip()}\n</post>")
-    n = len(samples)
-    intro = [f"Here are {n} of my blog posts:\n\n" + "\n\n".join(blocks)] if samples else []
+    intro = (
+        [prompts.render("writer.samples", n=len(samples), posts="\n\n".join(blocks))]
+        if samples else []
+    )
     if profile and profile.strip():
-        intro.append(f"Author profile (the voice and style to write in):\n\n{profile.strip()}")
+        intro.append(prompts.render("writer.profile", profile=profile.strip()))
     if original is None:
-        task = (
-            "Write a new post in my voice, following the request below. "
-            + NO_INVENTED_EXPERIENCE.format(where="the request")
-        )
+        no_invented = prompts.render("writer.no_invented_experience", where="the request")
+        task = [prompts.render("writer.new_task", no_invented_experience=no_invented)]
         if words:
-            task += f"Target length: about {words} words. "
+            task.append(prompts.render("writer.target_length", words=words))
         extra = ""
     else:
         title = original.metadata.get("title", original.path.stem)
-        extra = (
-            "\n\nHere is the post to rewrite:\n\n"
-            f"<original>\n# {title}\n\n{unlink_internal(original.content).strip()}\n</original>"
-        )
+        extra = "\n\n" + prompts.render(
+            "writer.original", title=title, content=unlink_internal(original.content).strip(),
+        ).strip()
         words = len(original.content.split())
-        task = (
-            "This is a REFACTOR, not a new post and not a follow-up. The new "
-            "version will REPLACE the original on my blog, so a reader who "
-            "only sees it must get everything the original gave them.\n\n"
-            "How to do it:\n"
-            "1. Edit, do not summarize. Start from the original text and "
-            "revise it. Keep its structure, sections, anecdotes, jokes, "
-            "details and explanations, and keep every markdown image and "
-            "every link to an external source exactly as written (same "
-            "URLs). Links to my own posts and affiliate links were taken out "
-            "of the original on purpose; I add them back later, so do not "
-            "add any. Rewrite only what the request makes necessary.\n"
-            f"2. Length: the original has about {words} words. The new post "
-            f"must have at least {int(words * 0.9)}, and more if the request "
-            "adds material. A shorter result is a failure.\n"
-            "3. Apply the request inside the story, not after it. If it "
-            "brings new facts or a different outcome, rework the post "
-            "around them: change the angle, the verdict and the conclusion, "
-            "and fix every statement the new facts contradict (praise, "
-            "recommendations, plans), so the post never contradicts itself. "
-            "Never tack the news on as an epilogue or a 'later I found out'.\n"
-            "4. It is a single standalone post. Do not mention an earlier "
-            "post or version, and do not present it as an update, a sequel "
-            "or a second part (not in the text and not in the title). The "
-            "title may change to fit the new angle.\n"
-            "5. The other posts above are only samples of my voice; do not "
-            "borrow their content. "
-            + NO_INVENTED_EXPERIENCE.format(where="the original or the request")
-            + "\n\n"
-            "The request below says what to change. "
+        no_invented = prompts.render(
+            "writer.no_invented_experience", where="the original or the request",
         )
+        task = [prompts.render(
+            "writer.refactor_task", words=words, min_words=int(words * 0.9),
+            no_invented_experience=no_invented,
+        )]
     if research and research.strip():
-        if original is None:
-            use = (
-                "Use the brief to decide what to cover and for facts. Take facts "
-                "only from it."
-            )
-        else:
-            use = (
-                "Use the brief to check and update the original. A fact of the "
-                "original stays as written unless a source in the brief "
-                "contradicts it: then correct it with the source. A fact the "
-                "sources do not mention is not a reason to cut it; keep it. Add "
-                "facts from the brief where the request asks for them. The "
-                "brief's outline is only a suggestion; the refactor rules below "
-                "come first."
-            )
-        extra += (
-            "\n\nResearch brief for this post (made from a web search and "
-            "reviewed by me; the numbers in brackets point to the sources "
-            "listed at its end):\n\n"
-            f"<research>\n{research.strip()}\n</research>\n\n"
-            f"{use} Every fact taken from a source names that source in the "
-            "sentence (the site or organization) and links its URL inline "
-            "(Markdown); never write \"one source says\" or \"some sites\". "
-            "When sources disagree, say which says what. Never copy sentences "
-            "from the sources. Keep my voice from the samples, not the tone of "
-            "the sources. Facts marked \"(snippet)\" come from a search "
-            "snippet only: hedge them or leave them out. State a general "
-            "caveat (individuals vary, ask a professional) at most once in the "
-            "whole post, and spend the rest on specific information."
-        )
+        use = prompts.text(
+            "writer.research_use_new" if original is None else "writer.research_use_refactor"
+        ).strip()
+        extra += "\n\n" + prompts.render("writer.research", research=research.strip(), use=use).strip()
     if claims and claims.strip():
-        extra += (
-            "\n\nFact check of the post to rewrite, made from web searches and "
-            "reviewed by me. Apply every decision:\n"
-            "- KEEP: keep the statement (you may name and link its source).\n"
-            "- CORRECT: replace the statement with the corrected one, naming "
-            "and linking its source.\n"
-            "- REMOVE: take the statement out and adjust the text around it, "
-            "keeping that passage's images and source links somewhere fitting.\n"
-            "- UNCONFIRMED: keep it as the original says it, without adding "
-            "certainty or a source.\n"
-            "Statements of the original not in this list stay as they are.\n\n"
-            f"<fact-check>\n{claims.strip()}\n</fact-check>\n\n"
-            "Every fact taken from a source names that source in the sentence "
-            "(the site or organization) and links its URL inline (Markdown); "
-            "never write \"one source says\" or \"some sites\". Never copy "
-            "sentences from the sources. State a general caveat (individuals "
-            "vary, ask a professional) at most once in the whole post."
-        )
+        extra += "\n\n" + prompts.render("writer.fact_check", claims=claims.strip()).strip()
+    task.append(prompts.text("writer.title_format"))
     rules = (
-        f"\n\nGuidelines:\n\n{constraints.strip()}"
+        "\n\n" + prompts.render("writer.guidelines", constraints=constraints.strip()).strip()
         if constraints and constraints.strip() else ""
     )
     return (
         "\n\n".join(intro)
         + extra
-        + f"\n\n{task}"
-        "Put the post title alone on the first line (plain text, no # or "
-        "other markup, no quotes), then a blank line, then the post body."
+        + "\n\n" + " ".join(t.strip() for t in task)
         + rules
-        + f"\n\nRequest:\n\n{request.strip()}"
+        + "\n\n" + prompts.render("writer.request", request=request.strip()).strip()
     )
 
 
@@ -368,7 +283,7 @@ async def write_draft(message: str, engine) -> str:
 
     patient = replace(engine, timeout=max(engine.timeout, MIN_WRITER_TIMEOUT))
     try:
-        text = await call_llm(patient, message, system=WRITER_SYSTEM_PROMPT)
+        text = await call_llm(patient, message, system=prompts.text("writer.system"))
     except LLM_ERRORS as e:
         raise DraftError(f"{engine.id} failed: {e}") from e
     if not text or not text.strip():
@@ -459,19 +374,6 @@ def parse_answer(text: str, request: str) -> tuple[str, str]:
     return title.replace('"', "'"), body
 
 
-CATEGORY_PROMPT = """\
-Pick the single best category for the blog post below.
-
-Available categories:
-{categories}
-
-Post title: {title}
-
-Post text:
-{body}
-
-Answer with the category name only, exactly as written in the list above."""
-
 CATEGORY_BODY_CHARS = 6000
 
 
@@ -498,7 +400,8 @@ async def pick_category(engine, title: str, body: str, categories: list[str]) ->
     if not categories:
         return None
 
-    prompt = CATEGORY_PROMPT.format(
+    prompt = prompts.render(
+        "writer.category",
         categories="\n".join(f"- {c}" for c in categories),
         title=title,
         body=body[:CATEGORY_BODY_CHARS],

@@ -6,6 +6,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hugin import prompts
 from hugin.engines import CONFIG_DIR
 from hugin.fsutil import atomic_write_text
 from hugin.hugo import find_site_root
@@ -64,6 +65,8 @@ class ProjectConfig:
     links: LinksSettings = field(default_factory=LinksSettings)
     writing: WritingSettings = field(default_factory=WritingSettings)
     authors: AuthorsSettings = field(default_factory=AuthorsSettings)
+    # LLM prompts the blog changed, keyed as in hugin.prompts.PROMPTS
+    prompts: dict[str, str] = field(default_factory=dict)
 
 
 def settings_path(directory: Path) -> Path:
@@ -97,6 +100,7 @@ def load_project(directory: Path) -> ProjectConfig:
         path = legacy_settings_path(directory)
     authors_file = authors_path(directory)
     if not path.exists() and not authors_file.exists():
+        prompts.activate({})
         return ProjectConfig()
 
     data = _read_toml(path) if path.exists() else {}
@@ -109,7 +113,10 @@ def load_project(directory: Path) -> ProjectConfig:
         names = _read_toml(authors_file).get("names", [])
     else:
         names = authors_data.get("names", [])
+    overrides = prompts.only_changed(dict(data.get("prompts", {})))
+    prompts.activate(overrides)  # the loaded site's prompts are the ones sent
     return ProjectConfig(
+        prompts=overrides,
         authors=_authors_settings(names, authors_data.get("profiles", {}), authors_data.get("field", DEFAULT_AUTHOR_FIELD)),
         summary=SummarySettings(
             words=summary_data.get("words", 25),
@@ -161,7 +168,15 @@ def save_project(directory: Path, config: ProjectConfig) -> None:
                 for author, text in authors.profiles.items()
             ]
         lines.append("")
+    config.prompts = prompts.only_changed(config.prompts)
+    if config.prompts:
+        lines += ["[prompts]", "# Only the prompts changed from Hugin's defaults; see hugin/prompts.py"]
+        lines += [
+            f"{_toml_string(key)} = {_toml_text(text)}" for key, text in config.prompts.items()
+        ]
+        lines.append("")
     atomic_write_text(path, "\n".join(lines))
+    prompts.activate(config.prompts)
 
     if authors.names:
         authors_file = authors_path(directory)
@@ -180,6 +195,15 @@ def _authors_settings(names: list[str], profiles: dict[str, str], author_field: 
     return AuthorsSettings(
         names=list(dict.fromkeys([*names, *profiles])), profiles=profiles, author_field=author_field,
     )
+
+
+def _toml_text(text: str) -> str:
+    """Long text as a TOML multi-line literal string, readable in a diff; quoted when it can't be."""
+    if "\n" not in text or "\'\'\'" in text or text.endswith("\'") or any(
+        ord(c) < 32 and c not in "\n\t" for c in text
+    ):
+        return _toml_string(text)
+    return f"\'\'\'\n{text}\'\'\'"
 
 
 def _toml_string(text: str) -> str:

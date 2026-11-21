@@ -54,3 +54,13 @@ def isolated_search_cache(tmp_path_factory, monkeypatch):
     import hugin.research
 
     monkeypatch.setattr(hugin.research, "SEARCH_CACHE_DIR", tmp_path_factory.mktemp("brave"))
+
+
+@pytest.fixture(autouse=True)
+def default_prompts():
+    """Each test starts with Hugin's built-in prompts (loading a site activates its overrides)."""
+    import hugin.prompts
+
+    hugin.prompts.activate({})
+    yield
+    hugin.prompts.activate({})

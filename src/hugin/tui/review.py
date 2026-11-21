@@ -64,14 +64,7 @@ from hugin.linker import (
     write_post_with_links,
 )
 from hugin.llm import (
-    ANCHOR_SYSTEM_PROMPT,
-    ANCHOR_USER_TEMPLATE,
     MAX_SUMMARY_CHARS,
-    RERANK_SYSTEM,
-    RERANK_USER_TEMPLATE,
-    LINK_KEYWORDS_SYSTEM,
-    LINK_KEYWORDS_USER_TEMPLATE,
-    RETRY_PROMPT,
     SUGGEST_N_SIMILAR,
     build_suggest_prompt,
     call_llm,
@@ -85,6 +78,7 @@ from hugin.normalizer import (
     MAX_TAG_WORDS, detect_language, is_valid_tag, normalize_tag, normalize_tags, strip_accents,
 )
 from hugin.scanner import Post, format_pool_for_prompt
+from hugin import prompts
 from hugin.project import load_project
 from hugin.log import log_exception, log_info
 from hugin.state import mark_processed, save_state, get_last_post, set_last_post
@@ -1508,10 +1502,11 @@ class HuginScreen(Screen):
         candidates_json = json.dumps([
             {"target_url": c["url"], "keywords": c["keywords"]} for c in asked
         ])
-        user_msg = ANCHOR_USER_TEMPLATE.format(
+        user_msg = prompts.render(
+            "links.anchor_user",
             body=post.content, candidates_json=candidates_json,
         )
-        system = ANCHOR_SYSTEM_PROMPT.format(max_anchor_words=max_words)
+        system = prompts.render("links.anchor_system", max_anchor_words=max_words)
         response = await call_llm(self.engine, user_msg, system=system)
 
         by_url = {c["url"]: c for c in asked}
@@ -1541,7 +1536,8 @@ class HuginScreen(Screen):
         self._anchor_stats["retries"] = len(to_retry)
         if to_retry:
             responses = await asyncio.gather(*(
-                call_llm(self.engine, RETRY_PROMPT.format(
+                call_llm(self.engine, prompts.render(
+                    "links.anchor_retry",
                     anchor_text=e["anchor"],
                     keywords=by_url[e["target"]]["keywords"],
                     url=e["target"], body=post.content,
@@ -1618,11 +1614,12 @@ class HuginScreen(Screen):
 
             # Step 1: always regenerate link profile on explicit trigger
             self._set_spinner_message("Step 1 — Building link profile...")
-            kw_prompt = LINK_KEYWORDS_USER_TEMPLATE.format(
+            kw_prompt = prompts.render(
+                "links.keywords_user",
                 title=post.metadata.get("title", post.filename),
                 content=post.content[:3000],
             )
-            keywords = (await call_llm(self.engine, kw_prompt, system=LINK_KEYWORDS_SYSTEM)).strip()
+            keywords = (await call_llm(self.engine, kw_prompt, system=prompts.text("links.keywords_system"))).strip()
             self.index.set_link_keywords(post, self.site.post_url, keywords)
             # Hugo's related posts read `keywords`, so it follows the new profile
             terms = parse_profile(self.index.get_link_keywords(post))
@@ -1676,12 +1673,13 @@ class HuginScreen(Screen):
                     }
                     for c in candidates
                 ])
-                rerank_prompt = RERANK_USER_TEMPLATE.format(
+                rerank_prompt = prompts.render(
+                    "links.rerank_user",
                     title=post.metadata.get("title", post.filename),
                     body=post.content[:2000],
                     candidates_json=rerank_json,
                 )
-                rerank_response = await call_llm(self.engine, rerank_prompt, system=RERANK_SYSTEM)
+                rerank_response = await call_llm(self.engine, rerank_prompt, system=prompts.text("links.rerank_system"))
                 relevant_urls = set(parse_rerank_response(rerank_response))
 
                 # Keep: reranked + mention-boosted; guarantee a minimum of 3 pass through

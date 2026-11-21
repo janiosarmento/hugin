@@ -25,7 +25,8 @@ from hugin.authors import ordered_authors, post_authors
 from hugin.project import load_project
 from hugin.tui.app import HuginApp
 from hugin.state import get_last_processed
-from hugin.llm import LINK_KEYWORDS_SYSTEM, LINK_KEYWORDS_USER_TEMPLATE, call_llm
+from hugin import prompts
+from hugin.llm import call_llm
 from hugin.writer import write_keywords_block
 from hugin.version import current as current_version
 
@@ -270,6 +271,7 @@ def build_profiles(
     config = load_config()
     engine = get_engine(engine_id)
     posts = load_posts(directory)
+    load_project(directory)  # the site's prompt overrides
 
     if not drafts:
         posts = [p for p in posts if not p.metadata.get("draft", False)]
@@ -302,11 +304,12 @@ def build_profiles(
             title = post.metadata.get("title", post.filename)
             click.echo(f"[{i}/{len(to_process)}] {title[:70]}", nl=False)
             try:
-                prompt = LINK_KEYWORDS_USER_TEMPLATE.format(
+                prompt = prompts.render(
+                    "links.keywords_user",
                     title=title,
                     content=post.content[:3000],
                 )
-                keywords = (await call_llm(engine, prompt, system=LINK_KEYWORDS_SYSTEM)).strip()
+                keywords = (await call_llm(engine, prompt, system=prompts.text("links.keywords_system"))).strip()
                 index.store_link_keywords(post, keywords)
                 # Hugo's related posts read `keywords`, so it follows the new profile
                 terms = parse_profile(index.get_link_keywords(post))

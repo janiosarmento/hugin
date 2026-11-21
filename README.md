@@ -266,6 +266,17 @@ words_per_link = 0  # 0 = use global default
 - **Summary words** — Target word count for generated summaries (5-50).
 - **Summary style** — Tone instruction sent to the LLM. Free text.
 - **Words per link** — Override link density per project. Lower = more links. 0 = use global default from `links.toml`.
+- **Prompts** — Every prompt Hugin sends to an LLM (tags, summary, links, news ideas, drafts, research, fact check, draft verification), editable per blog. Pick a prompt, edit it, and Save; edits to several prompts are kept while switching and saved together. Only prompts that differ from the built-in default are written, under `[prompts]`, so untouched ones keep following Hugin's updates; **Restore default** (or a blank text) drops an override. The built-in texts live in `src/hugin/prompts.py`.
+
+  Templates are filled with Python's `str.format`: `{name}` is a placeholder Hugin fills in (the screen lists the available ones), and a literal brace is written doubled (`{{` and `}}`), as in JSON examples. Saving refuses an unknown placeholder or an unmatched brace, and warns when a placeholder of the default is left out. Prompts marked "sent as written" (the system prompts) are never formatted, so their braces are literal. A broken override edited by hand in the file falls back to the default and is logged.
+
+  ```toml
+  [prompts]
+  "writer.request" = '''
+  What I want:
+
+  {request}'''
+  ```
 
 ### Hugo URL inference
 

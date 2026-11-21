@@ -1,4 +1,4 @@
-"""Project settings screen, and the editorial rules screen it opens."""
+"""Project settings screen, and the editorial rules, author profiles and prompts screens it opens."""
 
 from pathlib import Path
 
@@ -9,6 +9,7 @@ from textual.widgets import Button, Input, Label, Select, Static
 from hugin.tui.form import titled
 from hugin.tui.widgets import TextArea
 
+from hugin import prompts
 from hugin.git import SETTINGS_PUSHED, commit_settings
 from hugin.hugo import find_site_root
 from hugin.project import DEFAULT_EDITORIAL_CONSTRAINTS, ProjectConfig, save_project
@@ -122,6 +123,15 @@ class ProjectSettingsScreen(ModalScreen[bool]):
             )
             yield Button("Author profiles…", id="btn-author-profiles")
 
+            yield Label("Prompts", classes="field-label")
+            changed = len(self._config.prompts)
+            yield Static(
+                "Every prompt Hugin sends to the LLM, editable for this blog"
+                + (f" ({changed} changed)." if changed else "."),
+                classes="field-hint",
+            )
+            yield Button("Prompts…", id="btn-prompts")
+
             with Horizontal(id="settings-buttons"):
                 yield Button("Save", id="btn-save-settings", variant="primary")
                 yield Button("Cancel", id="btn-cancel-settings")
@@ -133,6 +143,8 @@ class ProjectSettingsScreen(ModalScreen[bool]):
             self.app.push_screen(EditorialRulesScreen(self._config, self._directory))
         elif event.button.id == "btn-author-profiles":
             self.app.push_screen(AuthorProfilesScreen(self._config, self._directory, self._authors))
+        elif event.button.id == "btn-prompts":
+            self.app.push_screen(PromptsScreen(self._config, self._directory))
         else:
             self.dismiss(False)
 
@@ -445,3 +457,153 @@ class EditorialRulesScreen(ModalScreen[bool]):
 
     def action_cancel(self) -> None:
         self.dismiss(False)
+
+
+class PromptsScreen(ModalScreen[bool]):
+    """Edit the LLM prompts for this blog; saves straight to the project file.
+
+    Edits are kept while switching prompts and saved together. Only prompts
+    that differ from the default are written, so "Restore default" (or
+    pasting the default back) drops the override.
+    """
+
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    DEFAULT_CSS = """
+    PromptsScreen {
+        align: center middle;
+    }
+
+    #prompts-modal {
+        width: 95%;
+        max-width: 130;
+        height: 100%;
+        max-height: 100%;
+        border: round $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #prompts-modal .settings-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #prompts-modal .field-hint {
+        color: $text-muted;
+    }
+
+    #prompts-modal Field.grow {
+        height: 1fr;
+    }
+
+    #input-prompt-text {
+        height: 1fr;
+        min-height: 3;
+    }
+
+    #prompts-buttons {
+        height: auto;
+        margin-top: 1;
+    }
+
+    #prompts-buttons Button {
+        margin: 0 1 0 0;
+    }
+    """
+
+    def __init__(self, config: ProjectConfig, directory: Path) -> None:
+        super().__init__()
+        self._config = config
+        self._directory = directory
+        # Text of every prompt as the form holds it: saved overrides, then edits
+        self._texts = {key: prompts.text_of(key, config.prompts) for key in prompts.PROMPTS}
+        self._loaded = next(iter(prompts.PROMPTS))
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="prompts-modal"):
+            yield Label("Prompts", classes="settings-title")
+            yield titled("Prompt", Select(
+                [(self._option_label(key), key) for key in prompts.PROMPTS],
+                value=self._loaded,
+                allow_blank=False,
+                id="select-prompt",
+            ))
+            yield Static(self._hint(), id="prompt-hint", classes="field-hint")
+            yield titled(
+                "Text", TextArea(self._texts[self._loaded], id="input-prompt-text"), classes="grow",
+            )
+            with Horizontal(id="prompts-buttons"):
+                yield Button("Save", id="btn-save-prompts", variant="primary")
+                yield Button("Restore default", id="btn-restore-prompt")
+                yield Button("Cancel", id="btn-cancel-prompts")
+
+    def _option_label(self, key: str) -> str:
+        changed = key in self._config.prompts
+        return prompts.PROMPTS[key].label + (" (changed)" if changed else "")
+
+    def _hint(self) -> str:
+        spec = prompts.PROMPTS[self._loaded]
+        state = "Changed for this blog" if key_changed(self._loaded, self._texts) else "Hugin default"
+        if spec.fields is None:
+            return f"{state}. Sent as written, no placeholders."
+        fields = ", ".join("{" + f + "}" for f in spec.fields) or "none"
+        return (
+            f"{state}. Placeholders filled by Hugin: {fields}. "
+            "Write a literal brace doubled: {{ or }}."
+        )
+
+    def _keep_edit(self) -> None:
+        self._texts[self._loaded] = self.query_one("#input-prompt-text", TextArea).text
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id != "select-prompt" or event.value in (Select.NULL, self._loaded):
+            return
+        self._keep_edit()
+        self._loaded = event.value
+        self.query_one("#input-prompt-text", TextArea).load_text(self._texts[self._loaded])
+        self.query_one("#prompt-hint", Static).update(self._hint())
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-save-prompts":
+            self._do_save()
+        elif event.button.id == "btn-restore-prompt":
+            self.query_one("#input-prompt-text", TextArea).load_text(prompts.PROMPTS[self._loaded].default)
+            self._keep_edit()
+            self.query_one("#prompt-hint", Static).update(self._hint())
+        else:
+            self.dismiss(False)
+
+    def _do_save(self) -> None:
+        self._keep_edit()
+        overrides = prompts.only_changed(self._texts)
+        missing = []
+        for key, text in overrides.items():
+            error, left_out = prompts.check(key, text)
+            if error:
+                self._show(key)
+                self.notify(f"{prompts.PROMPTS[key].label}: {error}", severity="error", timeout=10)
+                return
+            if left_out:
+                names = ", ".join("{" + f + "}" for f in left_out)
+                missing.append(f"{prompts.PROMPTS[key].label} leaves out {names}")
+
+        self._config.prompts = overrides
+        save_and_sync(self.app, self._directory, self._config, "prompts")
+        for line in missing:
+            self.app.notify(line, severity="warning", timeout=10)
+        self.dismiss(True)
+
+    def _show(self, key: str) -> None:
+        """Bring `key` into the form (to point at its problem)."""
+        self.query_one("#select-prompt", Select).value = key
+        self._loaded = key
+        self.query_one("#input-prompt-text", TextArea).load_text(self._texts[key])
+        self.query_one("#prompt-hint", Static).update(self._hint())
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
+def key_changed(key: str, texts: dict[str, str]) -> bool:
+    return key in prompts.only_changed({key: texts.get(key, "")})

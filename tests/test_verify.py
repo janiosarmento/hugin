@@ -8,7 +8,7 @@ from textual.app import App
 from hugin import drafting
 from hugin import factcheck as fc
 from hugin import research as web
-from hugin import verify
+from hugin import prompts, verify
 import hugin.tui.draft_screens as ed
 from hugin.engines import Engine
 from hugin.scanner import Post
@@ -129,7 +129,7 @@ def test_apply_fixes_replaces_drops_and_keeps_unmatched_open():
 
 def test_a_failed_fix_leaves_every_problem_open(monkeypatch):
     async def llm(engine, prompt, system=None):
-        if system == verify.FIX_SYSTEM_PROMPT:
+        if system == prompts.text("verify.fix_system"):
             raise httpx.ConnectError("down")
         return json.dumps([{"kind": "unsupported", "quote": "20 hours"}])
 
@@ -148,7 +148,7 @@ def test_nothing_found_means_no_fix_call(monkeypatch):
 
     monkeypatch.setattr(verify, "call_llm", llm)
     assert asyncio.run(verify.check_and_fix(ENGINE, "draft", original="old")) == ("draft", [], [])
-    assert calls == [verify.VERIFY_SYSTEM_PROMPT]
+    assert calls == [prompts.text("verify.system")]
 
 
 # --- wait screen ------------------------------------------------------------
@@ -180,15 +180,15 @@ def _run(screen_factory, keys_fn):
 
 
 def test_researched_draft_is_fixed_before_saving(tmp_path, monkeypatch):
-    prompts = []
+    sent = []
 
     async def writer(engine, message, system=None):
         return ("Cat Sleep\n\nCats sleep 20 hours, says [the vet](https://vet.example/sleep) "
                 "and [a study](https://journal.example/x).")
 
     async def checker(engine, prompt, system=None):
-        prompts.append(prompt)
-        if system == verify.FIX_SYSTEM_PROMPT:
+        sent.append(prompt)
+        if system == prompts.text("verify.fix_system"):
             return json.dumps([{"n": [1], "find": "Cats sleep 20 hours,",
                                 "replace": "Cats sleep 12 to 16 hours,", "note": "Per the vet."}])
         return json.dumps([{"kind": "unsupported", "quote": "Cats sleep 20 hours",
@@ -213,10 +213,10 @@ def test_researched_draft_is_fixed_before_saving(tmp_path, monkeypatch):
     assert "Cats sleep 12 to 16 hours, says [the vet](https://vet.example/sleep)" in saved
     assert "and a study." in saved and "journal.example" not in saved
     # The checker sees the brief and the text of the source the draft links
-    assert "<brief>\n## Facts" in prompts[0]
-    assert "Cats sleep 12 to 16 hours." in prompts[0]
-    assert "<original>" not in prompts[0]
-    assert "<problems>\n1. unsupported claim: “Cats sleep 20 hours”" in prompts[1]
+    assert "<brief>\n## Facts" in sent[0]
+    assert "Cats sleep 12 to 16 hours." in sent[0]
+    assert "<original>" not in sent[0]
+    assert "<problems>\n1. unsupported claim: “Cats sleep 20 hours”" in sent[1]
     log = (tmp_path / "research" / "cat-sleep.md").read_text()
     assert "## Fixed after writing" in log and "journal.example" in log
 
@@ -226,7 +226,7 @@ def test_what_cannot_be_fixed_is_shown_with_what_was(tmp_path, monkeypatch):
         return "Cat Sleep\n\nCats sleep 20 hours. Cats purr at 25 Hz."
 
     async def checker(engine, prompt, system=None):
-        if system == verify.FIX_SYSTEM_PROMPT:
+        if system == prompts.text("verify.fix_system"):
             return json.dumps([
                 {"n": 1, "find": "Cats sleep 20 hours.", "replace": "Cats sleep 12 to 16 hours."},
                 {"n": 2, "find": "not in the draft", "replace": "x"},
@@ -257,15 +257,15 @@ def test_what_cannot_be_fixed_is_shown_with_what_was(tmp_path, monkeypatch):
 
 
 def test_plain_new_draft_is_checked_only_for_invented_experiences(tmp_path, monkeypatch):
-    prompts = []
+    sent = []
 
     async def writer(engine, message, system=None):
         return ("Pen Ads\n\nAfter I ruined a fountain pen with a syringe, I look at "
                 "pen ads with care. Chinese pens are cheap.")
 
     async def checker(engine, prompt, system=None):
-        prompts.append(prompt)
-        if system == verify.FIX_SYSTEM_PROMPT:
+        sent.append(prompt)
+        if system == prompts.text("verify.fix_system"):
             return json.dumps([{"n": [1], "find": "After I ruined a fountain pen with a syringe, "
                                 "I look at pen ads with care.",
                                 "replace": "Pen ads deserve some care."}])
@@ -283,9 +283,9 @@ def test_plain_new_draft_is_checked_only_for_invented_experiences(tmp_path, monk
     assert "Pen ads deserve some care. Chinese pens are cheap." in path.read_text()
     assert "ruined" not in path.read_text()
     # No references: only the experiences are checked, against the request
-    assert '- "personal":' in prompts[0] and '- "unsupported":' not in prompts[0]
-    assert "<request>\nwrite about pen ads\n</request>" in prompts[0]
-    assert "invented experience" in prompts[1]
+    assert '- "personal":' in sent[0] and '- "unsupported":' not in sent[0]
+    assert "<request>\nwrite about pen ads\n</request>" in sent[0]
+    assert "invented experience" in sent[1]
 
 
 def test_writer_is_told_not_to_invent_experiences(tmp_path):

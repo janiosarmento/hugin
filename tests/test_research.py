@@ -9,6 +9,7 @@ from textual.app import App
 from textual.widgets import Button, Checkbox, Input, TextArea
 
 from hugin import drafting
+from hugin import prompts
 from hugin import research as web
 import hugin.tui.draft_screens as ed
 from hugin.engines import Engine
@@ -285,7 +286,7 @@ def test_research_screen_derives_the_query_and_writes_the_brief(monkeypatch):
     seen = {}
 
     async def fake_llm(engine, prompt, system=None):
-        if system == web.BRIEF_SYSTEM_PROMPT:
+        if system == prompts.text("research.brief_system"):
             seen["brief_prompt"] = prompt
             return "## Facts\n- Cats sleep a lot [1]"
         return "cat sleep hours"
