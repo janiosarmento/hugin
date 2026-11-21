@@ -22,6 +22,7 @@ from textual.containers import VerticalScroll
 from hugin import factcheck as fc
 from hugin import research as web
 from hugin import verify
+from hugin.fsutil import atomic_write_text
 
 from hugin.drafting import (
     LLM_ERRORS,
@@ -446,6 +447,12 @@ class DraftPromptScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+def _append_fixes(log: Path, fixes: list[tuple[str, str]]) -> None:
+    """Add what was fixed after writing to the research or fact-check log."""
+    rows = "\n".join(f"- **{kind}**: {detail}" for kind, detail in fixes)
+    atomic_write_text(log, log.read_text() + f"\n## Fixed after writing\n\n{rows}\n")
+
+
 class DraftWaitScreen(ModalScreen[Path | None]):
     """Spinner while the system LLM writes; dismisses with the draft path (None on failure)."""
 
@@ -553,8 +560,11 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                 # Only source links stay; the author recreates the others
                 body = unlink_internal(body)
                 text = f"{title}\n\n{body}"
-            issues = await self._check(body)
-            if issues and not await self.app.push_screen_wait(DraftCheckScreen(issues)):
+            checked, fixes, issues = await self._check(body)
+            if checked != body:
+                body = checked
+                text = f"{title}\n\n{body}"
+            if issues and not await self.app.push_screen_wait(DraftCheckScreen(issues, fixes)):
                 self.notify("Draft discarded")
                 self.dismiss(None)
                 return
@@ -597,10 +607,18 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                     )
                     self.notify(f"Fact check of {len(claims)} claims: {counts}", timeout=15)
                 if log is not None:
+                    if fixes:
+                        await asyncio.to_thread(_append_fixes, log, fixes)
                     self.notify(f"Research kept in {log}")
             except OSError:
                 log_exception("draft: save research log")
             self.notify(f"Written by {who}")
+            if fixes:
+                self.notify(
+                    f"Fixed after checking: {len(fixes)} passage(s) or link(s)"
+                    + (f"; {len(issues)} left for you" if issues else ""),
+                    timeout=15,
+                )
             if self._original is not None:
                 own, affiliate = recreatable_links(self._original.content)
                 if own or affiliate:
@@ -618,27 +636,35 @@ class DraftWaitScreen(ModalScreen[Path | None]):
             return
         self.dismiss(path)
 
-    async def _check(self, body: str) -> list[tuple[str, str]]:
-        """What to show before saving: losses, unknown links, unsupported statements."""
+    async def _check(self, body: str) -> tuple[str, list[tuple[str, str]], list[tuple[str, str]]]:
+        """Fix what the checks find: (body, rows on what was fixed, rows left for the author).
+
+        Unknown links become their text; unsupported statements are rewritten
+        from the references. Refactor losses are only reported.
+        """
         original = self._original.content if self._original is not None else None
         issues = refactor_losses(original, body) if original is not None else []
-        issues += verify.unknown_links(
-            body, verify.allowed_links(original, self._research, self._fact_check)
-        )
+        allowed = verify.allowed_links(original, self._research, self._fact_check)
+        fixes = [("link removed", detail) for _, detail in verify.unknown_links(body, allowed)]
+        body = verify.strip_links(body, allowed)
         # Statements are only checked against references; a plain new post has none
         if original is None and self._research is None:
-            return issues
-        self.query_one("#draft-wait-status", Label).update(
-            f"{escape(self._engine.id)} is checking the draft…"
-        )
+            return body, fixes, issues
+        status = self.query_one("#draft-wait-status", Label)
+        status.update(f"{escape(self._engine.id)} is checking the draft…")
         found = self._research or (self._fact_check.research if self._fact_check else None)
-        issues += await verify.check_statements(
+        body, fixed, left = await verify.check_and_fix(
             self._engine, body, original,
             brief=web.writer_context(self._brief, self._research) if self._research else None,
             decisions=fc.writer_context(self._fact_check) if self._fact_check else None,
             sources=verify.linked_sources(body, found),
+            status=lambda text: status.update(escape(text)),
         )
-        return issues
+        # A fix may only link the references; anything else goes back to text
+        for _, detail in verify.unknown_links(body, allowed):
+            fixed.append(("link removed", detail))
+        body = verify.strip_links(body, allowed)
+        return body, fixes + fixed, issues + left
 
     def _empty_draft(self, error: str) -> Path | None:
         """After a failure, keep the prompt: an empty draft with it in the frontmatter."""
@@ -936,9 +962,10 @@ class DraftCheckScreen(ModalScreen[bool]):
     }
     """
 
-    def __init__(self, losses: list[tuple[str, str]]) -> None:
+    def __init__(self, losses: list[tuple[str, str]], fixes: list[tuple[str, str]] | None = None) -> None:
         super().__init__()
         self._losses = losses
+        self._fixes = fixes or []
 
     def compose(self) -> ComposeResult:
         with Vertical(id="check-modal"):
@@ -946,15 +973,19 @@ class DraftCheckScreen(ModalScreen[bool]):
             yield Static(
                 "Losses and links come from a text comparison; claims and "
                 "attributions from a second LLM pass, which can miss problems "
-                "and flag some that are not. Some removals can be right (a "
-                "wrong link, an outdated price). Save the draft and fix the "
-                "rest in the editor, or discard it. Ctrl+S saves, Esc discards.",
+                "and flag some that are not. What could be fixed already was; "
+                "these are left. Some removals can be right (a wrong link, an "
+                "outdated price). Save the draft and fix the rest in the "
+                "editor, or discard it. Ctrl+S saves, Esc discards.",
                 id="check-hint",
             )
             with VerticalScroll(id="check-list"):
-                yield Static("\n".join(
-                    f"  [b]{escape(kind)}[/b]  {escape(detail)}" for kind, detail in self._losses
-                ))
+                rows = [f"  [b]{escape(kind)}[/b]  {escape(detail)}" for kind, detail in self._losses]
+                if self._fixes:
+                    rows += ["", f"[dim]Already fixed ({len(self._fixes)}):[/dim]"] + [
+                        f"  [dim]{escape(kind)}  {escape(detail)}[/dim]" for kind, detail in self._fixes
+                    ]
+                yield Static("\n".join(rows))
             with Horizontal(id="check-buttons"):
                 yield Button("Save draft (Ctrl+S)", id="btn-check-save", variant="primary")
                 yield Button("Discard", id="btn-check-discard")
