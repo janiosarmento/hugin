@@ -256,28 +256,56 @@ def test_what_cannot_be_fixed_is_shown_with_what_was(tmp_path, monkeypatch):
     assert "Cats sleep 12 to 16 hours. Cats purr at 25 Hz." in path.read_text()
 
 
-def test_plain_new_draft_skips_the_statement_check(tmp_path, monkeypatch):
+def test_plain_new_draft_is_checked_only_for_invented_experiences(tmp_path, monkeypatch):
+    prompts = []
+
     async def writer(engine, message, system=None):
-        return "Cat Title\n\nCat body."
+        return ("Pen Ads\n\nAfter I ruined a fountain pen with a syringe, I look at "
+                "pen ads with care. Chinese pens are cheap.")
 
     async def checker(engine, prompt, system=None):
-        raise AssertionError("no references: no statement check")
+        prompts.append(prompt)
+        if system == verify.FIX_SYSTEM_PROMPT:
+            return json.dumps([{"n": [1], "find": "After I ruined a fountain pen with a syringe, "
+                                "I look at pen ads with care.",
+                                "replace": "Pen ads deserve some care."}])
+        return json.dumps([{"kind": "personal", "quote": "After I ruined a fountain pen",
+                            "note": "Not in the request."}])
 
     monkeypatch.setattr(drafting, "call_llm", writer)
     monkeypatch.setattr(verify, "call_llm", checker)
 
     async def keys(app, pilot):
         await pilot.pause(0.3)
+        assert not isinstance(app.screen, ed.DraftCheckScreen)
 
-    path = _run(lambda: ed.DraftWaitScreen("write cats", _posts(tmp_path), tmp_path, ENGINE), keys)
-    assert path.name == "cat-title.md"
+    path = _run(lambda: ed.DraftWaitScreen("write about pen ads", _posts(tmp_path), tmp_path, ENGINE), keys)
+    assert "Pen ads deserve some care. Chinese pens are cheap." in path.read_text()
+    assert "ruined" not in path.read_text()
+    # No references: only the experiences are checked, against the request
+    assert '- "personal":' in prompts[0] and '- "unsupported":' not in prompts[0]
+    assert "<request>\nwrite about pen ads\n</request>" in prompts[0]
+    assert "invented experience" in prompts[1]
+
+
+def test_writer_is_told_not_to_invent_experiences(tmp_path):
+    post = Post(tmp_path / "a.md", {"title": "A"}, "I love pens.", False)
+    new = drafting.build_message([post], "write about pens")
+    assert "Never invent an experience of mine" in new
+    assert "experiences the request states" in new
+    refactor = drafting.build_message([post], "update", original=post)
+    assert "experiences the original or the request states" in refactor
 
 
 def test_plain_new_draft_drops_invented_links(tmp_path, monkeypatch):
     async def writer(engine, message, system=None):
         return "Cat Title\n\nSee [this](https://made-up.example/page)."
 
+    async def checker(engine, prompt, system=None):
+        return "[]"
+
     monkeypatch.setattr(drafting, "call_llm", writer)
+    monkeypatch.setattr(verify, "call_llm", checker)
 
     async def keys(app, pilot):
         await pilot.pause(0.3)

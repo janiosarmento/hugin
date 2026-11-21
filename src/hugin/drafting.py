@@ -42,7 +42,19 @@ R_MIN_SAMPLES = R_N_RECENT + R_N_SIMILAR + R_N_LIKE_ORIGINAL
 
 
 WRITER_SYSTEM_PROMPT = (
-    "You are a blog author. Write in the voice of the writing samples and author profile you are given."
+    "You are a blog author. Write in the voice of the writing samples and author profile you are given. "
+    "The samples show how the author writes, not what happened to them: never invent the author's "
+    "experiences."
+)
+
+# Samples give the voice, never the author's biography (an invented "after I
+# ruined my pen..." opening reads true to readers)
+NO_INVENTED_EXPERIENCE = (
+    "The samples show how I write, not what happened to me. Never invent "
+    "an experience of mine: something I did, bought, owned, broke, tried, "
+    "felt or saw. Use only the experiences {where} states; when an opening "
+    "or a passage wants a personal hook and none is given, use a general "
+    "observation or a question instead. "
 )
 
 
@@ -239,7 +251,10 @@ def build_message(
     if profile and profile.strip():
         intro.append(f"Author profile (the voice and style to write in):\n\n{profile.strip()}")
     if original is None:
-        task = "Write a new post in my voice, following the request below. "
+        task = (
+            "Write a new post in my voice, following the request below. "
+            + NO_INVENTED_EXPERIENCE.format(where="the request")
+        )
         if words:
             task += f"Target length: about {words} words. "
         extra = ""
@@ -276,7 +291,9 @@ def build_message(
             "or a second part (not in the text and not in the title). The "
             "title may change to fit the new angle.\n"
             "5. The other posts above are only samples of my voice; do not "
-            "borrow their content.\n\n"
+            "borrow their content. "
+            + NO_INVENTED_EXPERIENCE.format(where="the original or the request")
+            + "\n\n"
             "The request below says what to change. "
         )
     if research and research.strip():

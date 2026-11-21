@@ -647,9 +647,9 @@ class DraftWaitScreen(ModalScreen[Path | None]):
         allowed = verify.allowed_links(original, self._research, self._fact_check)
         fixes = [("link removed", detail) for _, detail in verify.unknown_links(body, allowed)]
         body = verify.strip_links(body, allowed)
-        # Statements are only checked against references; a plain new post has none
-        if original is None and self._research is None:
-            return body, fixes, issues
+        # Facts are only checked against references; a plain new post has none,
+        # but its invented experiences are still checked against the request
+        facts = original is not None or self._research is not None
         status = self.query_one("#draft-wait-status", Label)
         status.update(f"{escape(self._engine.id)} is checking the draft…")
         found = self._research or (self._fact_check.research if self._fact_check else None)
@@ -659,6 +659,7 @@ class DraftWaitScreen(ModalScreen[Path | None]):
             decisions=fc.writer_context(self._fact_check) if self._fact_check else None,
             sources=verify.linked_sources(body, found),
             status=lambda text: status.update(escape(text)),
+            request=self._request, facts=facts,
         )
         # A fix may only link the references; anything else goes back to text
         for _, detail in verify.unknown_links(body, allowed):
