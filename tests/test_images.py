@@ -221,6 +221,46 @@ def test_posts_to_adopt(blog):
     assert images.posts_to_adopt(blog.root / "content", blog.root / "static", blog.inbox) == [other, linked]
 
 
+def test_adopt_copies_images_dragged_from_elsewhere_and_makes_plain_links_images(blog, tmp_path):
+    # Typora inserts a dragged AVIF as a plain link relative to the post, and copies nothing
+    downloads = tmp_path / "Downloads"
+    downloads.mkdir()
+    (downloads / "tabby cat.avif").write_bytes(b"cat")
+    (downloads / "notes.pdf").write_bytes(b"pdf")
+    (blog.root / "static/images").mkdir(parents=True)
+    (blog.root / "static/images/site.jpg").write_bytes(b"s")
+    post = _write_post(
+        blog, "p.md",
+        " [tabby cat.avif](../../../Downloads/tabby%20cat.avif) \n"
+        "[a pdf](../../../Downloads/notes.pdf)\n"
+        "[site photo](../../static/images/site.jpg)\n"
+        "[gone](../../../Downloads/gone.avif)",
+    )
+    assert images.needs_adopting(post, blog.root / "static", blog.inbox)
+    assert images.posts_to_adopt(blog.root / "content", blog.root / "static", blog.inbox) == [post]
+
+    result = images.adopt(post, blog.root, CONVENTION, inbox=blog.inbox)
+    assert result.moved == [("tabby cat.avif", "/images/2026/11/tabby-cat.avif")]
+    body = post.read_text().split("---\n")[2]
+    assert body == (
+        " ![tabby cat.avif](/images/2026/11/tabby-cat.avif) \n"
+        "[a pdf](../../../Downloads/notes.pdf)\n"
+        "[site photo](../../static/images/site.jpg)\n"
+        "[gone](../../../Downloads/gone.avif)\n"
+    )
+    assert (blog.root / "static/images/2026/11/tabby-cat.avif").read_bytes() == b"cat"
+    assert (downloads / "tabby cat.avif").is_file()  # a copy: the original stays
+    assert not images.needs_adopting(post, blog.root / "static", blog.inbox)
+
+
+def test_images_inside_the_site_are_never_copied(blog):
+    (blog.root / "content/post/bundle").mkdir()
+    (blog.root / "content/post/bundle/a.png").write_bytes(b"a")
+    post = _write_post(blog, "bundle/index.md", "![a](a.png)")
+    assert images.resolve("a.png", post.parent, blog.root / "static", blog.inbox) is None
+    assert not images.needs_adopting(post, blog.root / "static", blog.inbox)
+
+
 def test_adopt_follows_typora_links_relative_to_the_static_folder(blog):
     _inbox_image(blog, "Winged Bubble.png", b"w")
     rel = "/" + "/".join([".."] * 2) + f"/{blog.inbox.name}/Winged%20Bubble.png"  # static -> blog -> tmp

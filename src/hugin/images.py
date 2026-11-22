@@ -42,6 +42,8 @@ _REF = re.compile(
     r"|\{\{<\s*figure\b[^>]*?\bsrc\s*=\s*[\"']([^\"']+)[\"']",
     re.IGNORECASE,
 )
+# A plain link, not an image: Typora inserts some image files (AVIF) this way
+_PLAIN_LINK = re.compile(r"(?<!!)\[([^\]]*)\]\(\s*(?:<([^>]+)>|([^)\s]+))\s*\)")
 _YEAR = re.compile(r"(19|20)\d\d")
 _TWO = re.compile(r"\d\d")
 
@@ -88,6 +90,12 @@ def post_refs(metadata: dict, content: str) -> list[str]:
     """Image references in a post: front matter values that name an image, then the body."""
     meta = [s.strip() for s in _strings(metadata) if s.strip().lower().endswith(IMAGE_EXTENSIONS)]
     return meta + body_refs(content)
+
+
+def plain_image_links(text: str) -> list[str]:
+    """Targets of plain links (no `!`) to image files, in order."""
+    targets = [(m.group(2) or m.group(3)).strip() for m in _PLAIN_LINK.finditer(text)]
+    return [t for t in targets if unquote(t.split("?")[0]).lower().endswith(IMAGE_EXTENSIONS)]
 
 
 def site_path(ref: str, base_url: str = "") -> str | None:
@@ -344,14 +352,19 @@ def _normpath(path: str) -> Path:
     return Path(os.path.normpath(path))
 
 
-def resolve(ref: str, post_dir: Path, static_root: Path, inbox: Path) -> tuple[str, Path] | None:
-    """("inbox" | "static", file) a local image reference points to, else None.
+def resolve(
+    ref: str, post_dir: Path, static_root: Path, inbox: Path, site_root: Path | None = None,
+) -> tuple[str, Path] | None:
+    """("inbox" | "static" | "local", file) a local image reference points to, else None.
 
     An editor may write an inbox image as an absolute path, a file:// URL, or
     (with typora-root-url set) relative to the static folder, as in
     /../../../Pictures/typora-inbox/a.png; and a site image as a path relative
-    to the post. Plain site paths (/images/a.jpg) are None: nothing to fix.
+    to the post. "local" is an existing image file elsewhere on this Mac and
+    outside the site (one dragged in from Downloads). Plain site paths
+    (/images/a.jpg) are None: nothing to fix.
     """
+    site_root = site_root or static_root.parent
     path = unquote(ref[len("file://"):] if ref.startswith("file://") else ref).strip()
     if not path or "://" in path or path.startswith(("//", "data:", "#")):
         return None
@@ -367,6 +380,9 @@ def resolve(ref: str, post_dir: Path, static_root: Path, inbox: Path) -> tuple[s
     for c in candidates:
         if c.is_relative_to(static_root) and c.is_file():
             return "static", c
+    for c in candidates:
+        if not c.is_relative_to(site_root) and c.suffix.lower() in IMAGE_EXTENSIONS and c.is_file():
+            return "local", c
     return None
 
 
@@ -378,13 +394,21 @@ def needs_adopting(post_path: Path, static_root: Path, inbox: Path | None = None
     except (OSError, UnicodeDecodeError):
         return False
     refs, _, _ = _parse(text, "")
-    return any(resolve(r, post_path.parent, static_root, inbox) for r in refs)
+    if any(resolve(r, post_path.parent, static_root, inbox) for r in refs):
+        return True
+    return any(_outside_file(r, post_path.parent, static_root, inbox) for r in plain_image_links(text))
+
+
+def _outside_file(ref: str, post_dir: Path, static_root: Path, inbox: Path) -> bool:
+    """True when a plain link points to an image file outside the blog (to bring in as an image)."""
+    hit = resolve(ref, post_dir, static_root, inbox)
+    return bool(hit) and hit[0] != "static"
 
 
 def posts_to_adopt(content_dir: Path, static_root: Path, inbox: Path | None = None) -> list[Path]:
     """Markdown files under `content_dir` that need adopt()."""
     inbox = inbox or INBOX
-    needles = (inbox.name, quote(inbox.name), "../", "file://")
+    needles = (inbox.name, quote(inbox.name), "../", "file://", str(Path.home()), quote(str(Path.home())))
     found = []
     for path in sorted(content_dir.rglob("*.md")):
         try:
@@ -401,13 +425,16 @@ def adopt(
     base_url: str = "", inbox: Path | None = None,
     moved_before: dict[Path, str] | None = None,
 ) -> Adopted:
-    """Move the post's inbox images into the blog and fix links to site images.
+    """Bring the post's images from outside the blog into it and fix links to site images.
 
-    Inbox images go to destination() with a link-safe name; links to files
-    already in the static folder by another path become site paths. Date
-    folders use the post's front matter date (today when it has none).
+    Inbox images are moved to destination() with a link-safe name; images
+    elsewhere on this Mac (Downloads) are copied there, the original kept.
+    A plain link to such a file becomes an image, since Typora inserts some
+    image files (AVIF) as links. Links to files already in the static folder
+    by another path become site paths. Date folders use the post's front
+    matter date (today when it has none).
 
-    `moved_before` maps inbox files already moved (in this session) to their
+    `moved_before` maps files already brought in (in this session) to their
     links, so the same image pasted into a translation links the same file;
     it is updated in place. The post is rewritten only when a link changed.
     """
@@ -418,13 +445,15 @@ def adopt(
     result = Adopted()
     text = post_path.read_text(encoding="utf-8")
     refs, existing, date = _parse(text, base_url)
-    found = [(r, resolve(r, post_path.parent, static_root, inbox)) for r in refs]
+    plain = [r for r in plain_image_links(text) if _outside_file(r, post_path.parent, static_root, inbox)]
+    found = [(r, resolve(r, post_path.parent, static_root, inbox)) for r in dict.fromkeys(refs + plain)]
     found = [(r, kind, file) for r, hit in found if hit for kind, file in [hit]]
     if not found:
         return result
     moved_before = moved_before if moved_before is not None else {}
     folder_rel, url_prefix = convention.folder(subfolder(convention, existing, date))
     folder = site_root / folder_rel
+    links = {}
     for ref, kind, source in found:
         if kind == "static":
             link = "/" + quote(source.relative_to(static_root).as_posix())
@@ -434,7 +463,10 @@ def adopt(
             if link is None and source.is_file():
                 folder.mkdir(parents=True, exist_ok=True)
                 target = _free(folder, safe_name(source.name))
-                shutil.move(str(source), target)
+                if kind == "inbox":
+                    shutil.move(str(source), target)
+                else:
+                    shutil.copy2(source, target)
                 link = f"{url_prefix}/{target.name}"
                 moved_before[source] = link
             elif link is None:
@@ -445,6 +477,14 @@ def adopt(
                     continue
                 link = f"{url_prefix}/{twin.name}"
             result.moved.append((source.name, link))
+        links[ref] = link
+    # Plain links to the files brought in become images, then every reference gets its link
+    text = _PLAIN_LINK.sub(
+        lambda m: f"![{m.group(1)}]({links[t]})" if (t := (m.group(2) or m.group(3)).strip()) in plain and t in links
+        else m.group(0),
+        text,
+    )
+    for ref, link in links.items():
         text = text.replace(f"<{ref}>", link).replace(ref, link)
     if result.changed:
         atomic_write_text(post_path, text)
