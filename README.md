@@ -72,9 +72,9 @@ Press `?` at any time on the main screen for a modal listing every keybinding be
 | `i` | Find incoming link candidates (embedding only) |
 | `o` | Generate outgoing link suggestions (embedding + LLM) |
 | `e` | Open built-in editor |
-| `E` | Open the post in `$EDITOR` (suspends Hugin, reloads the post on return). Shows a warning if `$EDITOR` is not set |
+| `E` | Open the post in `$HUGIN_EDITOR`, or `$EDITOR` when that is unset (suspends Hugin, reloads the post on return). For a GUI editor that must be quit to return: `export HUGIN_EDITOR='open -W -n -a Typora'`. Images the editor left in `~/Pictures/typora-inbox` are moved into the blog (see below) |
 | `p` | Create new post |
-| `g` | Sync repository with GitHub (commit + pull --rebase + push). The confirmation lists what will be committed. Never prompts for credentials, times out instead of hanging, refuses new files that look like secrets (`.env`, `*.pem`, `*.key`…) and leaves a rebase/merge you started untouched |
+| `g` | Sync repository with GitHub (commit + pull --rebase + push). First moves inbox images of any post into the blog, so no link to this Mac is committed. The confirmation lists what will be committed. Never prompts for credentials, times out instead of hanging, refuses new files that look like secrets (`.env`, `*.pem`, `*.key`…) and leaves a rebase/merge you started untouched |
 | `/` | Inline search — filter post list by title or filename |
 | `Ctrl+P` | Change Textual theme (persists across sessions) |
 | `Escape` | Go back / cancel LLM call in progress |
@@ -367,3 +367,28 @@ chmod +x ~/.local/bin/hugin
 ## License
 
 MIT
+
+## Images pasted in an external editor
+
+Set the editor to copy every inserted image to one folder, linked by absolute
+path. In Typora: Preferences → Image → "Copy image to custom folder" →
+`~/Pictures/typora-inbox`, with "Apply above rules to local images" and "Auto
+escape image URL" on, "Apply above rules to online images" and "Use relative
+path if possible" off.
+
+After `E` and before `g`, Hugin moves those images into the blog and rewrites
+the links. Images are never converted or resized. A post's new images go to
+the folder its other images use; otherwise to the blog's date folder (from the
+post's date) when it uses them.
+
+Where the blog keeps images is learned from the 10 newest posts that link
+images on the site: the folder most of them use, and whether they use date
+folders. The first time, Hugin shows what it found to confirm or correct, and
+saves it in `hugin/config.toml`:
+
+```toml
+[images]
+dir = "static/images"     # folder, relative to the site root
+url = "/images"           # how posts link it
+date_folders = "YYYY/MM"  # "", "YYYY", "YYYY/MM" or "YYYY/MM/DD"
+```

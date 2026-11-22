@@ -45,7 +45,11 @@ from hugin.tui.draft_screens import (
 from hugin.tui.editor import EditorScreen
 from hugin.tui.engine_picker import EnginePickerScreen
 from hugin.tui.news_ideas import NewsIdeasScreen
-from hugin.tui.project_settings import ProjectSettingsScreen
+from hugin.tui.project_settings import ProjectSettingsScreen, save_and_sync
+from hugin.tui.images_screen import ImageConventionScreen
+from hugin import images
+from hugin.hugo import find_site_root
+from hugin.project import ImagesSettings
 from hugin.tui.redirects_screen import ConfirmDeleteScreen, RedirectSuggestScreen, RedirectsScreen
 from hugin.tui.tag_manager import TagManagerScreen
 from hugin.engines import Engine, load_engines, save_last_engine
@@ -594,7 +598,7 @@ class HuginScreen(Screen):
         Binding("i", "incoming", "In", tooltip="Find incoming link candidates (embedding only)"),
         Binding("o", "outgoing", "Out", tooltip="Generate outgoing link suggestions (embedding + LLM)"),
         Binding("e", "editor", "Edit", tooltip="Open built-in editor"),
-        Binding("E", "external_editor", "Ext", show=False, tooltip="Open post in $EDITOR"),
+        Binding("E", "external_editor", "Ext", show=False, tooltip="Open post in $HUGIN_EDITOR or $EDITOR"),
         Binding("p", "new_post", "Post", tooltip="Create a new post"),
         Binding("g", "git_sync", "Git", tooltip="Sync repository with GitHub (commit + pull --rebase + push)"),
         Binding("m", "manage_tags", "Mngr", show=False, tooltip="Open tag manager"),
@@ -761,6 +765,8 @@ class HuginScreen(Screen):
         self._session_outgoing: dict[str, list[dict]] = {}
         self._loading_screen: LoadingScreen | None = None
         self._project = load_project(directory)
+        # Inbox images moved this session -> their links (a translation may paste the same one)
+        self._adopted_images: dict[Path, str] = {}
         self._search_mode: bool = False
         self._search_base: list = []  # full self.posts saved during search
 
@@ -2019,10 +2025,14 @@ class HuginScreen(Screen):
     def action_external_editor(self) -> None:
         if self._state != STATE_BROWSING or not self.posts:
             return
-        editor = os.environ.get("EDITOR", "").strip()
+        # HUGIN_EDITOR first, so posts can open in a GUI editor (Typora) while
+        # git and the shell keep $EDITOR
+        editor = (os.environ.get("HUGIN_EDITOR", "").strip()
+                  or os.environ.get("EDITOR", "").strip())
         if not editor:
             self.notify(
-                "$EDITOR is not set. Export it in your shell, e.g. export EDITOR=hx",
+                "Neither $HUGIN_EDITOR nor $EDITOR is set. Export one in your shell, "
+                "e.g. export HUGIN_EDITOR='open -W -n -a Typora'",
                 severity="warning", timeout=8,
             )
             return
@@ -2030,8 +2040,73 @@ class HuginScreen(Screen):
         post = self.posts[index]
         with self.app.suspend():
             subprocess.run([*shlex.split(editor), str(post.path)])
-        self._reload_post(post, index)
-        self._update_detail_panel()
+
+        def reload() -> None:
+            self._reload_post(post, index)
+            self._update_detail_panel()
+
+        self._adopt_inbox_images([post.path], reload)
+
+    # === IMAGES PASTED IN AN EXTERNAL EDITOR ===
+
+    def _adopt_inbox_images(self, paths: list[Path], then) -> None:
+        """Move images the external editor left in the inbox into the blog, then run `then`.
+
+        The first time in a blog, its image folder is detected and confirmed.
+        Any failure leaves the images where they are and still runs `then`.
+        """
+        pending = [p for p in paths if p.is_file() and images.inbox_refs(p.read_text(encoding="utf-8"))]
+        if not pending:
+            then()
+            return
+        project = load_project(self.directory)
+        if project.images.configured:
+            self._move_inbox_images(pending, project.images, then)
+            return
+        static = self.site.config.get("staticDir")
+        detection = images.detect(
+            self.all_posts, static if isinstance(static, str) else "static", self._base_url(),
+        )
+
+        def on_confirm(convention: "images.Convention | None") -> None:
+            if convention is None:
+                self.notify(f"Images left in {images.INBOX}: their links only work on this Mac.",
+                            severity="warning", timeout=10)
+                then()
+                return
+            fresh = load_project(self.directory)  # settings may have changed meanwhile
+            fresh.images = ImagesSettings(convention.dir, convention.url, convention.date_folders)
+            save_and_sync(self.app, self.directory, fresh, "image folders")
+            self._project = fresh
+            self._move_inbox_images(pending, fresh.images, then)
+
+        self.app.push_screen(
+            ImageConventionScreen(detection, find_site_root(self.directory), len(pending)), on_confirm,
+        )
+
+    def _base_url(self) -> str:
+        return next((str(v) for k, v in self.site.config.items() if k.lower() == "baseurl"), "")
+
+    def _move_inbox_images(self, paths: list[Path], settings: ImagesSettings, then) -> None:
+        convention = images.Convention(settings.dir, settings.url, settings.date_folders)
+        root = find_site_root(self.directory)
+        moved, missing = 0, []
+        for path in paths:
+            try:
+                result = images.adopt(path, root, convention, self._base_url(),
+                                      moved_before=self._adopted_images)
+            except OSError as e:
+                log_exception("move inbox images")
+                self.notify(f"Could not move images of {path.name}: {e}", severity="error", timeout=10)
+                continue
+            moved += len(result.moved)
+            missing += [f"{path.name}: {name}" for name in result.missing]
+        if moved:
+            self.notify(f"Moved {moved} image(s) into {convention.dir} and fixed the links")
+        if missing:
+            self.notify("Linked images no longer in the inbox: " + "; ".join(missing),
+                        severity="warning", timeout=12)
+        then()
 
     # === MANAGE TAGS ===
 
@@ -2572,8 +2647,15 @@ class HuginScreen(Screen):
                 self._start_spinner(self.current_index, "Syncing with GitHub...")
                 self._do_git_sync()
 
+        def confirm() -> None:
+            # Moving images reloads nothing on screen: the next action picks up the files
+            self.app.push_screen(ConfirmGitSyncScreen(pending_changes(self.directory)), on_confirm)
 
-        self.app.push_screen(ConfirmGitSyncScreen(pending_changes(self.directory)), on_confirm)
+        # Never commit a post that links images on this Mac only
+        content = find_site_root(self.directory) / "content"
+        self._adopt_inbox_images(
+            images.posts_with_inbox_refs(content if content.is_dir() else self.directory), confirm,
+        )
 
     @work(thread=True)
     def _do_git_sync(self) -> None:

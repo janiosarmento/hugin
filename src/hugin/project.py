@@ -60,11 +60,25 @@ class AuthorsSettings:
 
 
 @dataclass
+class ImagesSettings:
+    """Where the blog keeps new images (see hugin.images); empty until confirmed."""
+
+    dir: str = ""  # folder relative to the site root, e.g. "static/images"
+    url: str = ""  # link prefix, e.g. "/images"
+    date_folders: str = ""  # "", "YYYY", "YYYY/MM" or "YYYY/MM/DD"
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.dir and self.url)
+
+
+@dataclass
 class ProjectConfig:
     summary: SummarySettings = field(default_factory=SummarySettings)
     links: LinksSettings = field(default_factory=LinksSettings)
     writing: WritingSettings = field(default_factory=WritingSettings)
     authors: AuthorsSettings = field(default_factory=AuthorsSettings)
+    images: ImagesSettings = field(default_factory=ImagesSettings)
     # LLM prompts the blog changed, keyed as in hugin.prompts.PROMPTS
     prompts: dict[str, str] = field(default_factory=dict)
 
@@ -108,6 +122,7 @@ def load_project(directory: Path) -> ProjectConfig:
     links_data = data.get("links", {})
     writing_data = data.get("writing", {})
     authors_data = data.get("authors", {})
+    images_data = data.get("images", {})
     # Older settings kept the author list here; the Hugo data file wins once it exists
     if authors_file.exists():
         names = _read_toml(authors_file).get("names", [])
@@ -128,6 +143,11 @@ def load_project(directory: Path) -> ProjectConfig:
         writing=WritingSettings(
             constraints=writing_data.get("constraints", DEFAULT_EDITORIAL_CONSTRAINTS),
             by_language=dict(writing_data.get("by_language", {})),
+        ),
+        images=ImagesSettings(
+            dir=str(images_data.get("dir", "")),
+            url=str(images_data.get("url", "")),
+            date_folders=str(images_data.get("date_folders", "")),
         ),
     )
 
@@ -168,6 +188,16 @@ def save_project(directory: Path, config: ProjectConfig) -> None:
                 for author, text in authors.profiles.items()
             ]
         lines.append("")
+    images = config.images
+    if images.configured:
+        lines += [
+            "[images]",
+            "# Where images pasted in an external editor go; see hugin/images.py",
+            f"dir = {_toml_string(images.dir)}",
+            f"url = {_toml_string(images.url)}",
+            f"date_folders = {_toml_string(images.date_folders)}",
+            "",
+        ]
     config.prompts = prompts.only_changed(config.prompts)
     if config.prompts:
         lines += ["[prompts]", "# Only the prompts changed from Hugin's defaults; see hugin/prompts.py"]

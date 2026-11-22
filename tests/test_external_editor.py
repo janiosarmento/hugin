@@ -17,6 +17,7 @@ class FakeApp:
 
 class FakeScreen:
     action_external_editor = HuginScreen.action_external_editor
+    _adopt_inbox_images = HuginScreen._adopt_inbox_images
 
     def __init__(self, post_path: Path):
         self._state = STATE_BROWSING
@@ -35,6 +36,11 @@ class FakeScreen:
 
     def _update_detail_panel(self):
         self.details_updated += 1
+
+
+@pytest.fixture(autouse=True)
+def no_hugin_editor(monkeypatch):
+    monkeypatch.delenv("HUGIN_EDITOR", raising=False)
 
 
 def test_warns_when_editor_is_not_set(monkeypatch, tmp_path):
@@ -90,3 +96,17 @@ def test_ignored_outside_browsing(monkeypatch, tmp_path, state):
 
     assert ran == []
     assert screen.reloaded == []
+
+
+def test_hugin_editor_wins_over_editor(monkeypatch, tmp_path):
+    post_path = tmp_path / "post.md"
+    monkeypatch.setenv("EDITOR", "hx")
+    monkeypatch.setenv("HUGIN_EDITOR", "open -W -n -a Typora")
+    ran = []
+    monkeypatch.setattr(review.subprocess, "run", lambda cmd, **k: ran.append(cmd))
+    screen = FakeScreen(post_path)
+
+    screen.action_external_editor()
+
+    assert ran == [["open", "-W", "-n", "-a", "Typora", str(post_path)]]
+    assert screen.reloaded == [0]
