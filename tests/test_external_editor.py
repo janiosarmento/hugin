@@ -126,7 +126,7 @@ def test_typora_gets_a_preview_root_only_while_it_is_open(monkeypatch, tmp_path)
 
     screen.action_external_editor()
 
-    assert f'typora-root-url: "{tmp_path / "static"}"' in seen[0]
+    assert f'typora-root-url: {tmp_path / "static"}\n' in seen[0]
     assert post_path.read_text() == original
     assert screen.reloaded == [0]
 

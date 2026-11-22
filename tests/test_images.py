@@ -360,7 +360,7 @@ def test_root_url_is_added_to_yaml_front_matter_and_removed_exactly(tmp_path):
 
     assert images.add_root_url(post, Path("/Users/me/blog/static"))
     text = post.read_text()
-    assert text.startswith('---\ntypora-root-url: "/Users/me/blog/static"\ntitle: T\n')
+    assert text.startswith('---\ntypora-root-url: /Users/me/blog/static\ntitle: T\n')
     assert not images.add_root_url(post, Path("/elsewhere"))  # never twice
 
     assert images.posts_with_root_url(tmp_path) == [post]
@@ -375,3 +375,10 @@ def test_root_url_skips_toml_front_matter(tmp_path):
     post.write_text('+++\ntitle = "T"\n+++\nBody\n')
     assert not images.add_root_url(post, Path("/x"))
     assert post.read_text() == '+++\ntitle = "T"\n+++\nBody\n'
+
+
+def test_root_url_is_quoted_only_when_yaml_needs_it(tmp_path):
+    post = tmp_path / "p.md"
+    post.write_text("---\ntitle: T\n---\nBody\n")
+    images.add_root_url(post, Path("/Users/me/My Blogs/blog #1: cats/static"))
+    assert post.read_text().startswith('---\ntypora-root-url: "/Users/me/My Blogs/blog #1: cats/static"\n')

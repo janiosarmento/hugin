@@ -138,7 +138,12 @@ def add_root_url(post_path: Path, static_root: Path) -> bool:
     block = _yaml_front_matter(text)
     if block is None or _ROOT_URL_LINE.search(text, *block):
         return False
-    line = f"{ROOT_URL_KEY}: {json.dumps(str(static_root))}\n"
+    # Unquoted, as Typora's own Format > Image > Use Image Root Path writes it:
+    # a quoted value does not resolve. Quoted only when YAML needs it.
+    value = str(static_root)
+    if not re.fullmatch(r"[\w/.~ -]+", value) or value != value.strip():
+        value = json.dumps(value)
+    line = f"{ROOT_URL_KEY}: {value}\n"
     atomic_write_text(post_path, text[:block[0]] + line + text[block[0]:])
     return True
 
