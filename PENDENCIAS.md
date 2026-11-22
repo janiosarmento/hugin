@@ -93,6 +93,11 @@ O projeto deixou de usar o beads. Estes eram os itens abertos nele; o texto abai
 - **Tags longas (resolvido em 2026-11-11):** tags com mais de 3 palavras agora são recusadas, não cortadas: as sugestões do `t` saem da lista com um aviso, e tags digitadas à mão ou renomeadas no gerenciador são barradas até serem encurtadas.
 - **Não feito (escolhas abertas):** análise de posts existentes contra a concorrência sem reescrever; escolha do tipo de busca (News, Scholar); pontuação de cobertura de termos. A leitura de página é um extrator HTML simples, sem JavaScript: páginas que só renderizam no navegador viram "no readable text".
 
+### 12. Marcadores de imagem `[img]` (implementado em 2026-11-22, falta validar no uso real)
+- **O que faz:** o prompt "Draft · image placeholders" pede ao redator (`h`/`R`) marcadores `[img]descrição[/img]` em linha própria, descrição em inglês, terminando em "Aspect ratio 16:9.", no máximo um por seção. `I` lista os marcadores do post e Enter copia a descrição. O `g` pergunta antes de remover marcadores de posts publicados; recusar cancela o sync. Rascunhos (`draft: true`) ficam com os seus. Código (cercas e inline) é ignorado. Módulo: `src/hugin/placeholders.py`.
+- **Avaliar:** quantos marcadores o modelo gera e se as descrições servem para o ChatGPT/Midjourney; se o Midjourney precisa de `--ar 16:9` em vez do texto.
+- **Também pendente (imagens no Typora):** testar a colagem de imagem com `typora-copy-images-to` (o link deve sair `/wp-content/uploads/<post>/...`). No amo-meu-gato, o post da anemia tem link quebrado no commit `3095e14b` e alterações locais não commitadas; a imagem `static/wp-content/uploads/anemia/Winged-Minimessenger-Chat-Bubble.png` está órfã. Decisão do usuário.
+
 ## Projeto separado (a tratar em outra sessão)
 
 - **Amo Meu Gato:** projeto diferente, a ser tratado em sessão própria. Nada deste arquivo se aplica a ele. Ao retomar, informar o repositório e o contexto do projeto antes de qualquer mudança.
