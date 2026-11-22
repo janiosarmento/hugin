@@ -865,7 +865,9 @@ class BriefReviewScreen(ModalScreen[str | None]):
             yield Label(f"Research brief — {queries}", id="brief-title")
             followup = ""
             if r.followup and r.followup.query:
-                followup = f"Follow-up search \"{escape(r.followup.query)}\": {escape(r.followup.outcome)}. "
+                where = f" ({r.followup.country}/{r.followup.search_lang})" if r.followup.country else ""
+                followup = (f"Follow-up search \"{escape(r.followup.query)}\"{where}: "
+                            f"{escape(r.followup.outcome)}. ")
             yield Static(
                 f"Brave Search, {r.country}/{r.search_lang}, "
                 f"{r.fetched_at:%Y-%m-%d %H:%M}. Read {r.pages_read} of "

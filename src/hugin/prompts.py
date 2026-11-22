@@ -410,13 +410,17 @@ opinion. Minor gaps and details the post can do without do not count.
 
 If nothing material is open, answer with exactly: NONE
 
-Otherwise answer with exactly two lines:
+Otherwise answer with these lines:
 Uncertainty: what is still open, in one sentence.
 Query: one web search query (at most 10 words, no operators; in \
-{language} unless another language is likelier to settle it) that could \
-settle it or tell the competing explanations apart, for example by pairing \
-the term with a candidate meaning, or by searching for the term in its \
-original language. It must not repeat "{query}".""",
+{language} unless another language and script are likelier to settle it) \
+that could settle it or tell the competing explanations apart, for example \
+by pairing the term with a candidate meaning, or by searching for the term \
+in its original language. It must not repeat "{query}".
+Language: only when the query is in a language other than {language}, the \
+ISO 639-1 code of the query's language, with a script or region when it \
+matters (for example zh-Hans, zh-Hant, ja, pt-PT). Leave this line out \
+otherwise.""",
        "request", "query", "sources", "brief", "language"),
     _p("research.brief_rewrite", "Research · brief, post rewritten", (
         "It is a rewrite of my existing post \"{title}\"; the brief "

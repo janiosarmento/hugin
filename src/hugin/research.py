@@ -72,6 +72,29 @@ LOCALES = {
     "French": ("FR", "fr"),
 }
 
+# Brave Search's accepted `search_lang` and `country` values (API reference)
+BRAVE_LANGS = frozenset(
+    "ar eu bn bg ca zh-hans zh-hant hr cs da nl en en-gb et fi fr gl de gu he hi "
+    "hu is it jp kn ko lv lt ms ml mr nb pl pt-br pt-pt pa ro ru sr sk sl es sv "
+    "ta te th tr uk vi".split()
+)
+BRAVE_COUNTRIES = frozenset(
+    "AR AU AT BE BR CA CL DK FI FR DE HK IN ID IT JP KR MY MX NL NZ NO CN PL PT "
+    "PH RU SA ZA ES SE CH TW TR GB US".split()
+)
+ALL_COUNTRIES = "ALL"  # Brave's worldwide region
+# The region a follow-up in this search_lang uses when its code names none;
+# a language without one here searches worldwide
+LANG_COUNTRY = {
+    "en": "US", "en-gb": "GB", "pt-br": "BR", "pt-pt": "PT", "es": "ES", "fr": "FR",
+    "de": "DE", "it": "IT", "nl": "NL", "zh-hans": "CN", "zh-hant": "TW", "jp": "JP",
+    "ko": "KR", "ru": "RU", "pl": "PL", "sv": "SE", "da": "DK", "fi": "FI", "nb": "NO",
+    "tr": "TR", "ar": "SA", "ms": "MY", "hi": "IN",
+}
+# Language codes as a model writes them (BCP 47) -> Brave's spelling
+_LANG_ALIASES = {"ja": "jp", "no": "nb", "iw": "he"}
+_LANG_CODE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]{2,8}){0,3}")
+
 # What a failed search or page fetch can raise
 FETCH_ERRORS = (httpx.HTTPError, ValueError, KeyError, TypeError)
 
@@ -108,6 +131,11 @@ class FollowUp:
 
     query: str = ""
     reason: str = ""  # the uncertainty the search is meant to settle
+    language: str = ""  # the code the decision asked for; "" = none
+    # Where the search ran ("" = it did not run); the first search's locale
+    # unless `language` resolved to a supported one
+    country: str = ""
+    search_lang: str = ""
     outcome: str = ""  # for the review screen and the research log
     first_rank: int = 0  # rank of the first source it added; 0 = none kept
 
@@ -153,6 +181,34 @@ def search_api_key() -> str | None:
 
 def locale_for(language: str) -> tuple[str, str]:
     return LOCALES.get(language, LOCALES["English"])
+
+
+def locale_for_code(code: str) -> tuple[str, str] | None:
+    """(country, search_lang) for a language code like zh, zh-Hant, ja or pt-PT.
+
+    None when the code is malformed or Brave has no such language. The region
+    comes from the code when Brave supports it, else from the language itself
+    (LANG_COUNTRY), else worldwide; never from another search.
+    """
+    norm = (code or "").strip().lower().replace("_", "-")
+    if not _LANG_CODE.fullmatch(norm):
+        return None
+    lang, *subtags = norm.split("-")
+    lang = _LANG_ALIASES.get(lang, lang)
+    script = next((t for t in subtags if len(t) == 4), "")
+    region = next((t.upper() for t in subtags if len(t) == 2), "")
+    if lang == "zh":
+        search_lang = "zh-hant" if script == "hant" or region in ("TW", "HK", "MO") else "zh-hans"
+    elif lang == "pt":
+        search_lang = "pt-pt" if region == "PT" else "pt-br"
+    elif lang == "en":
+        search_lang = "en-gb" if region == "GB" else "en"
+    else:
+        search_lang = lang
+    if search_lang not in BRAVE_LANGS:
+        return None
+    country = region if region in BRAVE_COUNTRIES else LANG_COUNTRY.get(search_lang, ALL_COUNTRIES)
+    return country, search_lang
 
 
 # --- search -----------------------------------------------------------------
@@ -381,13 +437,16 @@ def _url_key(url: str) -> str:
 async def extend(
     research: Research, query: str, api_key: str | None,
     client: httpx.AsyncClient | None = None,
+    locale: tuple[str, str] | None = None,
 ) -> Research:
     """A copy of `research` with a second search's new results appended.
 
     Results whose URL is already there are dropped; the new ones are numbered
     after the existing sources, so citations of the first round stay valid.
-    Up to N_PAGES of the new pages are read. Raises ResearchError when the
-    search fails.
+    Up to N_PAGES of the new pages are read. `locale` (country, search_lang)
+    is where to search, the first search's by default; the copy keeps the
+    first search's language and locale either way. Raises ResearchError when
+    the search fails.
     """
     if not api_key:
         raise ResearchError(f"No Brave Search key in the vault ({SEARCH_SECRET})")
@@ -395,7 +454,8 @@ async def extend(
     own = client is None
     client = client or httpx.AsyncClient()
     try:
-        found = await _search(client, query, api_key, research.country, research.search_lang)
+        country, search_lang = locale or (research.country, research.search_lang)
+        found = await _search(client, query, api_key, country, search_lang)
         new = []
         for result in found:
             if _url_key(result.url) not in known:
@@ -493,13 +553,14 @@ async def write_brief(
 
 # --- follow-up search -------------------------------------------------------
 
-def parse_followup(answer: str) -> tuple[str, str]:
-    """(query, uncertainty) from the decision; ("", "") when none is needed.
+def parse_followup(answer: str) -> tuple[str, str, str]:
+    """(query, uncertainty, language code) from the decision; all "" when none is needed.
 
     Only a "Query:" line counts, so an answer in another shape (a brief, a
-    refusal, NONE) never turns into a search.
+    refusal, NONE) never turns into a search. The "Language:" line is
+    optional; it is returned as written and validated by locale_for_code().
     """
-    query = reason = ""
+    query = reason = language = ""
     for line in (answer or "").splitlines():
         line = line.strip().lstrip("-*# ").strip()
         key, sep, value = line.partition(":")
@@ -511,9 +572,11 @@ def parse_followup(answer: str) -> tuple[str, str]:
             query = value
         elif key == "uncertainty" and not reason:
             reason = value
+        elif key in ("language", "language code") and not language:
+            language = value
     if query.upper() == "NONE":
-        query = ""
-    return query[:MAX_QUERY_CHARS], reason
+        return "", "", ""
+    return query[:MAX_QUERY_CHARS], reason, language
 
 
 def _same_query(a: str, b: str) -> bool:
@@ -522,8 +585,8 @@ def _same_query(a: str, b: str) -> bool:
     return norm(a) == norm(b)
 
 
-async def decide_followup(engine, research: Research, request: str, brief: str) -> tuple[str, str]:
-    """(query, uncertainty) for one more search, or ("", "") when the first round suffices.
+async def decide_followup(engine, research: Research, request: str, brief: str) -> tuple[str, str, str]:
+    """(query, uncertainty, language code) for one more search; all "" when the first round suffices.
 
     It reads the request, the sources and the brief as plain text, so it works
     whatever sections a site's brief prompt asks for.
@@ -556,7 +619,8 @@ async def follow_up(
 
     say("Checking whether the sources settle the request…")
     try:
-        followup.query, followup.reason = await decide_followup(engine, research, request, brief)
+        followup.query, followup.reason, followup.language = await decide_followup(
+            engine, research, request, brief)
     except LLM_ERRORS as e:
         log_exception("research: follow-up decision")
         return keep_first(f"not run: the decision failed ({e or type(e).__name__})")
@@ -565,9 +629,14 @@ async def follow_up(
     if _same_query(followup.query, research.query):
         return keep_first("skipped: same as the first query")
 
-    say(f"Follow-up search: {followup.query}")
+    # Its own language only when the decision names one Brave supports; the
+    # brief and the post keep research.language either way
+    locale = locale_for_code(followup.language) if followup.language else None
+    followup.country, followup.search_lang = locale or (research.country, research.search_lang)
+    say(f"Follow-up search ({followup.country}/{followup.search_lang}): {followup.query}")
     try:
-        merged = await extend(research, followup.query, api_key, client)
+        merged = await extend(research, followup.query, api_key, client,
+                              (followup.country, followup.search_lang))
     except ResearchError as e:
         return keep_first(f"failed: {e}; kept the first-round brief")
     added = merged.results[len(research.results):]
@@ -615,9 +684,18 @@ def _followup_lines(research: Research) -> str:
     f = research.followup
     if f is None:
         return ""
+    region = ""
+    if f.country:
+        region = f"- Follow-up region: {f.country}, language {f.search_lang}"
+        if f.language and locale_for_code(f.language) is None:
+            region += f" (asked for \"{f.language}\": not supported, used the first search's)"
+        elif f.language:
+            region += f" (asked for {f.language})"
+        region += "\n"
     return (
         f"- Follow-up query: {f.query or '(none)'}\n"
         + (f"- Follow-up reason: {f.reason}\n" if f.reason else "")
+        + region
         + f"- Follow-up search: {f.outcome}\n"
     )
 

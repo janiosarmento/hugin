@@ -253,8 +253,16 @@ def _first_round(httpx_mock, answers):
     return asyncio.run(web.gather("iraurita pen nib", "key", "English"))
 
 
+def _brave_requests(httpx_mock):
+    return [r for r in httpx_mock.get_requests() if r.url.host == "api.search.brave.com"]
+
+
 def _brave_queries(httpx_mock):
-    return [r.url.params["q"] for r in httpx_mock.get_requests() if r.url.host == "api.search.brave.com"]
+    return [r.url.params["q"] for r in _brave_requests(httpx_mock)]
+
+
+def _brave_locales(httpx_mock):
+    return [(r.url.params["country"], r.url.params["search_lang"]) for r in _brave_requests(httpx_mock)]
 
 
 FIRST_URLS = ["https://site1.example/a", "https://site2.example/b", "https://site3.example/c"]
@@ -292,6 +300,8 @@ def test_inconclusive_first_round_runs_exactly_one_more_search(httpx_mock, monke
     research, brief = asyncio.run(web.follow_up(found, FIRST_BRIEF, "write about Iraurita", ENGINE, "key"))
 
     assert _brave_queries(httpx_mock) == ["iraurita pen nib", "Iraurita iridium nib listing"]
+    # A two-line answer (no Language:) searches where the first search did
+    assert _brave_locales(httpx_mock) == [("US", "en"), ("US", "en")]
     assert len(seen["decisions"]) == 1 and len(seen["briefs"]) == 1
     assert brief == FINAL_BRIEF
     # site2 came back with a trailing slash: same page, kept once; new ones numbered after
@@ -318,6 +328,8 @@ def test_inconclusive_first_round_runs_exactly_one_more_search(httpx_mock, monke
     log = web.save_log(research, brief, "write about Iraurita", tmp_path / "iraurita.md").read_text()
     assert "- Query: iraurita pen nib" in log
     assert "- Follow-up query: Iraurita iridium nib listing" in log
+    assert "- Region: US, language en\n" in log
+    assert "- Follow-up region: US, language en\n" in log
     assert "- Follow-up search: added 2 sources [4]–[5], 2 read" in log
 
 
@@ -340,6 +352,62 @@ def test_follow_up_search_failure_keeps_the_first_round_brief(httpx_mock, monkey
     log = web.save_log(research, brief, "r", tmp_path / "iraurita.md").read_text()
     assert "- Follow-up query: Iraurita 铱金" in log
     assert "- Follow-up search: failed: Brave Search failed: HTTP 500" in log
+
+
+def test_follow_up_language_sets_its_own_search_locale(httpx_mock, monkeypatch, tmp_path):
+    found = _first_round(httpx_mock, {
+        "iraurita pen nib": FIRST_URLS, "铱金 笔尖 Iraurita": ["https://site4.example/d"],
+    })
+    seen = {}
+    monkeypatch.setattr(web, "call_llm", _followup_llm(
+        "Uncertainty: the original term.\nQuery: 铱金 笔尖 Iraurita\nLanguage: zh-Hans", seen))
+
+    research, brief = asyncio.run(web.follow_up(found, FIRST_BRIEF, "write about Iraurita", ENGINE, "key"))
+
+    assert _brave_locales(httpx_mock) == [("US", "en"), ("CN", "zh-hans")]
+    assert (research.followup.country, research.followup.search_lang) == ("CN", "zh-hans")
+    # The brief and the post keep the first search's language and locale
+    assert (research.language, research.country, research.search_lang) == ("English", "US", "en")
+    assert "Write a research brief in English" in seen["briefs"][0]
+    assert brief == FINAL_BRIEF
+
+    monkeypatch.setattr(web, "RESEARCH_DIR", tmp_path / "research")
+    log = web.save_log(research, brief, "r", tmp_path / "iraurita.md").read_text()
+    assert "- Region: US, language en\n" in log
+    assert "- Follow-up region: CN, language zh-hans (asked for zh-Hans)\n" in log
+
+
+@pytest.mark.parametrize("language", ["Klingon!!", "tlh", "zz-ZZ"])
+def test_bad_follow_up_language_uses_the_first_locale(httpx_mock, monkeypatch, tmp_path, language):
+    found = _first_round(httpx_mock, {
+        "iraurita pen nib": FIRST_URLS, "iraurita iridium": ["https://site4.example/d"],
+    })
+    seen = {}
+    monkeypatch.setattr(web, "call_llm", _followup_llm(
+        f"Uncertainty: x\nQuery: iraurita iridium\nLanguage: {language}", seen))
+
+    research, brief = asyncio.run(web.follow_up(found, FIRST_BRIEF, "r", ENGINE, "key"))
+
+    assert _brave_locales(httpx_mock) == [("US", "en"), ("US", "en")]
+    assert (research.language, research.country, research.search_lang) == ("English", "US", "en")
+    assert "Write a research brief in English" in seen["briefs"][0]
+    assert brief == FINAL_BRIEF
+    monkeypatch.setattr(web, "RESEARCH_DIR", tmp_path / "research")
+    log = web.save_log(research, brief, "r", tmp_path / "x.md").read_text()
+    assert (f'- Follow-up region: US, language en (asked for "{language}": not supported, '
+            "used the first search's)") in log
+
+
+@pytest.mark.parametrize("code, locale", [
+    ("zh", ("CN", "zh-hans")), ("zh-Hant", ("TW", "zh-hant")), ("zh_TW", ("TW", "zh-hant")),
+    ("zh-HK", ("HK", "zh-hant")), ("ja", ("JP", "jp")), ("pt-PT", ("PT", "pt-pt")),
+    ("pt", ("BR", "pt-br")), ("en-GB", ("GB", "en-gb")), ("de-AT", ("AT", "de")),
+    ("de-XX", ("DE", "de")),  # a region Brave lacks: the language's own
+    ("ca", ("ALL", "ca")),  # no country for the language: worldwide
+    ("tlh", None), ("Chinese", None), ("", None), ("zh-", None),
+])
+def test_locale_for_code(code, locale):
+    assert web.locale_for_code(code) == locale
 
 
 def test_follow_up_skips_a_repeat_of_the_first_query(httpx_mock, monkeypatch):
@@ -372,11 +440,14 @@ def test_failed_rewrite_drops_the_follow_up_sources(httpx_mock, monkeypatch):
 
 
 def test_parse_followup_needs_a_query_line():
-    assert web.parse_followup("NONE") == ("", "")
-    assert web.parse_followup("## Facts\n- Cats sleep [1]") == ("", "")
-    assert web.parse_followup("Query: NONE") == ("", "")
+    assert web.parse_followup("NONE") == ("", "", "")
+    assert web.parse_followup("## Facts\n- Cats sleep [1]") == ("", "", "")
+    assert web.parse_followup("Query: NONE\nLanguage: zh") == ("", "", "")
     assert web.parse_followup('**Uncertainty:** what it means\n**Query:** "iraurita iridium"') == (
-        "iraurita iridium", "what it means",
+        "iraurita iridium", "what it means", "",
+    )
+    assert web.parse_followup("Uncertainty: x\nQuery: 铱金 笔尖\nLanguage: `zh-Hans`") == (
+        "铱金 笔尖", "x", "zh-Hans",
     )
 
 
