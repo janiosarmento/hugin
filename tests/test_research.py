@@ -217,6 +217,183 @@ def test_refactor_with_research_keeps_facts_the_sources_do_not_mention(tmp_path)
     assert "refactor rules below come first" in message
 
 
+# --- follow-up search -------------------------------------------------------
+
+BRAVE = re.compile(r"https://api\.search\.brave\.com/.*")
+FIRST_BRIEF = "## Facts\n- Iraurita may be a brand, per a Reddit comment [1]"
+FINAL_BRIEF = "## Facts\n- Iraurita is an iridium-coated tip [4]\n## Unresolved\n- none"
+
+
+def _brave_by_query(answers):
+    """Brave callback answering each query from `answers` (an int = that many results)."""
+    def callback(request):
+        answer = answers[request.url.params["q"]]
+        if isinstance(answer, int):
+            return httpx.Response(answer)
+        return httpx.Response(200, json={"web": {"results": [
+            {"title": f"Result {u}", "url": u, "description": f"About {u}"} for u in answer
+        ]}})
+    return callback
+
+
+def _followup_llm(decision, seen):
+    """Fake LLM: the follow-up decision answers `decision`, briefs come in order."""
+    async def fake(engine, prompt, system=None):
+        if system == prompts.text("research.followup_system"):
+            seen.setdefault("decisions", []).append(prompt)
+            return decision
+        seen.setdefault("briefs", []).append(prompt)
+        return FINAL_BRIEF
+    return fake
+
+
+def _first_round(httpx_mock, answers):
+    httpx_mock.add_callback(_brave_by_query(answers), url=BRAVE, is_reusable=True)
+    httpx_mock.add_response(url=re.compile(r"https://site\d\.example/.*"), html=PAGE, is_reusable=True)
+    return asyncio.run(web.gather("iraurita pen nib", "key", "English"))
+
+
+def _brave_queries(httpx_mock):
+    return [r.url.params["q"] for r in httpx_mock.get_requests() if r.url.host == "api.search.brave.com"]
+
+
+FIRST_URLS = ["https://site1.example/a", "https://site2.example/b", "https://site3.example/c"]
+
+
+def test_follow_up_not_needed_keeps_the_first_round(httpx_mock, monkeypatch):
+    found = _first_round(httpx_mock, {"iraurita pen nib": FIRST_URLS})
+    seen = {}
+    monkeypatch.setattr(web, "call_llm", _followup_llm("NONE", seen))
+
+    research, brief = asyncio.run(web.follow_up(found, FIRST_BRIEF, "write about Iraurita", ENGINE, "key"))
+
+    assert brief == FIRST_BRIEF
+    assert "briefs" not in seen  # no rewrite
+    assert _brave_queries(httpx_mock) == ["iraurita pen nib"]  # no extra search
+    assert [r.url for r in research.results] == FIRST_URLS
+    assert research.followup.query == ""
+    assert research.followup.outcome.startswith("not needed")
+    # The decision sees the request, the sources and the brief
+    assert "write about Iraurita" in seen["decisions"][0]
+    assert '<source n="1" status="read" url="https://site1.example/a">' in seen["decisions"][0]
+    assert FIRST_BRIEF in seen["decisions"][0]
+
+
+def test_inconclusive_first_round_runs_exactly_one_more_search(httpx_mock, monkeypatch, tmp_path):
+    followup_urls = ["https://site2.example/b/", "https://site4.example/d", "https://site5.example/e"]
+    found = _first_round(httpx_mock, {
+        "iraurita pen nib": FIRST_URLS, "Iraurita iridium nib listing": followup_urls,
+    })
+    seen = {}
+    decision = ("Uncertainty: the sources do not establish what Iraurita means.\n"
+                "Query: Iraurita iridium nib listing")
+    monkeypatch.setattr(web, "call_llm", _followup_llm(decision, seen))
+
+    research, brief = asyncio.run(web.follow_up(found, FIRST_BRIEF, "write about Iraurita", ENGINE, "key"))
+
+    assert _brave_queries(httpx_mock) == ["iraurita pen nib", "Iraurita iridium nib listing"]
+    assert len(seen["decisions"]) == 1 and len(seen["briefs"]) == 1
+    assert brief == FINAL_BRIEF
+    # site2 came back with a trailing slash: same page, kept once; new ones numbered after
+    assert [(r.rank, r.url) for r in research.results] == [
+        (1, FIRST_URLS[0]), (2, FIRST_URLS[1]), (3, FIRST_URLS[2]),
+        (4, "https://site4.example/d"), (5, "https://site5.example/e"),
+    ]
+    assert research.status(research.results[3]) == "read"
+    assert [r.rank for r in research.first_round] == [1, 2, 3]
+    assert web.unknown_citations(brief, research) == []
+    assert found.followup is None and len(found.results) == 3  # the first round is untouched
+
+    prompt = seen["briefs"][0]
+    assert 'top 3 web search results for "iraurita pen nib"' in prompt
+    assert '<source n="5" status="read" url="https://site5.example/e">' in prompt
+    assert 'Sources 4 to 5 come from a follow-up search for "Iraurita iridium nib listing"' in prompt
+    assert "what Iraurita means" in prompt
+    assert "what remains unresolved" in prompt
+
+    sources = web.sources_markdown(research)
+    assert "[4] Result https://site4.example/d — https://site4.example/d (read)" in sources
+
+    monkeypatch.setattr(web, "RESEARCH_DIR", tmp_path / "research")
+    log = web.save_log(research, brief, "write about Iraurita", tmp_path / "iraurita.md").read_text()
+    assert "- Query: iraurita pen nib" in log
+    assert "- Follow-up query: Iraurita iridium nib listing" in log
+    assert "- Follow-up search: added 2 sources [4]–[5], 2 read" in log
+
+
+def test_follow_up_search_failure_keeps_the_first_round_brief(httpx_mock, monkeypatch, tmp_path):
+    found = _first_round(httpx_mock, {"iraurita pen nib": FIRST_URLS, "Iraurita 铱金": 500})
+    seen = {}
+    monkeypatch.setattr(web, "call_llm", _followup_llm(
+        "Uncertainty: the meaning of the term.\nQuery: Iraurita 铱金", seen))
+
+    research, brief = asyncio.run(web.follow_up(found, FIRST_BRIEF, "write about Iraurita", ENGINE, "key"))
+
+    assert _brave_queries(httpx_mock) == ["iraurita pen nib", "Iraurita 铱金"]
+    assert brief == FIRST_BRIEF
+    assert "briefs" not in seen
+    assert [r.url for r in research.results] == FIRST_URLS
+    assert research.followup.query == "Iraurita 铱金"
+    assert research.followup.outcome == "failed: Brave Search failed: HTTP 500; kept the first-round brief"
+
+    monkeypatch.setattr(web, "RESEARCH_DIR", tmp_path / "research")
+    log = web.save_log(research, brief, "r", tmp_path / "iraurita.md").read_text()
+    assert "- Follow-up query: Iraurita 铱金" in log
+    assert "- Follow-up search: failed: Brave Search failed: HTTP 500" in log
+
+
+def test_follow_up_skips_a_repeat_of_the_first_query(httpx_mock, monkeypatch):
+    found = _first_round(httpx_mock, {"iraurita pen nib": FIRST_URLS})
+    monkeypatch.setattr(web, "call_llm", _followup_llm("Uncertainty: x\nQuery: Iraurita pen-nib", {}))
+
+    research, brief = asyncio.run(web.follow_up(found, FIRST_BRIEF, "r", ENGINE, "key"))
+
+    assert _brave_queries(httpx_mock) == ["iraurita pen nib"]
+    assert brief == FIRST_BRIEF
+    assert research.followup.outcome == "skipped: same as the first query"
+
+
+def test_failed_rewrite_drops_the_follow_up_sources(httpx_mock, monkeypatch):
+    found = _first_round(httpx_mock, {
+        "iraurita pen nib": FIRST_URLS, "iraurita iridium": ["https://site4.example/d"],
+    })
+
+    async def fake(engine, prompt, system=None):
+        if system == prompts.text("research.followup_system"):
+            return "Query: iraurita iridium"
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(web, "call_llm", fake)
+    research, brief = asyncio.run(web.follow_up(found, FIRST_BRIEF, "r", ENGINE, "key"))
+    assert brief == FIRST_BRIEF
+    assert [r.url for r in research.results] == FIRST_URLS
+    assert research.followup.first_rank == 0
+    assert "brief rewrite failed" in research.followup.outcome
+
+
+def test_parse_followup_needs_a_query_line():
+    assert web.parse_followup("NONE") == ("", "")
+    assert web.parse_followup("## Facts\n- Cats sleep [1]") == ("", "")
+    assert web.parse_followup("Query: NONE") == ("", "")
+    assert web.parse_followup('**Uncertainty:** what it means\n**Query:** "iraurita iridium"') == (
+        "iraurita iridium", "what it means",
+    )
+
+
+def test_follow_up_note_reaches_an_override_without_the_placeholder():
+    # A saved brief override with its own headings and no {followup}
+    prompts.activate({"research.brief": "Request: {request}\n{sources}\n# Key points\n# Open issues"})
+    found = _research()
+    found.results.append(web.SearchResult(4, "New", "https://site4.example/page", "snippet 4"))
+    found.followup = web.FollowUp(query="cat sleep winter", reason="Winter is unclear.", first_rank=4)
+    prompt = web.build_brief_prompt(found, "write it")
+    assert prompt.startswith("Request: write it")
+    assert '<source n="4" status="snippet" url="https://site4.example/page">' in prompt
+    assert prompt.endswith("what remains unresolved, and do not present a guess, a hypothesis "
+                           "or a single commenter's opinion as the answer.")
+    assert prompt.count("Sources 4 to 4") == 1
+
+
 # --- screens ----------------------------------------------------------------
 
 

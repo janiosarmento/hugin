@@ -757,6 +757,12 @@ class ResearchScreen(ModalScreen["tuple[web.Research | None, str] | None"]):
                 brief = await web.write_brief(found, self._request, self._engine, title)
             except LLM_ERRORS as e:
                 raise web.ResearchError(f"{self._engine.id} failed on the brief: {e}") from e
+            # One more search when the brief leaves a material question open;
+            # its failures keep the first-round brief
+            found, brief = await web.follow_up(
+                found, brief, self._request, self._engine, self._api_key, title,
+                status=lambda text: self._status(escape(text)),
+            )
         except web.ResearchError as e:
             self.dismiss((None, str(e)))
             return
@@ -853,11 +859,17 @@ class BriefReviewScreen(ModalScreen[str | None]):
                     yield Button("Cancel", id="btn-brief-cancel")
                 return
             r = self._research
-            yield Label(f"Research brief — {escape(r.query)}", id="brief-title")
+            queries = escape(r.query)
+            if r.followup and r.followup.first_rank:
+                queries += f" + {escape(r.followup.query)}"
+            yield Label(f"Research brief — {queries}", id="brief-title")
+            followup = ""
+            if r.followup and r.followup.query:
+                followup = f"Follow-up search \"{escape(r.followup.query)}\": {escape(r.followup.outcome)}. "
             yield Static(
                 f"Brave Search, {r.country}/{r.search_lang}, "
                 f"{r.fetched_at:%Y-%m-%d %H:%M}. Read {r.pages_read} of "
-                f"{len(r.results)} pages. Edit the brief: the writer gets it as "
+                f"{len(r.results)} pages. {followup}Edit the brief: the writer gets it as "
                 "you leave it, plus the source list. Ctrl+S writes the draft, Esc cancels.",
                 id="brief-hint",
             )

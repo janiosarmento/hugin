@@ -8,6 +8,10 @@ the author reviews before the writer sees it.
 Search results come from the Brave Search API; pages are fetched and reduced
 to text here. Every source keeps its rank, URL and read status, so the brief
 never presents a page that could not be read as verified.
+
+When the first brief leaves a material question open (what a term means, two
+competing explanations), one follow-up search runs and the brief is written
+again from both rounds; see follow_up().
 """
 
 from __future__ import annotations
@@ -17,7 +21,8 @@ import hashlib
 import json
 import re
 import time
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
@@ -25,6 +30,7 @@ from pathlib import Path
 import httpx
 
 from hugin import prompts
+from hugin.drafting import LLM_ERRORS
 from hugin.engines import CONFIG_DIR, _get_api_key
 from hugin.fsutil import atomic_write_text
 from hugin.log import log_exception
@@ -97,6 +103,16 @@ class PageRead:
 
 
 @dataclass
+class FollowUp:
+    """The one extra search after the first brief, and what came of it."""
+
+    query: str = ""
+    reason: str = ""  # the uncertainty the search is meant to settle
+    outcome: str = ""  # for the review screen and the research log
+    first_rank: int = 0  # rank of the first source it added; 0 = none kept
+
+
+@dataclass
 class Research:
     query: str
     language: str
@@ -105,6 +121,7 @@ class Research:
     fetched_at: datetime
     results: list[SearchResult] = field(default_factory=list)
     pages: dict[str, PageRead] = field(default_factory=dict)
+    followup: FollowUp | None = None
 
     def status(self, result: SearchResult) -> str:
         """'read', or why only the search snippet is available."""
@@ -120,6 +137,13 @@ class Research:
     @property
     def pages_read(self) -> int:
         return sum(1 for p in self.pages.values() if p.ok)
+
+    @property
+    def first_round(self) -> list[SearchResult]:
+        """Results of the first search (all of them without a kept follow-up)."""
+        if self.followup and self.followup.first_rank:
+            return [r for r in self.results if r.rank < self.followup.first_rank]
+        return self.results
 
 
 def search_api_key() -> str | None:
@@ -303,6 +327,30 @@ async def fetch_page(client: httpx.AsyncClient, url: str) -> PageRead:
     return PageRead(url, text=text[:PAGE_CHARS])
 
 
+async def _search(
+    client: httpx.AsyncClient, query: str, api_key: str, country: str, search_lang: str,
+) -> list[SearchResult]:
+    try:
+        return await brave_search(client, query, api_key, country, search_lang)
+    except httpx.HTTPStatusError as e:
+        raise ResearchError(f"Brave Search failed: HTTP {e.response.status_code}") from e
+    except FETCH_ERRORS as e:
+        raise ResearchError(f"Brave Search failed: {e or type(e).__name__}") from e
+
+
+async def _read(client: httpx.AsyncClient, results: list[SearchResult]) -> dict[str, PageRead]:
+    """Read the results' pages, keeping the first N_PAGES readable ones in rank order."""
+    reads = await asyncio.gather(*(fetch_page(client, r.url) for r in results))
+    pages, taken = {}, 0
+    for page in reads:  # rank order
+        if page.ok and taken >= N_PAGES:
+            page.skipped = True
+        elif page.ok:
+            taken += 1
+        pages[page.url] = page
+    return pages
+
+
 async def gather(
     query: str, api_key: str | None, language: str,
     client: httpx.AsyncClient | None = None,
@@ -315,26 +363,50 @@ async def gather(
     own = client is None
     client = client or httpx.AsyncClient()
     try:
-        try:
-            research.results = await brave_search(client, query, api_key, country, search_lang)
-        except httpx.HTTPStatusError as e:
-            raise ResearchError(f"Brave Search failed: HTTP {e.response.status_code}") from e
-        except FETCH_ERRORS as e:
-            raise ResearchError(f"Brave Search failed: {e or type(e).__name__}") from e
+        research.results = await _search(client, query, api_key, country, search_lang)
         if not research.results:
             raise ResearchError(f"No search results for: {query}")
-        reads = await asyncio.gather(*(fetch_page(client, r.url) for r in research.results))
+        research.pages = await _read(client, research.results)
     finally:
         if own:
             await client.aclose()
-    taken = 0
-    for page in reads:  # rank order
-        if page.ok and taken >= N_PAGES:
-            page.skipped = True
-        elif page.ok:
-            taken += 1
-        research.pages[page.url] = page
     return research
+
+
+def _url_key(url: str) -> str:
+    """URL compared for duplicates: no fragment, no trailing slash."""
+    return url.split("#", 1)[0].rstrip("/")
+
+
+async def extend(
+    research: Research, query: str, api_key: str | None,
+    client: httpx.AsyncClient | None = None,
+) -> Research:
+    """A copy of `research` with a second search's new results appended.
+
+    Results whose URL is already there are dropped; the new ones are numbered
+    after the existing sources, so citations of the first round stay valid.
+    Up to N_PAGES of the new pages are read. Raises ResearchError when the
+    search fails.
+    """
+    if not api_key:
+        raise ResearchError(f"No Brave Search key in the vault ({SEARCH_SECRET})")
+    known = {_url_key(r.url) for r in research.results}
+    own = client is None
+    client = client or httpx.AsyncClient()
+    try:
+        found = await _search(client, query, api_key, research.country, research.search_lang)
+        new = []
+        for result in found:
+            if _url_key(result.url) not in known:
+                known.add(_url_key(result.url))
+                new.append(replace(result, rank=len(research.results) + len(new) + 1))
+        pages = await _read(client, new) if new else {}
+    finally:
+        if own:
+            await client.aclose()
+    return replace(research, results=[*research.results, *new],
+                   pages={**research.pages, **pages})
 
 
 # --- query ------------------------------------------------------------------
@@ -371,24 +443,42 @@ def _source_block(n: int, result: SearchResult, research: Research) -> str:
     )
 
 
+def _sources_xml(research: Research) -> str:
+    return "\n\n".join(_source_block(r.rank, r, research) for r in research.results)
+
+
+def _followup_note(research: Research) -> str:
+    f = research.followup
+    if f is None or not f.first_rank:
+        return ""
+    return prompts.render(
+        "research.brief_followup", first=f.first_rank, last=len(research.results),
+        query=f.query, reason=f.reason or "the first results did not settle the request.",
+    ).strip()
+
+
 def build_brief_prompt(research: Research, request: str, original_title: str | None = None) -> str:
     original = (
         "\n" + prompts.render("research.brief_rewrite", title=original_title).strip() + "\n"
         if original_title else ""
     )
-    return prompts.render(
+    note = _followup_note(research)
+    prompt = prompts.render(
         "research.brief",
         request=request.strip(),
         original=original,
-        n=len(research.results),
+        n=len(research.first_round),
         query=research.query,
         date=research.fetched_at.strftime("%Y-%m-%d"),
-        sources="\n\n".join(
-            _source_block(r.rank, r, research) for r in research.results
-        ),
+        sources=_sources_xml(research),
         language=research.language,
         outline_note=" " + prompts.text("research.brief_outline_note").strip() if original_title else "",
+        followup="\n\n" + note if note else "",
     )
+    # A saved override written before {followup} existed still gets the note
+    if note and note not in prompt:
+        prompt += "\n\n" + note
+    return prompt
 
 
 async def write_brief(
@@ -399,6 +489,105 @@ async def write_brief(
     if not text or not text.strip():
         raise ValueError(f"{engine.id} returned an empty brief")
     return text.strip()
+
+
+# --- follow-up search -------------------------------------------------------
+
+def parse_followup(answer: str) -> tuple[str, str]:
+    """(query, uncertainty) from the decision; ("", "") when none is needed.
+
+    Only a "Query:" line counts, so an answer in another shape (a brief, a
+    refusal, NONE) never turns into a search.
+    """
+    query = reason = ""
+    for line in (answer or "").splitlines():
+        line = line.strip().lstrip("-*# ").strip()
+        key, sep, value = line.partition(":")
+        if not sep:
+            continue
+        key = key.strip().strip("*_").strip().lower()
+        value = value.strip(" \t\"'`“”*_")
+        if key in ("query", "search query", "follow-up query") and not query:
+            query = value
+        elif key == "uncertainty" and not reason:
+            reason = value
+    if query.upper() == "NONE":
+        query = ""
+    return query[:MAX_QUERY_CHARS], reason
+
+
+def _same_query(a: str, b: str) -> bool:
+    def norm(q: str) -> str:
+        return " ".join(re.sub(r"[^\w\s]", " ", q.casefold()).split())
+    return norm(a) == norm(b)
+
+
+async def decide_followup(engine, research: Research, request: str, brief: str) -> tuple[str, str]:
+    """(query, uncertainty) for one more search, or ("", "") when the first round suffices.
+
+    It reads the request, the sources and the brief as plain text, so it works
+    whatever sections a site's brief prompt asks for.
+    """
+    prompt = prompts.render(
+        "research.followup", request=request.strip(), query=research.query,
+        sources=_sources_xml(research), brief=brief.strip(), language=research.language,
+    )
+    return parse_followup(await call_llm(engine, prompt, system=prompts.text("research.followup_system")))
+
+
+async def follow_up(
+    research: Research, brief: str, request: str, engine, api_key: str | None,
+    original_title: str | None = None, client: httpx.AsyncClient | None = None,
+    status: Callable[[str], None] | None = None,
+) -> tuple[Research, str]:
+    """At most one more search when the first brief leaves a material question open.
+
+    Returns the research and brief to review: both rounds and a rewritten
+    brief when the extra search added sources, the first round otherwise.
+    Never raises for the follow-up's own failures; research.followup records
+    the queries' outcome for the review screen and the log.
+    """
+    say = status or (lambda _text: None)
+    followup = FollowUp()
+
+    def keep_first(outcome: str) -> tuple[Research, str]:
+        followup.outcome = outcome
+        return replace(research, followup=followup), brief
+
+    say("Checking whether the sources settle the request…")
+    try:
+        followup.query, followup.reason = await decide_followup(engine, research, request, brief)
+    except LLM_ERRORS as e:
+        log_exception("research: follow-up decision")
+        return keep_first(f"not run: the decision failed ({e or type(e).__name__})")
+    if not followup.query:
+        return keep_first("not needed: the first round answers the request")
+    if _same_query(followup.query, research.query):
+        return keep_first("skipped: same as the first query")
+
+    say(f"Follow-up search: {followup.query}")
+    try:
+        merged = await extend(research, followup.query, api_key, client)
+    except ResearchError as e:
+        return keep_first(f"failed: {e}; kept the first-round brief")
+    added = merged.results[len(research.results):]
+    if not added:
+        return keep_first("no new sources; kept the first-round brief")
+    followup.first_rank = added[0].rank
+    merged.followup = followup
+    read = sum(1 for r in added if merged.status(r) == "read")
+    span = f"[{added[0].rank}]" if len(added) == 1 else f"[{added[0].rank}]–[{added[-1].rank}]"
+
+    say(f"Read {read} of {len(added)} new pages. {engine.id} is rewriting the brief…")
+    try:
+        rewritten = await write_brief(merged, request, engine, original_title)
+    except LLM_ERRORS as e:
+        log_exception("research: brief after follow-up")
+        followup.first_rank = 0
+        return keep_first(f"found {len(added)} new sources, but the brief rewrite failed "
+                          f"({e or type(e).__name__}); kept the first-round brief")
+    followup.outcome = f"added {len(added)} sources {span}, {read} read; brief rewritten from both rounds"
+    return merged, rewritten
 
 
 def unknown_citations(brief: str, research: Research) -> list[int]:
@@ -422,6 +611,17 @@ def writer_context(brief: str, research: Research) -> str:
     return f"{brief.strip()}\n\n## Sources\n\n{sources_markdown(research)}"
 
 
+def _followup_lines(research: Research) -> str:
+    f = research.followup
+    if f is None:
+        return ""
+    return (
+        f"- Follow-up query: {f.query or '(none)'}\n"
+        + (f"- Follow-up reason: {f.reason}\n" if f.reason else "")
+        + f"- Follow-up search: {f.outcome}\n"
+    )
+
+
 def save_log(research: Research, brief: str, request: str, draft: Path) -> Path:
     """Keep the research behind a draft in ~/.hugin/research/<draft name>.md."""
     path = RESEARCH_DIR / f"{draft.stem}.md"
@@ -430,6 +630,7 @@ def save_log(research: Research, brief: str, request: str, draft: Path) -> Path:
         f"# Research for {draft.name}\n\n"
         f"- Draft: {draft}\n"
         f"- Query: {research.query}\n"
+        f"{_followup_lines(research)}"
         f"- Region: {research.country}, language {research.search_lang}\n"
         f"- Collected: {research.fetched_at.isoformat(timespec='seconds')}\n"
         f"- Pages read: {research.pages_read} of {len(research.results)} results\n\n"
