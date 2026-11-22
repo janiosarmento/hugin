@@ -376,13 +376,17 @@ path. In Typora: Preferences → Image → "Copy image to custom folder" →
 escape image URL" on, "Apply above rules to online images" and "Use relative
 path if possible" off.
 
-Typora resolves links such as `/images/a.jpg` from the disk root, so `E` adds
-`typora-root-url` (the site's static folder) to the front matter while Typora
-is open and removes it on return; `g` strips any left behind. Opened outside
-Hugin, Typora shows those images as broken.
+While `E` has a post open in Typora, its front matter carries two Typora keys,
+removed on return (`g` strips any left behind): `typora-root-url`, so links
+such as `/images/a.jpg` preview from the site's static folder, and
+`typora-copy-images-to`, so pasted images go straight to the post's image
+folder. Opened outside Hugin, Typora shows site images as broken and puts
+pasted ones in the inbox.
 
-After `E` and before `g`, Hugin moves those images into the blog and rewrites
-the links. Images are never converted or resized. A post's new images go to
+After `E` and before `g`, Hugin moves inbox images into the blog and rewrites
+the links, whatever form the editor wrote them in (absolute, `file://`, or
+relative to the static folder), and turns file paths to site images into site
+links. Images are never converted or resized. A post's new images go to
 the folder its other images use; otherwise to the blog's date folder (from the
 post's date) when it uses them.
 

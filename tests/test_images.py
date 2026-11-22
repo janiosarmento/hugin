@@ -81,21 +81,32 @@ def test_detect_root_level_images():
 # --- inbox references -----------------------------------------------------------------
 
 
-def test_inbox_refs_in_every_shape_an_editor_writes(tmp_path):
-    inbox = tmp_path / "typora inbox"
-    text = (
-        f"thumbnail: {inbox}/cover.png\n"
-        f"![a]({inbox}/a.png)\n"
-        f"![b](<{inbox}/b c.png>)\n"
-        f"![c]({str(inbox).replace(' ', '%20')}/c%20d.png)\n"
-        f"![d](file://{inbox}/d.png)\n"
-        f"![again]({inbox}/a.png)\n"
-        "![other](/images/x.png)\n"
-    )
-    assert images.inbox_refs(text, inbox) == [
-        f"{inbox}/cover.png", f"{inbox}/a.png", f"{inbox}/b c.png",
-        f"{str(inbox).replace(' ', '%20')}/c%20d.png", f"file://{inbox}/d.png",
-    ]
+def test_resolve_finds_inbox_images_in_every_shape_an_editor_writes(tmp_path):
+    home = tmp_path / "home"
+    inbox = home / "Pictures" / "typora inbox"
+    static = home / "projects" / "blog" / "static"
+    post_dir = home / "projects" / "blog" / "content" / "post"
+    (static / "images").mkdir(parents=True)
+    (static / "images" / "site.png").write_bytes(b"x")
+
+    def kind(ref):
+        hit = images.resolve(ref, post_dir, static, inbox)
+        return hit and (hit[0], hit[1].name)
+
+    assert kind(f"{inbox}/a.png") == ("inbox", "a.png")
+    assert kind(f"{inbox}/b c.png") == ("inbox", "b c.png")
+    assert kind(f"{str(inbox).replace(' ', '%20')}/c%20d.png") == ("inbox", "c d.png")
+    assert kind(f"file://{inbox}/d.png") == ("inbox", "d.png")
+    # Typora with typora-root-url: relative to the static folder
+    assert kind("/../../../Pictures/typora%20inbox/Winged%20Bubble.png") == ("inbox", "Winged Bubble.png")
+    # A site image linked by a path that is not a site path
+    assert kind("../../static/images/site.png") == ("static", "site.png")
+    assert kind(f"{static}/images/site.png") == ("static", "site.png")
+    # Nothing to fix
+    assert kind("/images/site.png") is None
+    assert kind("/images/missing.png") is None
+    assert kind("https://example.com/a.png") is None
+    assert kind("data:image/png;base64,xx") is None
 
 
 def test_safe_name():
@@ -201,13 +212,38 @@ def test_adopt_reports_missing_files_and_leaves_their_links(blog):
     assert post.read_text() == before
 
 
-def test_posts_with_inbox_refs(blog):
+def test_posts_to_adopt(blog):
     _write_post(blog, "clean.md", "![x](/images/x.png)")
     linked = _write_post(blog, "linked.md", f"![x]({blog.inbox}/x.png)")
     (blog.root / "content/en").mkdir()
     other = blog.root / "content/en/other.md"
     other.write_text(f"![y](<{blog.inbox}/y z.png>)")
-    assert images.posts_with_inbox_refs(blog.root / "content", blog.inbox) == [other, linked]
+    assert images.posts_to_adopt(blog.root / "content", blog.root / "static", blog.inbox) == [other, linked]
+
+
+def test_adopt_follows_typora_links_relative_to_the_static_folder(blog):
+    _inbox_image(blog, "Winged Bubble.png", b"w")
+    rel = "/" + "/".join([".."] * 2) + f"/{blog.inbox.name}/Winged%20Bubble.png"  # static -> blog -> tmp
+    post = _write_post(blog, "p.md", f"![Winged]({rel})")
+    result = images.adopt(post, blog.root, CONVENTION, blog.root / "static", inbox=blog.inbox)
+    assert result.moved == [("Winged Bubble.png", "/images/2026/11/Winged-Bubble.png")]
+    assert "![Winged](/images/2026/11/Winged-Bubble.png)" in post.read_text()
+
+
+def test_adopt_turns_file_paths_to_site_images_into_site_paths(blog):
+    (blog.root / "static/images/canetas").mkdir(parents=True)
+    (blog.root / "static/images/canetas/a b.png").write_bytes(b"a")
+    post = _write_post(blog, "p.md", "![a](../../static/images/canetas/a%20b.png)\n![ok](/images/canetas/a%20b.png)")
+    result = images.adopt(post, blog.root, CONVENTION, blog.root / "static", inbox=blog.inbox)
+    assert result.relinked == ["/images/canetas/a%20b.png"] and not result.moved
+    assert post.read_text().count("](/images/canetas/a%20b.png)") == 2
+
+
+def test_destination_is_where_adopt_would_put_new_images(blog):
+    post = _write_post(blog, "p.md", "![old](/images/canetas/old.avif)")
+    assert images.destination(post, blog.root, CONVENTION) == (blog.root / "static/images/canetas", "/images/canetas")
+    fresh = _write_post(blog, "q.md", "No images yet", date="2025-03-09")
+    assert images.destination(fresh, blog.root, CONVENTION) == (blog.root / "static/images/2025/03", "/images/2025/03")
 
 
 # --- settings ---------------------------------------------------------------------------
@@ -284,6 +320,8 @@ class FakeApp:
 class FakeScreen:
     _adopt_inbox_images = HuginScreen._adopt_inbox_images
     _move_inbox_images = HuginScreen._move_inbox_images
+    _image_settings = HuginScreen._image_settings
+    _static_root = HuginScreen._static_root
     _base_url = HuginScreen._base_url
 
     def __init__(self, directory):
@@ -353,32 +391,41 @@ def test_posts_without_inbox_images_go_straight_on(hooked):
 # --- Typora preview root ------------------------------------------------------------------
 
 
-def test_root_url_is_added_to_yaml_front_matter_and_removed_exactly(tmp_path):
+def test_typora_keys_are_added_to_yaml_front_matter_and_removed_exactly(tmp_path):
     post = tmp_path / "p.md"
     original = "---\ntitle: T\ndate: 2026-11-22\n---\nBody\ntypora-root-url: stays, it is body text\n"
     post.write_text(original)
 
-    assert images.add_root_url(post, Path("/Users/me/blog/static"))
+    assert images.add_typora_keys(post, Path("/Users/me/blog/static"), Path("/Users/me/blog/static/images/x"))
     text = post.read_text()
-    assert text.startswith('---\ntypora-root-url: /Users/me/blog/static\ntitle: T\n')
-    assert not images.add_root_url(post, Path("/elsewhere"))  # never twice
+    assert text.startswith(
+        "---\ntypora-root-url: /Users/me/blog/static\n"
+        "typora-copy-images-to: /Users/me/blog/static/images/x\ntitle: T\n")
+    assert not images.add_typora_keys(post, Path("/elsewhere"))  # never twice
 
-    assert images.posts_with_root_url(tmp_path) == [post]
-    assert images.strip_root_url(post)
+    assert images.posts_with_typora_keys(tmp_path) == [post]
+    assert images.strip_typora_keys(post)
     assert post.read_text() == original
-    assert not images.strip_root_url(post)
-    assert images.posts_with_root_url(tmp_path) == []
+    assert not images.strip_typora_keys(post)
+    assert images.posts_with_typora_keys(tmp_path) == []
 
 
-def test_root_url_skips_toml_front_matter(tmp_path):
+def test_typora_root_url_alone(tmp_path):
+    post = tmp_path / "p.md"
+    post.write_text("---\ntitle: T\n---\nBody\n")
+    assert images.add_typora_keys(post, Path("/x/static"))
+    assert post.read_text() == "---\ntypora-root-url: /x/static\ntitle: T\n---\nBody\n"
+
+
+def test_typora_keys_skip_toml_front_matter(tmp_path):
     post = tmp_path / "p.md"
     post.write_text('+++\ntitle = "T"\n+++\nBody\n')
-    assert not images.add_root_url(post, Path("/x"))
+    assert not images.add_typora_keys(post, Path("/x"))
     assert post.read_text() == '+++\ntitle = "T"\n+++\nBody\n'
 
 
-def test_root_url_is_quoted_only_when_yaml_needs_it(tmp_path):
+def test_typora_paths_are_quoted_only_when_yaml_needs_it(tmp_path):
     post = tmp_path / "p.md"
     post.write_text("---\ntitle: T\n---\nBody\n")
-    images.add_root_url(post, Path("/Users/me/My Blogs/blog #1: cats/static"))
+    images.add_typora_keys(post, Path("/Users/me/My Blogs/blog #1: cats/static"))
     assert post.read_text().startswith('---\ntypora-root-url: "/Users/me/My Blogs/blog #1: cats/static"\n')

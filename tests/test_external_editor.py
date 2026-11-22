@@ -18,7 +18,9 @@ class FakeApp:
 class FakeScreen:
     action_external_editor = HuginScreen.action_external_editor
     _adopt_inbox_images = HuginScreen._adopt_inbox_images
+    _image_settings = HuginScreen._image_settings
     _static_root = HuginScreen._static_root
+    _base_url = HuginScreen._base_url
 
     def __init__(self, post_path: Path):
         self._state = STATE_BROWSING
@@ -101,7 +103,7 @@ def test_ignored_outside_browsing(monkeypatch, tmp_path, state):
     assert screen.reloaded == []
 
 
-def test_hugin_editor_wins_over_editor(monkeypatch, tmp_path):
+def test_hugin_editor_wins_over_editor(monkeypatch, tmp_path, images_configured):
     post_path = tmp_path / "post.md"
     monkeypatch.setenv("EDITOR", "hx")
     monkeypatch.setenv("HUGIN_EDITOR", "open -W -n -a Typora")
@@ -115,9 +117,17 @@ def test_hugin_editor_wins_over_editor(monkeypatch, tmp_path):
     assert screen.reloaded == [0]
 
 
-def test_typora_gets_a_preview_root_only_while_it_is_open(monkeypatch, tmp_path):
+@pytest.fixture
+def images_configured(monkeypatch):
+    from hugin.project import ImagesSettings, ProjectConfig
+
+    monkeypatch.setattr(review, "load_project", lambda d: ProjectConfig(
+        images=ImagesSettings("static/images", "/images", "YYYY/MM")))
+
+
+def test_typora_gets_its_keys_only_while_it_is_open(monkeypatch, tmp_path, images_configured):
     post_path = tmp_path / "post.md"
-    original = "---\ntitle: T\n---\n![a](/images/a.png)\n"
+    original = "---\ntitle: T\ndate: 2026-11-22\n---\n![a](/images/canetas/a.png)\n"
     post_path.write_text(original)
     monkeypatch.setenv("HUGIN_EDITOR", "open -W -n -a Typora")
     seen = []
@@ -127,6 +137,9 @@ def test_typora_gets_a_preview_root_only_while_it_is_open(monkeypatch, tmp_path)
     screen.action_external_editor()
 
     assert f'typora-root-url: {tmp_path / "static"}\n' in seen[0]
+    # Pasted images go straight to the folder the post's images use
+    assert f'typora-copy-images-to: {tmp_path / "static/images/canetas"}\n' in seen[0]
+    assert (tmp_path / "static/images/canetas").is_dir()
     assert post_path.read_text() == original
     assert screen.reloaded == [0]
 
@@ -141,7 +154,7 @@ def test_other_editors_get_no_preview_root(monkeypatch, tmp_path):
     assert "typora-root-url" not in seen[0]
 
 
-def test_preview_root_is_removed_even_when_the_editor_fails(monkeypatch, tmp_path):
+def test_preview_root_is_removed_even_when_the_editor_fails(monkeypatch, tmp_path, images_configured):
     post_path = tmp_path / "post.md"
     original = "---\ntitle: T\n---\nBody\n"
     post_path.write_text(original)
@@ -154,3 +167,24 @@ def test_preview_root_is_removed_even_when_the_editor_fails(monkeypatch, tmp_pat
     with pytest.raises(FileNotFoundError):
         FakeScreen(post_path).action_external_editor()
     assert post_path.read_text() == original
+
+
+def test_typora_without_confirmed_image_folder_asks_first(monkeypatch, tmp_path):
+    from hugin.project import ProjectConfig
+
+    post_path = tmp_path / "post.md"
+    post_path.write_text("---\ntitle: T\n---\nBody\n")
+    monkeypatch.setattr(review, "load_project", lambda d: ProjectConfig())
+    monkeypatch.setenv("HUGIN_EDITOR", "typora")
+    ran = []
+    monkeypatch.setattr(review.subprocess, "run", lambda cmd, **k: ran.append(post_path.read_text()))
+    screen = FakeScreen(post_path)
+    screen.all_posts = []
+    pushed = []
+    screen.app.push_screen = lambda modal, callback: pushed.append(callback)
+
+    screen.action_external_editor()
+    assert ran == [] and len(pushed) == 1  # the confirmation comes before the editor
+
+    pushed[0](None)  # declined: Typora still opens, with the preview root only
+    assert "typora-root-url" in ran[0] and "typora-copy-images-to" not in ran[0]

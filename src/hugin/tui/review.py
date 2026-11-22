@@ -215,6 +215,10 @@ class ConfirmClearScreen(ModalScreen[bool]):
         self.dismiss(False)
 
 
+def _convention(settings: ImagesSettings) -> "images.Convention":
+    return images.Convention(settings.dir, settings.url, settings.date_folders)
+
+
 class ConfirmGitSyncScreen(ModalScreen[bool]):
     """Confirm git sync (pull + push)."""
 
@@ -2038,57 +2042,88 @@ class HuginScreen(Screen):
             return
         index = self.current_index
         post = self.posts[index]
-        # Typora previews /images/... links only with the site's static folder as root
-        added = "typora" in editor.lower() and images.add_root_url(post.path, self._static_root())
-        try:
-            with self.app.suspend():
-                subprocess.run([*shlex.split(editor), str(post.path)])
-        finally:
-            if added:
-                images.strip_root_url(post.path)
 
         def reload() -> None:
             self._reload_post(post, index)
             self._update_detail_panel()
 
-        self._adopt_inbox_images([post.path], reload)
+        def run(settings: "ImagesSettings | None") -> None:
+            added = False
+            if "typora" in editor.lower():
+                # Typora previews /images/... only with the static folder as root, and
+                # copies pasted images straight into the post's folder when told where
+                copy_to = None
+                if settings is not None:
+                    try:
+                        copy_to, _ = images.destination(
+                            post.path, find_site_root(self.directory), _convention(settings), self._base_url())
+                        copy_to.mkdir(parents=True, exist_ok=True)
+                    except OSError:
+                        log_exception("image destination")
+                        copy_to = None
+                added = images.add_typora_keys(post.path, self._static_root(), copy_to)
+            try:
+                with self.app.suspend():
+                    subprocess.run([*shlex.split(editor), str(post.path)])
+            finally:
+                if added:
+                    images.strip_typora_keys(post.path)
+            self._adopt_inbox_images([post.path], reload)
+
+        if "typora" in editor.lower():
+            self._image_settings(1, run)
+        else:
+            run(None)
 
     # === IMAGES PASTED IN AN EXTERNAL EDITOR ===
 
-    def _adopt_inbox_images(self, paths: list[Path], then) -> None:
-        """Move images the external editor left in the inbox into the blog, then run `then`.
+    def _image_settings(self, pending: int, then) -> None:
+        """Run `then` with the blog's image settings, detected and confirmed the first time.
 
-        The first time in a blog, its image folder is detected and confirmed.
-        Any failure leaves the images where they are and still runs `then`.
+        `then` gets None when the user declines.
         """
-        pending = [p for p in paths if p.is_file() and images.inbox_refs(p.read_text(encoding="utf-8"))]
-        if not pending:
-            then()
-            return
         project = load_project(self.directory)
         if project.images.configured:
-            self._move_inbox_images(pending, project.images, then)
+            then(project.images)
             return
-        static = self.site.config.get("staticDir")
-        detection = images.detect(
-            self.all_posts, static if isinstance(static, str) else "static", self._base_url(),
-        )
+        static_dir = self._static_root().relative_to(find_site_root(self.directory)).as_posix()
+        detection = images.detect(self.all_posts, static_dir, self._base_url())
 
         def on_confirm(convention: "images.Convention | None") -> None:
             if convention is None:
-                self.notify(f"Images left in {images.INBOX}: their links only work on this Mac.",
-                            severity="warning", timeout=10)
-                then()
+                then(None)
                 return
             fresh = load_project(self.directory)  # settings may have changed meanwhile
             fresh.images = ImagesSettings(convention.dir, convention.url, convention.date_folders)
             save_and_sync(self.app, self.directory, fresh, "image folders")
             self._project = fresh
-            self._move_inbox_images(pending, fresh.images, then)
+            then(fresh.images)
 
         self.app.push_screen(
-            ImageConventionScreen(detection, find_site_root(self.directory), len(pending)), on_confirm,
+            ImageConventionScreen(detection, find_site_root(self.directory), pending), on_confirm,
         )
+
+    def _adopt_inbox_images(self, paths: list[Path], then) -> None:
+        """Move images an external editor left outside the blog into it, then run `then`.
+
+        The first time in a blog, its image folder is detected and confirmed.
+        Any failure leaves the images where they are and still runs `then`.
+        """
+        static_root = self._static_root()
+        pending = [p for p in paths if images.needs_adopting(p, static_root)]
+        if not pending:
+            then()
+            return
+
+        def move(settings: "ImagesSettings | None") -> None:
+            if settings is None:
+                self.notify(f"Images left in {images.INBOX}: their links only work on this Mac.",
+                            severity="warning", timeout=10)
+                then()
+                return
+            self._move_inbox_images(pending, settings, then)
+
+        self._image_settings(len(pending), move)
 
     def _static_root(self) -> Path:
         static = self.site.config.get("staticDir")
@@ -2098,21 +2133,24 @@ class HuginScreen(Screen):
         return next((str(v) for k, v in self.site.config.items() if k.lower() == "baseurl"), "")
 
     def _move_inbox_images(self, paths: list[Path], settings: ImagesSettings, then) -> None:
-        convention = images.Convention(settings.dir, settings.url, settings.date_folders)
+        convention = _convention(settings)
         root = find_site_root(self.directory)
-        moved, missing = 0, []
+        moved, relinked, missing = 0, 0, []
         for path in paths:
             try:
-                result = images.adopt(path, root, convention, self._base_url(),
+                result = images.adopt(path, root, convention, self._static_root(), self._base_url(),
                                       moved_before=self._adopted_images)
             except OSError as e:
                 log_exception("move inbox images")
                 self.notify(f"Could not move images of {path.name}: {e}", severity="error", timeout=10)
                 continue
             moved += len(result.moved)
+            relinked += len(result.relinked)
             missing += [f"{path.name}: {name}" for name in result.missing]
         if moved:
             self.notify(f"Moved {moved} image(s) into {convention.dir} and fixed the links")
+        if relinked:
+            self.notify(f"Fixed {relinked} image link(s) to site paths")
         if missing:
             self.notify("Linked images no longer in the inbox: " + "; ".join(missing),
                         severity="warning", timeout=12)
@@ -2664,9 +2702,9 @@ class HuginScreen(Screen):
         # Never commit a path on this Mac: Typora's preview root, or links to inbox images
         content = find_site_root(self.directory) / "content"
         content = content if content.is_dir() else self.directory
-        for path in images.posts_with_root_url(content):
-            images.strip_root_url(path)
-        self._adopt_inbox_images(images.posts_with_inbox_refs(content), confirm)
+        for path in images.posts_with_typora_keys(content):
+            images.strip_typora_keys(path)
+        self._adopt_inbox_images(images.posts_to_adopt(content, self._static_root()), confirm)
 
     @work(thread=True)
     def _do_git_sync(self) -> None:

@@ -1,9 +1,11 @@
 """Images pasted in an external editor, moved to where the blog keeps its images.
 
 An editor such as Typora copies every inserted image to one inbox folder and
-links it by absolute file path. Before a post is committed, adopt() moves
+links it by a path on this Mac. Before a post is committed, adopt() moves
 each of those images into the blog's image folder and rewrites the links, so
-the post links `/images/2026/11/photo.jpg` instead of a path on this Mac.
+the post links `/images/2026/11/photo.jpg` instead. While Hugin has a post
+open in Typora, Typora's own front matter keys send pasted images straight
+to that folder (add_typora_keys()); adopt() then only tidies up.
 
 Where a blog keeps its images is learned from its own posts (detect()), then
 confirmed by the user and saved in hugin/config.toml (ImagesSettings). Images
@@ -110,13 +112,16 @@ def site_path(ref: str, base_url: str = "") -> str | None:
     return path if path.lower().endswith(IMAGE_EXTENSIONS) else None
 
 
-# --- Typora preview of site paths --------------------------------------------------
+# --- Typora keys while a post is open ---------------------------------------------
 
-# Typora resolves "/images/a.jpg" from the disk root; this front matter key
-# makes it resolve from the site's static folder instead. Added only while a
-# post is open in Typora: the value is a path on this Mac, never committed.
+# Typora resolves "/images/a.jpg" from the disk root; typora-root-url makes it
+# resolve from the site's static folder instead, and typora-copy-images-to
+# makes it copy pasted images straight into the post's image folder (written
+# then as /images/... links). Both are added only while Hugin has the post
+# open in Typora: their values are paths on this Mac, never committed.
 ROOT_URL_KEY = "typora-root-url"
-_ROOT_URL_LINE = re.compile(rf"^{re.escape(ROOT_URL_KEY)}\s*:.*\n?", re.MULTILINE)
+COPY_TO_KEY = "typora-copy-images-to"
+_TYPORA_LINE = re.compile(r"^typora-(?:root-url|copy-images-to)\s*:.*\n?", re.MULTILINE)
 
 
 def _yaml_front_matter(text: str) -> tuple[int, int] | None:
@@ -127,60 +132,70 @@ def _yaml_front_matter(text: str) -> tuple[int, int] | None:
     return (4, end + 1) if end != -1 else None
 
 
-def add_root_url(post_path: Path, static_root: Path) -> bool:
-    """Point Typora's image preview at `static_root`; False when not added (TOML, already set)."""
+def _yaml_path(path: Path) -> str:
+    """A path as a YAML value: unquoted, as Typora writes it (a quoted root
+    url does not resolve in Typora), quoted only when YAML needs it."""
+    value = str(path)
+    if not re.fullmatch(r"[\w/.~ -]+", value) or value != value.strip():
+        value = json.dumps(value)
+    return value
+
+
+def add_typora_keys(post_path: Path, static_root: Path, copy_to: Path | None = None) -> bool:
+    """Add typora-root-url (and typora-copy-images-to) to the post's YAML front matter.
+
+    False when nothing was added: TOML front matter, keys already there, or
+    an unreadable file (the editor reports a missing file better).
+    """
     from hugin.fsutil import atomic_write_text
 
     try:
         text = post_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
-        return False  # the editor reports a missing file better than we would
-    block = _yaml_front_matter(text)
-    if block is None or _ROOT_URL_LINE.search(text, *block):
         return False
-    # Unquoted, as Typora's own Format > Image > Use Image Root Path writes it:
-    # a quoted value does not resolve. Quoted only when YAML needs it.
-    value = str(static_root)
-    if not re.fullmatch(r"[\w/.~ -]+", value) or value != value.strip():
-        value = json.dumps(value)
-    line = f"{ROOT_URL_KEY}: {value}\n"
-    atomic_write_text(post_path, text[:block[0]] + line + text[block[0]:])
+    block = _yaml_front_matter(text)
+    if block is None or _TYPORA_LINE.search(text, *block):
+        return False
+    lines = f"{ROOT_URL_KEY}: {_yaml_path(static_root)}\n"
+    if copy_to is not None:
+        lines += f"{COPY_TO_KEY}: {_yaml_path(copy_to)}\n"
+    atomic_write_text(post_path, text[:block[0]] + lines + text[block[0]:])
     return True
 
 
-def remove_root_url(text: str) -> str:
-    """`text` without typora-root-url lines in its YAML front matter."""
+def remove_typora_keys(text: str) -> str:
+    """`text` without Typora's keys in its YAML front matter."""
     block = _yaml_front_matter(text)
     if block is None:
         return text
     start, end = block
-    return text[:start] + _ROOT_URL_LINE.sub("", text[start:end]) + text[end:]
+    return text[:start] + _TYPORA_LINE.sub("", text[start:end]) + text[end:]
 
 
-def strip_root_url(post_path: Path) -> bool:
-    """Remove typora-root-url from the post; True when the file changed."""
+def strip_typora_keys(post_path: Path) -> bool:
+    """Remove Typora's keys from the post; True when the file changed."""
     from hugin.fsutil import atomic_write_text
 
     try:
         text = post_path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return False
-    clean = remove_root_url(text)
+    clean = remove_typora_keys(text)
     if clean == text:
         return False
     atomic_write_text(post_path, clean)
     return True
 
 
-def posts_with_root_url(content_dir: Path) -> list[Path]:
-    """Markdown files under `content_dir` whose front matter still has typora-root-url."""
+def posts_with_typora_keys(content_dir: Path) -> list[Path]:
+    """Markdown files under `content_dir` whose front matter still has Typora's keys."""
     found = []
     for path in sorted(content_dir.rglob("*.md")):
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        if ROOT_URL_KEY in text and remove_root_url(text) != text:
+        if "typora-" in text and remove_typora_keys(text) != text:
             found.append(path)
     return found
 
@@ -241,36 +256,18 @@ def detect(posts, static_dir: str = "static", base_url: str = "", n: int = RECEN
     return Detection(Convention(folder, url, pattern), evidence)
 
 
-# --- adopting inbox images -------------------------------------------------------
+# --- adopting pasted images -------------------------------------------------------
 
 
 @dataclass
 class Adopted:
-    moved: list[tuple[str, str]] = field(default_factory=list)  # (file name in the inbox, new link)
+    moved: list[tuple[str, str]] = field(default_factory=list)  # (inbox file name, new link)
+    relinked: list[str] = field(default_factory=list)  # links to site files made site paths
     missing: list[str] = field(default_factory=list)  # inbox links whose file is gone
 
     @property
     def changed(self) -> bool:
-        return bool(self.moved)
-
-
-def _inbox_pattern(inbox: Path) -> re.Pattern:
-    """An inbox reference as an editor writes it: plain, URL-encoded, file://, in <...>."""
-    plain = str(inbox).rstrip("/")
-    variants = sorted({re.escape(plain), re.escape(quote(plain))}, key=len, reverse=True)
-    prefix = "(?:file://)?(?:" + "|".join(variants) + ")/"
-    return re.compile(rf"<({prefix}[^>\n]+)>|({prefix}[^\s)\"'<>\]]+)")
-
-
-def inbox_refs(text: str, inbox: Path | None = None) -> list[str]:
-    """References in `text` to files in the inbox (INBOX by default), as written, without duplicates."""
-    found = [m.group(1) or m.group(2) for m in _inbox_pattern(inbox or INBOX).finditer(text)]
-    return list(dict.fromkeys(found))
-
-
-def _inbox_file(ref: str) -> Path:
-    path = ref[len("file://"):] if ref.startswith("file://") else ref
-    return Path(unquote(path))
+        return bool(self.moved or self.relinked)
 
 
 def safe_name(name: str) -> str:
@@ -320,72 +317,135 @@ def _post_date(metadata: dict) -> datetime | None:
         return None
 
 
-def posts_with_inbox_refs(content_dir: Path, inbox: Path | None = None) -> list[Path]:
-    """Markdown files under `content_dir` that link an inbox image."""
+def _parse(text: str, base_url: str) -> tuple[list[str], list[str], datetime | None]:
+    """(every image reference as written, the site paths among them, the post's date)."""
+    import frontmatter
+
+    try:
+        parsed = frontmatter.loads(text)
+        refs = post_refs(parsed.metadata, parsed.content)
+        date = _post_date(parsed.metadata)
+    except Exception:  # unparsable front matter: the body references still count
+        refs, date = body_refs(text), None
+    refs = list(dict.fromkeys(refs))
+    return refs, [p for p in (site_path(r, base_url) for r in refs) if p], date
+
+
+def destination(post_path: Path, site_root: Path, convention: Convention, base_url: str = "") -> tuple[Path, str]:
+    """(folder, link prefix) for the post's new images."""
+    _, existing, date = _parse(post_path.read_text(encoding="utf-8"), base_url)
+    folder_rel, url_prefix = convention.folder(subfolder(convention, existing, date))
+    return site_root / folder_rel, url_prefix
+
+
+def _normpath(path: str) -> Path:
+    import os
+
+    return Path(os.path.normpath(path))
+
+
+def resolve(ref: str, post_dir: Path, static_root: Path, inbox: Path) -> tuple[str, Path] | None:
+    """("inbox" | "static", file) a local image reference points to, else None.
+
+    An editor may write an inbox image as an absolute path, a file:// URL, or
+    (with typora-root-url set) relative to the static folder, as in
+    /../../../Pictures/typora-inbox/a.png; and a site image as a path relative
+    to the post. Plain site paths (/images/a.jpg) are None: nothing to fix.
+    """
+    path = unquote(ref[len("file://"):] if ref.startswith("file://") else ref).strip()
+    if not path or "://" in path or path.startswith(("//", "data:", "#")):
+        return None
+    if path.startswith("/"):
+        candidates = [_normpath(f"{static_root}{path}"), _normpath(path)]
+    else:
+        candidates = [_normpath(str(post_dir / path))]
+    for c in candidates:
+        if c.is_relative_to(inbox):
+            return "inbox", c
+    if path.startswith("/") and ".." not in path.split("/") and candidates[0].is_file():
+        return None  # already a site path to an existing file
+    for c in candidates:
+        if c.is_relative_to(static_root) and c.is_file():
+            return "static", c
+    return None
+
+
+def needs_adopting(post_path: Path, static_root: Path, inbox: Path | None = None) -> bool:
+    """True when the post links an inbox image or a site image by a non-site path."""
     inbox = inbox or INBOX
-    needles = {str(inbox), quote(str(inbox))}
+    try:
+        text = post_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    refs, _, _ = _parse(text, "")
+    return any(resolve(r, post_path.parent, static_root, inbox) for r in refs)
+
+
+def posts_to_adopt(content_dir: Path, static_root: Path, inbox: Path | None = None) -> list[Path]:
+    """Markdown files under `content_dir` that need adopt()."""
+    inbox = inbox or INBOX
+    needles = (inbox.name, quote(inbox.name), "../", "file://")
     found = []
     for path in sorted(content_dir.rglob("*.md")):
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        if any(n in text for n in needles) and inbox_refs(text, inbox):
+        if any(n in text for n in needles) and needs_adopting(path, static_root, inbox):
             found.append(path)
     return found
 
 
 def adopt(
-    post_path: Path, site_root: Path, convention: Convention,
+    post_path: Path, site_root: Path, convention: Convention, static_root: Path | None = None,
     base_url: str = "", inbox: Path | None = None,
     moved_before: dict[Path, str] | None = None,
 ) -> Adopted:
-    """Move the post's inbox images into the blog and rewrite their links.
+    """Move the post's inbox images into the blog and fix links to site images.
 
-    Date folders use the post's front matter date (today when it has none).
+    Inbox images go to destination() with a link-safe name; links to files
+    already in the static folder by another path become site paths. Date
+    folders use the post's front matter date (today when it has none).
 
     `moved_before` maps inbox files already moved (in this session) to their
     links, so the same image pasted into a translation links the same file;
     it is updated in place. The post is rewritten only when a link changed.
     """
-    import frontmatter
-
     from hugin.fsutil import atomic_write_text
 
     inbox = inbox or INBOX
+    static_root = static_root or site_root / "static"
     result = Adopted()
     text = post_path.read_text(encoding="utf-8")
-    refs = inbox_refs(text, inbox)
-    if not refs:
+    refs, existing, date = _parse(text, base_url)
+    found = [(r, resolve(r, post_path.parent, static_root, inbox)) for r in refs]
+    found = [(r, kind, file) for r, hit in found if hit for kind, file in [hit]]
+    if not found:
         return result
     moved_before = moved_before if moved_before is not None else {}
-    try:
-        parsed = frontmatter.loads(text)
-        existing = [p for p in (site_path(r, base_url) for r in post_refs(parsed.metadata, parsed.content)) if p]
-        date = _post_date(parsed.metadata)
-    except Exception:  # unparsable front matter: the body references still count
-        existing = [p for p in (site_path(r, base_url) for r in body_refs(text)) if p]
-        date = None
     folder_rel, url_prefix = convention.folder(subfolder(convention, existing, date))
     folder = site_root / folder_rel
-    for ref in refs:
-        source = _inbox_file(ref)
-        link = moved_before.get(source)
-        if link is None and source.is_file():
-            folder.mkdir(parents=True, exist_ok=True)
-            target = _free(folder, safe_name(source.name))
-            shutil.move(str(source), target)
-            link = f"{url_prefix}/{target.name}"
-            moved_before[source] = link
-        elif link is None:
-            # Moved by an earlier run: the file kept its (safe) name in this folder
-            twin = folder / safe_name(source.name)
-            if not twin.is_file():
-                result.missing.append(source.name)
-                continue
-            link = f"{url_prefix}/{twin.name}"
+    for ref, kind, source in found:
+        if kind == "static":
+            link = "/" + quote(source.relative_to(static_root).as_posix())
+            result.relinked.append(link)
+        else:
+            link = moved_before.get(source)
+            if link is None and source.is_file():
+                folder.mkdir(parents=True, exist_ok=True)
+                target = _free(folder, safe_name(source.name))
+                shutil.move(str(source), target)
+                link = f"{url_prefix}/{target.name}"
+                moved_before[source] = link
+            elif link is None:
+                # Moved by an earlier run: the file kept its (safe) name in this folder
+                twin = folder / safe_name(source.name)
+                if not twin.is_file():
+                    result.missing.append(source.name)
+                    continue
+                link = f"{url_prefix}/{twin.name}"
+            result.moved.append((source.name, link))
         text = text.replace(f"<{ref}>", link).replace(ref, link)
-        result.moved.append((source.name, link))
-    if result.moved:
+    if result.changed:
         atomic_write_text(post_path, text)
     return result
