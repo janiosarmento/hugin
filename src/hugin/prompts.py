@@ -338,39 +338,38 @@ I am going to write a blog post. My request:
 </request>
 {original}
 These are the top {n} web search results for "{query}" (searched {date}). \
-Each source says whether its page was read in full or only its search \
-snippet is available.{followup}
+Each source says whether page text or only a search snippet is \
+available.{followup}
 
 {sources}
 
-Write a research brief in {language}, in Markdown, with exactly these sections:
+Write a research brief in {language}, in Markdown, with these sections:
 
-## Search intent
-What someone searching this wants to find out, in 2 or 3 sentences.
+## Best supported answer
+Answer the main question in one to three sentences. Cite the evidence for \
+the answer using source numbers, like [2]. If the evidence is inconclusive, \
+state what it supports and what remains unresolved.
 
-## Recurring topics
-Bullet list of the topics, terms and entities that the results cover.
-
-## Questions readers have
-Bullet list of the questions the results answer or raise.
+## Evidence
+List only evidence that helps answer the question. End each bullet with its \
+source number. Mark claims based only on search snippets with "(snippet)". \
+Distinguish what a source shows directly from what a seller, commenter, or \
+other source claims. When the question is about the meaning of a term, \
+distinguish evidence about how the term is used from evidence about the \
+thing it describes.
 
 ## Gaps
-Specific information the results miss or treat poorly, that my post could \
-cover better. Not generic caveats (individuals vary, consult a \
-professional): name the missing facts.
-
-## Facts
-Bullet list of concrete facts, numbers and dates useful for my post. End \
-each one with its source number in brackets, like [2]. Take facts only from \
-the sources above; facts from a snippet-only source must say "(snippet)". \
-A topic many results repeat is coverage, not proof: do not turn it into a \
-fact without a source that states it.
+State what remains unresolved about the main question. If it would help, \
+suggest one focused follow-up search that could distinguish between \
+plausible explanations.
 
 ## Proposed outline
-The post's sections as "### " headings, each followed by one line on what \
-it covers. Fit it to my request{outline_note}.
+Suggest the shortest structure that answers the request{outline_note}. For a \
+single question, a few paragraphs may be enough. Carry the uncertainty from \
+"Best supported answer" into the outline. Leave out side topics that do not \
+help answer the question.
 
-Do not write the post itself. Do not add a list of sources; I add it myself.""",
+Do not write the post or add a source list.""",
        "request", "original", "n", "query", "date", "sources", "language", "outline_note",
        "followup"),
     _p("research.brief_followup", "Research · brief, follow-up search", (
@@ -408,19 +407,27 @@ something is, a number or date the post depends on), they contradict each \
 other, or the brief leans on a guess, a hypothesis or a single unverified \
 opinion. Minor gaps and details the post can do without do not count.
 
+State the uncertainty in terms of the reader's original question. If the \
+brief offers competing explanations, choose a query likely to surface \
+evidence that distinguishes them. When the question is what a term means in \
+a marketplace listing, prioritize an original-language listing or a source \
+that uses the term alongside a candidate translation. Search for trademark \
+or company records only when establishing ownership would answer the \
+reader's question.
+
 If nothing material is open, answer with exactly: NONE
 
-Otherwise answer with these lines:
+Otherwise answer with the following lines:
 Uncertainty: what is still open, in one sentence.
-Query: one web search query (at most 10 words, no operators; in \
-{language} unless another language and script are likelier to settle it) \
-that could settle it or tell the competing explanations apart, for example \
-by pairing the term with a candidate meaning, or by searching for the term \
-in its original language. It must not repeat "{query}".
-Language: only when the query is in a language other than {language}, the \
-ISO 639-1 code of the query's language, with a script or region when it \
-matters (for example zh-Hans, zh-Hant, ja, pt-PT). Leave this line out \
-otherwise.""",
+Query: one web search query (at most 10 words, no operators) that could \
+settle the uncertainty or distinguish the competing explanations. Use \
+{language} by default. If an original-language source would better answer \
+the question, write the search terms in that language and script. Keep the \
+original spelling of the disputed term when it helps connect it to a \
+possible translation. It must not repeat "{query}".
+Language: only when the query is in a language other than {language}, give \
+its language code, for example zh-Hans for Simplified Chinese or zh-Hant for \
+Traditional Chinese. Omit this line otherwise.""",
        "request", "query", "sources", "brief", "language"),
     _p("research.brief_rewrite", "Research · brief, post rewritten", (
         "It is a rewrite of my existing post \"{title}\"; the brief "
