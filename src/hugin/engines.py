@@ -38,6 +38,13 @@ timeout = 120
 
 DEFAULT_TIMEOUT = 30
 
+# How an engine is reached: an OpenAI-style HTTP API (the default), or the
+# local Antigravity CLI (see hugin.agy), which needs no url and no key
+TRANSPORT_API = "api"
+TRANSPORT_AGY = "agy"
+# agy starts an agent per call and briefs take ~30 s, so it gets more time
+DEFAULT_AGY_TIMEOUT = 300
+
 # Section once written by Hugin for a retired writing service; stripped from
 # existing files on load.
 RETIRED_SECTION = "fulcrum_echo"
@@ -64,6 +71,7 @@ class Engine:
     model: str
     timeout: int
     api_key: str | None
+    transport: str = TRANSPORT_API
 
     @property
     def is_local(self) -> bool:
@@ -79,7 +87,17 @@ class Engine:
 
     @property
     def available(self) -> bool:
+        if self.transport == TRANSPORT_AGY:
+            from hugin import agy
+            return agy.installed()
         return self.is_local or bool(self.api_key)
+
+    @property
+    def missing(self) -> str:
+        """What to do so the engine becomes available (user-facing)."""
+        if self.transport == TRANSPORT_AGY:
+            return "The Antigravity CLI (agy) is not installed or not on PATH."
+        return f"No API key. Run: set-secret {self.id}.api_key"
 
 
 def strip_section(text: str, name: str) -> str:
@@ -127,8 +145,18 @@ def load_engines() -> list[Engine]:
 
     engines = []
     for engine_id, config in data.items():
-        # Sections without a url are not engines.
-        if "url" not in config:
+        if not isinstance(config, dict):
+            continue
+        transport = config.get("transport", TRANSPORT_API)
+        if transport == TRANSPORT_AGY:
+            engines.append(Engine(
+                id=engine_id, url="", model=config["model"],
+                timeout=config.get("timeout", DEFAULT_AGY_TIMEOUT), api_key=None,
+                transport=TRANSPORT_AGY,
+            ))
+            continue
+        # Other sections without a url (or with an unknown transport) are not engines.
+        if "url" not in config or transport != TRANSPORT_API:
             continue
         engines.append(Engine(
             id=engine_id,

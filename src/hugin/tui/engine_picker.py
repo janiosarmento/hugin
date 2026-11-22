@@ -10,7 +10,8 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import DataTable, Footer, Input, Label, Static
 
-from hugin.engines import Engine
+from hugin import agy
+from hugin.engines import TRANSPORT_AGY, Engine
 
 
 class EnginePickerScreen(ModalScreen[Engine | None]):
@@ -150,10 +151,7 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
             if 0 <= index < len(self.engines):
                 engine = self.engines[index]
                 if not engine.available:
-                    self.notify(
-                        f"No API key. Run: set-secret {engine.id}.api_key",
-                        severity="warning",
-                    )
+                    self.notify(engine.missing, severity="warning")
                     return
                 self._selected_engine = engine
                 self._fetch_models(engine)
@@ -176,6 +174,19 @@ class EnginePickerScreen(ModalScreen[Engine | None]):
     @work(exclusive=True)
     async def _fetch_models(self, engine: Engine) -> None:
         self.query_one("#picker-hint", Static).update("Loading models...")
+
+        if engine.transport == TRANSPORT_AGY:
+            try:
+                models = sorted(await agy.list_models())
+            except agy.AgyError as e:
+                log_exception("list models (agy)")
+                self._show_manual_input(f"Error: {e} — type model name:")
+                return
+            if models:
+                self._show_models(models)
+            else:
+                self._show_manual_input("No models returned — type model name:")
+            return
 
         try:
             headers = {"User-Agent": "hugin/0.1"}

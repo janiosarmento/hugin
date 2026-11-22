@@ -6,8 +6,8 @@ import re
 
 import httpx
 
-from hugin import prompts
-from hugin.engines import Engine
+from hugin import agy, prompts
+from hugin.engines import TRANSPORT_AGY, Engine
 from hugin.normalizer import detect_language
 from collections import Counter
 
@@ -138,6 +138,22 @@ def _is_repetition_loop(text: str, threshold: float = 0.5) -> bool:
 
 
 async def call_llm(engine: Engine, prompt: str, system: str | None = None) -> str:
+    """The engine's answer to `prompt`, whatever transport the engine uses.
+
+    Every LLM call in Hugin goes through here; failures raise one of
+    drafting.LLM_ERRORS for either transport.
+    """
+    if engine.transport == TRANSPORT_AGY:
+        text = await agy.call(engine.model, prompt, system, engine.timeout)
+    else:
+        text = await _call_api(engine, prompt, system)
+    text = strip_reasoning(text)
+    if _is_repetition_loop(text):
+        raise ValueError("Model returned a repetition loop — skipping")
+    return text
+
+
+async def _call_api(engine: Engine, prompt: str, system: str | None) -> str:
     headers = {"Content-Type": "application/json", "User-Agent": "hugin/0.1"}
     if engine.api_key:
         headers["Authorization"] = f"Bearer {engine.api_key}"
@@ -170,9 +186,6 @@ async def call_llm(engine: Engine, prompt: str, system: str | None = None) -> st
         raise ValueError(f"Unexpected response format from {engine.id}: {response.text[:200]}") from e
     if not isinstance(text, str):
         raise ValueError(f"{engine.id} returned no text content")
-    text = strip_reasoning(text)
-    if _is_repetition_loop(text):
-        raise ValueError("Model returned a repetition loop — skipping")
     return text
 
 

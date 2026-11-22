@@ -164,10 +164,7 @@ def main(
         engine.model = model_override
 
     if not engine.available:
-        click.echo(
-            f"Engine '{engine.id}' has no API key. "
-            f"Add one with: set-secret {engine.id}.api_key"
-        )
+        click.echo(f"Engine '{engine.id}' is not available. {engine.missing}")
         raise SystemExit(1)
 
     pool = collect_tag_pool(posts)
