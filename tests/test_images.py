@@ -348,3 +348,30 @@ def test_posts_without_inbox_images_go_straight_on(hooked):
     done = []
     hooked.screen._adopt_inbox_images([post, Path("/nonexistent.md")], lambda: done.append(True))
     assert done == [True] and hooked.screen.app.screens == []
+
+
+# --- Typora preview root ------------------------------------------------------------------
+
+
+def test_root_url_is_added_to_yaml_front_matter_and_removed_exactly(tmp_path):
+    post = tmp_path / "p.md"
+    original = "---\ntitle: T\ndate: 2026-11-22\n---\nBody\ntypora-root-url: stays, it is body text\n"
+    post.write_text(original)
+
+    assert images.add_root_url(post, Path("/Users/me/blog/static"))
+    text = post.read_text()
+    assert text.startswith('---\ntypora-root-url: "/Users/me/blog/static"\ntitle: T\n')
+    assert not images.add_root_url(post, Path("/elsewhere"))  # never twice
+
+    assert images.posts_with_root_url(tmp_path) == [post]
+    assert images.strip_root_url(post)
+    assert post.read_text() == original
+    assert not images.strip_root_url(post)
+    assert images.posts_with_root_url(tmp_path) == []
+
+
+def test_root_url_skips_toml_front_matter(tmp_path):
+    post = tmp_path / "p.md"
+    post.write_text('+++\ntitle = "T"\n+++\nBody\n')
+    assert not images.add_root_url(post, Path("/x"))
+    assert post.read_text() == '+++\ntitle = "T"\n+++\nBody\n'

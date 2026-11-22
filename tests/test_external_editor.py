@@ -18,10 +18,13 @@ class FakeApp:
 class FakeScreen:
     action_external_editor = HuginScreen.action_external_editor
     _adopt_inbox_images = HuginScreen._adopt_inbox_images
+    _static_root = HuginScreen._static_root
 
     def __init__(self, post_path: Path):
         self._state = STATE_BROWSING
         self.posts = [type("Post", (), {"path": post_path})()]
+        self.directory = post_path.parent
+        self.site = type("Site", (), {"config": {}})()
         self.current_index = 0
         self.app = FakeApp()
         self.notices: list[tuple[str, str]] = []
@@ -110,3 +113,44 @@ def test_hugin_editor_wins_over_editor(monkeypatch, tmp_path):
 
     assert ran == [["open", "-W", "-n", "-a", "Typora", str(post_path)]]
     assert screen.reloaded == [0]
+
+
+def test_typora_gets_a_preview_root_only_while_it_is_open(monkeypatch, tmp_path):
+    post_path = tmp_path / "post.md"
+    original = "---\ntitle: T\n---\n![a](/images/a.png)\n"
+    post_path.write_text(original)
+    monkeypatch.setenv("HUGIN_EDITOR", "open -W -n -a Typora")
+    seen = []
+    monkeypatch.setattr(review.subprocess, "run", lambda cmd, **k: seen.append(post_path.read_text()))
+    screen = FakeScreen(post_path)
+
+    screen.action_external_editor()
+
+    assert f'typora-root-url: "{tmp_path / "static"}"' in seen[0]
+    assert post_path.read_text() == original
+    assert screen.reloaded == [0]
+
+
+def test_other_editors_get_no_preview_root(monkeypatch, tmp_path):
+    post_path = tmp_path / "post.md"
+    post_path.write_text("---\ntitle: T\n---\nBody\n")
+    monkeypatch.setenv("EDITOR", "hx")
+    seen = []
+    monkeypatch.setattr(review.subprocess, "run", lambda cmd, **k: seen.append(post_path.read_text()))
+    FakeScreen(post_path).action_external_editor()
+    assert "typora-root-url" not in seen[0]
+
+
+def test_preview_root_is_removed_even_when_the_editor_fails(monkeypatch, tmp_path):
+    post_path = tmp_path / "post.md"
+    original = "---\ntitle: T\n---\nBody\n"
+    post_path.write_text(original)
+    monkeypatch.setenv("HUGIN_EDITOR", "typora")
+
+    def boom(cmd, **k):
+        raise FileNotFoundError("typora")
+
+    monkeypatch.setattr(review.subprocess, "run", boom)
+    with pytest.raises(FileNotFoundError):
+        FakeScreen(post_path).action_external_editor()
+    assert post_path.read_text() == original

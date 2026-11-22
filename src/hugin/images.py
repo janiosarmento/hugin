@@ -12,6 +12,7 @@ are never converted or resized: the author uploads them ready.
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 from collections import Counter
@@ -107,6 +108,76 @@ def site_path(ref: str, base_url: str = "") -> str | None:
         return None
     path = unquote(path.split("?", 1)[0].split("#", 1)[0])
     return path if path.lower().endswith(IMAGE_EXTENSIONS) else None
+
+
+# --- Typora preview of site paths --------------------------------------------------
+
+# Typora resolves "/images/a.jpg" from the disk root; this front matter key
+# makes it resolve from the site's static folder instead. Added only while a
+# post is open in Typora: the value is a path on this Mac, never committed.
+ROOT_URL_KEY = "typora-root-url"
+_ROOT_URL_LINE = re.compile(rf"^{re.escape(ROOT_URL_KEY)}\s*:.*\n?", re.MULTILINE)
+
+
+def _yaml_front_matter(text: str) -> tuple[int, int] | None:
+    """(start, end) offsets of the YAML front matter's body, or None."""
+    if not text.startswith("---\n"):
+        return None
+    end = text.find("\n---", 3)
+    return (4, end + 1) if end != -1 else None
+
+
+def add_root_url(post_path: Path, static_root: Path) -> bool:
+    """Point Typora's image preview at `static_root`; False when not added (TOML, already set)."""
+    from hugin.fsutil import atomic_write_text
+
+    try:
+        text = post_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False  # the editor reports a missing file better than we would
+    block = _yaml_front_matter(text)
+    if block is None or _ROOT_URL_LINE.search(text, *block):
+        return False
+    line = f"{ROOT_URL_KEY}: {json.dumps(str(static_root))}\n"
+    atomic_write_text(post_path, text[:block[0]] + line + text[block[0]:])
+    return True
+
+
+def remove_root_url(text: str) -> str:
+    """`text` without typora-root-url lines in its YAML front matter."""
+    block = _yaml_front_matter(text)
+    if block is None:
+        return text
+    start, end = block
+    return text[:start] + _ROOT_URL_LINE.sub("", text[start:end]) + text[end:]
+
+
+def strip_root_url(post_path: Path) -> bool:
+    """Remove typora-root-url from the post; True when the file changed."""
+    from hugin.fsutil import atomic_write_text
+
+    try:
+        text = post_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    clean = remove_root_url(text)
+    if clean == text:
+        return False
+    atomic_write_text(post_path, clean)
+    return True
+
+
+def posts_with_root_url(content_dir: Path) -> list[Path]:
+    """Markdown files under `content_dir` whose front matter still has typora-root-url."""
+    found = []
+    for path in sorted(content_dir.rglob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if ROOT_URL_KEY in text and remove_root_url(text) != text:
+            found.append(path)
+    return found
 
 
 # --- detection -----------------------------------------------------------------

@@ -2038,8 +2038,14 @@ class HuginScreen(Screen):
             return
         index = self.current_index
         post = self.posts[index]
-        with self.app.suspend():
-            subprocess.run([*shlex.split(editor), str(post.path)])
+        # Typora previews /images/... links only with the site's static folder as root
+        added = "typora" in editor.lower() and images.add_root_url(post.path, self._static_root())
+        try:
+            with self.app.suspend():
+                subprocess.run([*shlex.split(editor), str(post.path)])
+        finally:
+            if added:
+                images.strip_root_url(post.path)
 
         def reload() -> None:
             self._reload_post(post, index)
@@ -2083,6 +2089,10 @@ class HuginScreen(Screen):
         self.app.push_screen(
             ImageConventionScreen(detection, find_site_root(self.directory), len(pending)), on_confirm,
         )
+
+    def _static_root(self) -> Path:
+        static = self.site.config.get("staticDir")
+        return find_site_root(self.directory) / (static if isinstance(static, str) else "static")
 
     def _base_url(self) -> str:
         return next((str(v) for k, v in self.site.config.items() if k.lower() == "baseurl"), "")
@@ -2651,11 +2661,12 @@ class HuginScreen(Screen):
             # Moving images reloads nothing on screen: the next action picks up the files
             self.app.push_screen(ConfirmGitSyncScreen(pending_changes(self.directory)), on_confirm)
 
-        # Never commit a post that links images on this Mac only
+        # Never commit a path on this Mac: Typora's preview root, or links to inbox images
         content = find_site_root(self.directory) / "content"
-        self._adopt_inbox_images(
-            images.posts_with_inbox_refs(content if content.is_dir() else self.directory), confirm,
-        )
+        content = content if content.is_dir() else self.directory
+        for path in images.posts_with_root_url(content):
+            images.strip_root_url(path)
+        self._adopt_inbox_images(images.posts_with_inbox_refs(content), confirm)
 
     @work(thread=True)
     def _do_git_sync(self) -> None:
