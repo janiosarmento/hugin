@@ -297,6 +297,16 @@ _WRITER = [
         "Put the post title alone on the first line (plain text, no # or "
         "other markup, no quotes), then a blank line, then the post body."
     ), raw=True),
+    # hugin/placeholders.py finds these, and keeps them off published posts
+    _p("writer.image_placeholders", "Draft · image placeholders", (
+        "Where an illustration would help the reader, add a placeholder on "
+        "a line of its own: [img]description[/img]. Write the description in "
+        "English, whatever the language of the post, as a prompt for an "
+        "image generator: one paragraph with the subject, the setting, the "
+        "composition, the lighting and the style, ending with \"Aspect ratio "
+        "16:9.\" Add at most one per section, only where an image adds "
+        "something, and none next to an image the post already has."
+    ), raw=True),
     _p("writer.guidelines", "Draft · editorial rules", "Guidelines:\n\n{constraints}", "constraints"),
     _p("writer.request", "Draft · request", "Request:\n\n{request}", "request"),
     _p("writer.category", "Draft · category", """\

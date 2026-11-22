@@ -47,7 +47,8 @@ from hugin.tui.engine_picker import EnginePickerScreen
 from hugin.tui.news_ideas import NewsIdeasScreen
 from hugin.tui.project_settings import ProjectSettingsScreen, save_and_sync
 from hugin.tui.images_screen import ImageConventionScreen
-from hugin import images
+from hugin.tui.placeholders_screen import PlaceholdersScreen, RemovePlaceholdersScreen
+from hugin import images, placeholders
 from hugin.hugo import find_site_root
 from hugin.project import ImagesSettings
 from hugin.tui.redirects_screen import ConfirmDeleteScreen, RedirectSuggestScreen, RedirectsScreen
@@ -603,6 +604,7 @@ class HuginScreen(Screen):
         Binding("o", "outgoing", "Out", tooltip="Generate outgoing link suggestions (embedding + LLM)"),
         Binding("e", "editor", "Edit", tooltip="Open built-in editor"),
         Binding("E", "external_editor", "Ext", show=False, tooltip="Open post in $HUGIN_EDITOR or $EDITOR"),
+        Binding("I", "image_placeholders", "Imgs", show=False, tooltip="List the post's \\[img] placeholders and copy their descriptions"),
         Binding("p", "new_post", "Post", tooltip="Create a new post"),
         Binding("g", "git_sync", "Git", tooltip="Sync repository with GitHub (commit + pull --rebase + push)"),
         Binding("m", "manage_tags", "Mngr", show=False, tooltip="Open tag manager"),
@@ -2075,6 +2077,49 @@ class HuginScreen(Screen):
         else:
             run(None)
 
+    # === IMAGE PLACEHOLDERS ===
+
+    def action_image_placeholders(self) -> None:
+        if self._state != STATE_BROWSING or not self.posts:
+            return
+        post = self.posts[self.current_index]
+        try:
+            found = placeholders.descriptions(post.path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError) as e:
+            self.notify(f"Could not read {post.path.name}: {e}", severity="error")
+            return
+        if not found:
+            self.notify("This post has no \\[img] placeholders")
+            return
+        title = str(post.metadata.get("title") or post.path.stem)
+        self.app.push_screen(PlaceholdersScreen(title, found))
+
+    def _drop_published_placeholders(self, content: Path, then) -> None:
+        """Run `then` once no published post has placeholders; the user may cancel instead."""
+        found = placeholders.published_with_placeholders(content)
+        if not found:
+            then()
+            return
+
+        def on_answer(remove: bool) -> None:
+            if not remove:
+                self.notify("Sync cancelled: published posts still have \\[img] placeholders",
+                            severity="warning", timeout=8)
+                return
+            for path in found:
+                try:
+                    placeholders.remove_from(path)
+                except OSError as e:
+                    log_exception("remove placeholders")
+                    self.notify(f"Could not edit {path.name}: {e}; sync cancelled", severity="error", timeout=10)
+                    return
+            self._sync_current_post()
+            self.notify(f"Removed {sum(found.values())} placeholder(s) from {len(found)} post(s)")
+            then()
+
+        names = [(p.relative_to(content).as_posix(), n) for p, n in found.items()]
+        self.app.push_screen(RemovePlaceholdersScreen(names), on_answer)
+
     # === IMAGES PASTED IN AN EXTERNAL EDITOR ===
 
     def _image_settings(self, pending: int, then) -> None:
@@ -2704,7 +2749,10 @@ class HuginScreen(Screen):
         content = content if content.is_dir() else self.directory
         for path in images.posts_with_typora_keys(content):
             images.strip_typora_keys(path)
-        self._adopt_inbox_images(images.posts_to_adopt(content, self._static_root()), confirm)
+        # Hugo would show a placeholder as text; drafts are not published
+        self._drop_published_placeholders(
+            content, lambda: self._adopt_inbox_images(images.posts_to_adopt(content, self._static_root()), confirm),
+        )
 
     @work(thread=True)
     def _do_git_sync(self) -> None:

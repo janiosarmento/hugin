@@ -11,7 +11,7 @@ from pathlib import Path
 
 import httpx
 
-from hugin import prompts
+from hugin import placeholders, prompts
 from hugin.authors import post_authors
 from hugin.log import log_exception
 from hugin.scanner import Post
@@ -263,6 +263,7 @@ def build_message(
     if claims and claims.strip():
         extra += "\n\n" + prompts.render("writer.fact_check", claims=claims.strip()).strip()
     task.append(prompts.text("writer.title_format"))
+    task.append(prompts.text("writer.image_placeholders"))
     rules = (
         "\n\n" + prompts.render("writer.guidelines", constraints=constraints.strip()).strip()
         if constraints and constraints.strip() else ""
@@ -344,7 +345,8 @@ def refactor_losses(original: str, new: str) -> list[tuple[str, str]]:
             continue
         kind = "image" if image else "external link"
         losses.append((kind, f"{url}" + (f"  “{text}”" if text and not image else "")))
-    old_words, new_words = len(original.split()), len(new.split())
+    # Placeholder descriptions are not post text; they would hide a shorter post
+    old_words, new_words = len(placeholders.remove(original).split()), len(placeholders.remove(new).split())
     if old_words and new_words < old_words * REFACTOR_MIN_WORDS:
         losses.append(("length", f"{new_words} words; the original has {old_words}"))
     return losses
