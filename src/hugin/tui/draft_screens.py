@@ -649,8 +649,8 @@ class DraftWaitScreen(ModalScreen[Path | None]):
         allowed = verify.allowed_links(original, self._research, self._fact_check)
         fixes = [("link removed", detail) for _, detail in verify.unknown_links(body, allowed)]
         body = verify.strip_links(body, allowed)
-        # Facts are only checked against references; a plain new post has none,
-        # but its invented experiences are still checked against the request
+        # A plain new post has only the request as reference: its figures and
+        # invented experiences are checked against it, not its general facts
         facts = original is not None or self._research is not None
         status = self.query_one("#draft-wait-status", Label)
         status.update(f"{escape(self._engine.id)} is checking the draft…")

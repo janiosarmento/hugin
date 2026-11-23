@@ -72,6 +72,45 @@ def test_verify_prompt_carries_every_reference():
     assert "<brief>" not in prompt
 
 
+def test_unsourced_numbers_compare_digits_and_skip_what_is_not_prose():
+    draft = (
+        "## 3. Sleep\n\n"
+        "Cats sleep 12 to 16 hours. About 73% of cats prefer fish. "
+        "A study of 1.500 owners agrees.\n\n"
+        "1. First tip, with no figure\n"
+        "![photo 2](/images/2026/11/cat-2.avif) and [a link](https://x.example/42)\n"
+        "`code 99` {{< figure src=\"a7.png\" >}}\n"
+        "[img]A cat, aspect ratio 16:9.[/img]\n"
+    )
+    references = "Sources say 12 to 16 hours. Surveys found 1500 owners."
+    assert verify.unsourced_numbers(draft, references) == ["About 73% of cats prefer fish."]
+    assert verify.unsourced_numbers("No numbers here.", "") == []
+
+
+def test_numbers_of_the_original_and_unconfirmed_claims_are_pointed_out():
+    draft = "Cats sleep 16 hours. Some 73% of them purr. They live 15 years."
+    prompt = verify.build_verify_prompt(
+        draft, original="Cats sleep 16 hours and 73% purr.",
+        decisions='1. KEEP: "Cats sleep 16 hours" [1]\n2. UNCONFIRMED: "73% purr"',
+        sources=[(1, "Vet", "https://vet.example", "Up to 16 hours of sleep.")],
+    )
+    assert '"figure"' in prompt
+    assert "- Some 73% of them purr.\n- They live 15 years." in prompt
+    assert "- Cats sleep 16 hours." not in prompt
+
+    # A plain new post: only figures and experiences, against the request
+    plain = verify.build_verify_prompt(draft, request="Write about cat sleep", facts=False)
+    assert '- "figure"' in plain and '- "personal"' in plain and '- "unsupported"' not in plain
+    assert "- Cats sleep 16 hours." in plain
+
+
+def test_the_writer_is_told_figures_need_a_reference(tmp_path):
+    from hugin.drafting import build_message
+
+    message = build_message([], "Write about cats")
+    assert "Precise figures need a reference" in message and "not a reference for figures" in message
+
+
 def test_parse_issues_labels_kinds_and_skips_empty_quotes():
     answer = json.dumps([
         {"kind": "unsupported", "quote": "Cats  sleep 20 hours", "note": "No reference says 20."},

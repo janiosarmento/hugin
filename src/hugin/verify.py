@@ -9,7 +9,11 @@ Two checks, shown before the draft is saved:
   references support, statements against an approved fact-check decision,
   facts attributed to a source whose text does not contain them, and
   experiences of the author that neither the request nor the original
-  states. A post with no references gets only that last check.
+  states. Precise figures (statistics, percentages, studies, records…)
+  need a reference other than the original, whose own figures may be
+  invented; a plain new post, with only the request as reference, gets
+  only the figure and experience checks. Numbers of the draft found in no
+  reference (a text match, no LLM) are pointed out to the checker.
 
 The second check is itself an LLM and can miss things: it narrows what the
 author has to reread, it does not replace that reading.
@@ -38,6 +42,7 @@ KINDS = {
     "unsupported": "unsupported claim",
     "decision": "against a decision",
     "attribution": "wrong attribution",
+    "figure": "unsourced figure",
     "personal": "invented experience",
 }
 
@@ -101,6 +106,39 @@ def linked_sources(draft: str, research: web.Research | None) -> list[tuple[int,
     return out
 
 
+# A number as written: 30, 1.500, 2,5, 30%; the digits are what is compared
+_NUMBER = re.compile(r"\d(?:[\d.,]*\d)?")
+_NOT_PROSE = re.compile(
+    r"```.*?```|`[^`\n]*`|!\[[^\]]*\]\([^)]*\)|\]\([^)]*\)|<[^>\n]+>|\{\{[<%].*?[%>]\}\}"
+    r"|\[img\].*?\[/img\]|https?://\S+",
+    re.S | re.I,
+)
+# Numbering of a list item or a heading: "3. ", "## 3) "
+_NUMBERING = re.compile(r"^\s*(?:#+\s*)?\d+[.)]\s", re.M)
+MAX_NUMBER_SENTENCES = 30
+
+
+def _digits(text: str) -> set[str]:
+    return {re.sub(r"\D", "", m.group()) for m in _NUMBER.finditer(text)}
+
+
+def unsourced_numbers(draft: str, references: str) -> list[str]:
+    """Sentences of `draft` with a number that `references` does not contain.
+
+    A text match, no LLM: code, links, images, HTML, shortcodes, [img]
+    placeholders and list or heading numbering are not prose and are skipped.
+    Whether a listed number states a fact is for the checker to decide.
+    """
+    known = _digits(references)
+    prose = _NUMBERING.sub(" ", _NOT_PROSE.sub(" ", draft))
+    found = []
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", prose):
+        sentence = " ".join(sentence.split())
+        if any(d not in known for d in _digits(sentence)) and sentence not in found:
+            found.append(sentence[:300])
+    return found[:MAX_NUMBER_SENTENCES]
+
+
 def _references(
     original: str | None = None, brief: str | None = None,
     decisions: str | None = None, sources: list[tuple[int, str, str, str]] | None = None,
@@ -110,7 +148,11 @@ def _references(
     if request:
         refs.append(f"What the author asked the writer for:\n<request>\n{request.strip()}\n</request>")
     if original:
-        refs.append(f"The post this draft rewrites:\n<original>\n{original[:ORIGINAL_CHARS]}\n</original>")
+        refs.append(
+            "The post this draft rewrites (a reference for its general facts, "
+            "opinions and the author's experiences, not for precise figures):\n"
+            f"<original>\n{original[:ORIGINAL_CHARS]}\n</original>"
+        )
     if decisions:
         refs.append(
             prompts.text("verify.decisions").strip()
@@ -128,12 +170,24 @@ def build_verify_prompt(
     decisions: str | None = None, sources: list[tuple[int, str, str, str]] | None = None,
     request: str | None = None, facts: bool = True,
 ) -> str:
-    """With `facts` False only invented experiences are checked (no references to check facts)."""
-    kinds = (["verify.fact_kinds"] if facts else []) + ["verify.personal_kind"]
+    """With `facts` False (no references but the request) only figures and experiences are checked."""
+    kinds = (["verify.fact_kinds"] if facts else []) + ["verify.figure_kind", "verify.personal_kind"]
+    text = [prompts.text(k).strip() for k in kinds]
+    # The original is left out: its own figures need another reference; so are
+    # the claims a decision did not confirm, which repeat the original's figures
+    confirmed = "\n".join(
+        line for line in (decisions or "").splitlines()
+        if not re.match(r"\s*\d+\.\s*(?:UNCONFIRMED|REMOVE):", line)
+    )
+    numbers = unsourced_numbers(draft, _references(None, brief, confirmed or None, sources, request))
+    if numbers:
+        text.append(prompts.render(
+            "verify.numbers", sentences="\n".join(f"- {n}" for n in numbers),
+        ).strip())
     return prompts.render(
         "verify.prompt",
         references=_references(original, brief, decisions, sources, request), draft=draft,
-        kinds="\n".join(prompts.text(k).strip() for k in kinds),
+        kinds="\n".join(text),
     )
 
 

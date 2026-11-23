@@ -263,6 +263,7 @@ def build_message(
     if claims and claims.strip():
         extra += "\n\n" + prompts.render("writer.fact_check", claims=claims.strip()).strip()
     task.append(prompts.text("writer.title_format"))
+    task.append(prompts.text("writer.figures"))
     task.append(prompts.text("writer.image_placeholders"))
     rules = (
         "\n\n" + prompts.render("writer.guidelines", constraints=constraints.strip()).strip()

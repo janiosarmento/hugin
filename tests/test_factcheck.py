@@ -195,7 +195,7 @@ def test_build_message_applies_the_fact_check(tmp_path):
     original = Post(tmp_path / "old.md", {"title": "Old"}, "Cats get HCM.", False)
     message = drafting.build_message([], "update it", original, claims='1. KEEP: "x"')
     assert '<fact-check>\n1. KEEP: "x"\n</fact-check>' in message
-    assert "UNCONFIRMED: keep it as the original says" in message
+    assert "UNCONFIRMED: keep the point without adding certainty" in message
     assert "names that source in the sentence" in message
     assert "<research>" not in message
 

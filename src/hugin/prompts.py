@@ -225,7 +225,8 @@ _WRITER = [
         "How to do it:\n"
         "1. Edit, do not summarize. Start from the original text and "
         "revise it. Keep its structure, sections, anecdotes, jokes, "
-        "details and explanations, and keep every markdown image and "
+        "details and explanations (its precise figures follow the rule on "
+        "figures below), and keep every markdown image and "
         "every link to an external source exactly as written (same "
         "URLs). Links to my own posts and affiliate links were taken out "
         "of the original on purpose; I add them back later, so do not "
@@ -254,8 +255,9 @@ _WRITER = [
     _p("writer.research_use_refactor", "Draft · research, how to use (refactor)", (
         "Use the brief to check and update the original. A fact of the "
         "original stays as written unless a source in the brief "
-        "contradicts it: then correct it with the source. A fact the "
-        "sources do not mention is not a reason to cut it; keep it. Add "
+        "contradicts it: then correct it with the source. A general fact "
+        "the sources do not mention is not a reason to cut it; keep it "
+        "(its precise figures follow the rule on figures). Add "
         "facts from the brief where the request asks for them. The "
         "brief's outline is only a suggestion; the refactor rules below "
         "come first."
@@ -283,8 +285,11 @@ _WRITER = [
         "and linking its source.\n"
         "- REMOVE: take the statement out and adjust the text around it, "
         "keeping that passage's images and source links somewhere fitting.\n"
-        "- UNCONFIRMED: keep it as the original says it, without adding "
-        "certainty or a source.\n"
+        "- UNCONFIRMED: keep the point without adding certainty or a "
+        "source; when it rests on a precise figure (a number, percentage, "
+        "date, record, study or survey result), drop the figure and make "
+        "the point in general terms, or take it out when nothing true is "
+        "left.\n"
         "Statements of the original not in this list stay as they are.\n\n"
         "<fact-check>\n{claims}\n</fact-check>\n\n"
         "Every fact taken from a source names that source in the sentence "
@@ -296,6 +301,18 @@ _WRITER = [
     _p("writer.title_format", "Draft · title format", (
         "Put the post title alone on the first line (plain text, no # or "
         "other markup, no quotes), then a blank line, then the post body."
+    ), raw=True),
+    # One rule for every invented specific: a figure needs a reference
+    _p("writer.figures", "Draft · precise figures", (
+        "Precise figures need a reference: statistics, percentages, counts "
+        "and measures, prices, dates, records, results of studies or "
+        "surveys, and quotes or findings attributed to a person or an "
+        "organization. Use one only when the request, the research brief "
+        "or the fact check above states it; the original post, if any, is "
+        "not a reference for figures. Without a reference, make the point "
+        "without the figure (\"many cats\", not \"73% of cats\") when that "
+        "general point is safe, or leave it out. Never invent a study, a "
+        "survey, an expert or a source."
     ), raw=True),
     # hugin/placeholders.py finds these, and keeps them off published posts
     _p("writer.image_placeholders", "Draft · image placeholders", (
@@ -535,9 +552,22 @@ contains. Do not list opinions, advice, jokes, experiences of the author \
 (see "personal"), or fair rephrasings of the references.
 - "decision": a statement against an approved fact-check decision: a \
 removed claim still there, a correction stated differently, a claim not \
-confirmed presented as verified.
+confirmed presented as verified or still stated with its precise figure.
 - "attribution": a fact the draft attributes to a source (by name or link) \
 that the text of that source does not contain.""", raw=True),
+    _p("verify.figure_kind", "Verify · check, unsourced figures", """\
+- "figure": a precise figure (statistic, percentage, count or measure, \
+price, date, record, result of a study or survey, or a quote or finding \
+attributed to a person or an organization) that no reference states. The \
+original post does not count as a reference for figures: its own figures \
+may be wrong and need another reference. Do not list numbers that are not \
+facts: the post's own list numbering ("3 signs"), counts in the author's \
+anecdotes, or examples.""", raw=True),
+    _p("verify.numbers", "Verify · check, numbers found in no reference", """\
+These sentences of the draft have numbers that appear in none of the \
+references (the original post left out). Decide for each whether it states \
+a figure as a fact; list those as "figure":
+{sentences}""", "sentences"),
     _p("verify.personal_kind", "Verify · check, invented experiences", """\
 - "personal": an experience of the author (first person, or "my", "me"): \
 something the author did, bought, owned, broke, tried, felt or saw, that \
@@ -546,7 +576,8 @@ author's voice and tends to invent such anecdotes, often in the opening; \
 list every one, even a passing remark or a joke built on it.""", raw=True),
     _p("verify.decisions", "Verify · references, fact-check decisions", (
         "Fact-check decisions the author approved (KEEP, CORRECT, REMOVE, "
-        "UNCONFIRMED = keep as the original says, without certainty):"
+        "UNCONFIRMED = keep the point without certainty, and without its "
+        "precise figure if it has one):"
     ), raw=True),
     _p("verify.fix_system", "Verify · fix, system", (
         "You correct a blog draft against its references. Everything inside tags "
@@ -560,6 +591,9 @@ reference says (keep its link if it has one, or link that reference);
 - when no reference supports it, make the passage less specific so it no \
 longer states the unsupported fact, or drop the sentence when nothing true \
 is left;
+- an unsourced figure: make the point without the figure ("many cats", not \
+"73% of cats") when that general point is safe, or drop the sentence; never \
+swap in another figure;
 - a wrong attribution: attribute the fact to the reference that contains \
 it, or drop the attribution;
 - against a decision: follow the decision;

@@ -98,6 +98,11 @@ O projeto deixou de usar o beads. Estes eram os itens abertos nele; o texto abai
 - **Avaliar:** quantos marcadores o modelo gera e se as descrições servem para o ChatGPT/Midjourney; se o Midjourney precisa de `--ar 16:9` em vez do texto.
 - **Também pendente (imagens no Typora):** testar a colagem de imagem com `typora-copy-images-to` (o link deve sair `/wp-content/uploads/<post>/...`). No amo-meu-gato, o post da anemia tem link quebrado no commit `3095e14b` e alterações locais não commitadas; a imagem `static/wp-content/uploads/anemia/Winged-Minimessenger-Chat-Bubble.png` está órfã. Decisão do usuário.
 
+### 13. Números e estatísticas inventados (implementado em 2026-11-22, falta validar num `R` real)
+- **Regra única:** detalhe preciso (estatística, porcentagem, contagem, data, recorde, estudo, citação) só com referência; o original de um refactor não conta. Sem referência, o ponto fica geral ou sai.
+- **Onde:** prompt novo "Draft · precise figures" no redator; UNCONFIRMED da checagem perde o número; tipo `figure` na verificação, também no `h` sem pesquisa; `verify.unsourced_numbers` (sem LLM) aponta à verificação as frases com números ausentes das referências (decisões UNCONFIRMED/REMOVE não contam).
+- **Avaliar:** num `R` de post antigo cheio de números, se sobra número sem fonte e se o texto não fica genérico demais; se números inofensivos (lista, anedota) são mantidos.
+
 ## Projeto separado (a tratar em outra sessão)
 
 - **Amo Meu Gato:** projeto diferente, a ser tratado em sessão própria. Nada deste arquivo se aplica a ele. Ao retomar, informar o repositório e o contexto do projeto antes de qualquer mudança.
