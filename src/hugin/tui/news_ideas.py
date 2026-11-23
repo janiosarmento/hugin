@@ -110,11 +110,12 @@ class NewsIdeasScreen(Screen):
 
     def __init__(
         self, engine, directory: Path, authors: list[str] | None = None,
-        default_author: str | None = None,
+        default_author: str | None = None, featured_field: str = "thumbnail",
     ) -> None:
         super().__init__()
         self.engine = engine
         self.directory = directory
+        self._featured_field = featured_field
         self._authors = authors or []
         # Author of the drafts, asked before they are written; None on a blog without authors
         self._author = pick_author(default_author, self._authors)
@@ -296,7 +297,7 @@ class NewsIdeasScreen(Screen):
             if self._categories and category not in self._categories:
                 category = self._categories[0]
             create_post(path, title=title, slug=slug, category=category or None, body=body,
-                        author=author, author_field=author_field)
+                        author=author, author_field=author_field, featured_field=self._featured_field)
             created.append(path)
 
         self.dismiss(created)

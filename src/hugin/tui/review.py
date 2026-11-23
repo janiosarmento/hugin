@@ -2275,6 +2275,7 @@ class HuginScreen(Screen):
             fm_post = create_post(
                 path, title=title, slug=slugify(title), author=author,
                 author_field=self._project.authors.author_field,
+                featured_field=featured.field_for(self.directory, self.all_posts),
             )
             post = Post(
                 path=path,
@@ -2486,6 +2487,7 @@ class HuginScreen(Screen):
             NewsIdeasScreen(
                 engine=self.engine, directory=self.directory,
                 authors=self._author_choices(), default_author=self._current_author(),
+                featured_field=featured.field_for(self.directory, self.all_posts),
             ),
             on_created,
         )

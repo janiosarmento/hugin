@@ -110,6 +110,7 @@ def create_post(
     author: str | None = None,
     author_field: str = "author",
     cover: dict[str, str] | None = None,
+    featured_field: str = "thumbnail",
 ) -> frontmatter.Post:
     """Create a new post with a complete frontmatter skeleton.
 
@@ -122,14 +123,16 @@ def create_post(
     `refactor_of` is the filename of the post this one rewrites.
     `author` is the post's author (multi-author blogs).
     `cover` holds cover-image fields copied as they are (e.g. {"image": ...});
-    when given, it replaces the "thumbnail" placeholder.
+    when given, it replaces the featured image placeholder.
+    `featured_field` is the blog's featured image field (`thumbnail`, `image`…),
+    the one that gets the placeholder; `thumbnail` is its value.
     """
     metadata = {
         "title": title,
         "slug": slug,
         "translationKey": translation_key or "TBD",
         "date": datetime.now(),
-        "thumbnail": thumbnail or "TBD",
+        featured_field: thumbnail or "TBD",
         "categories": [category] if category else ["TBD"],
         "toc": False,
         "draft": True,
@@ -140,7 +143,7 @@ def create_post(
         # The cover takes the placeholder's place, keeping the field order
         placed = {}
         for key, value in metadata.items():
-            if key == "thumbnail":
+            if key == featured_field:
                 placed.update(cover)
             else:
                 placed[key] = value

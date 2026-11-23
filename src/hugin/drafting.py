@@ -427,6 +427,7 @@ def create_draft(
     author: str | None = None,
     author_field: str = "author",
     cover: dict[str, str] | None = None,
+    featured_field: str = "thumbnail",
 ) -> Path:
 
     title, body = parse_answer(text, request)
@@ -439,5 +440,5 @@ def create_draft(
     create_post(path, title=title, slug=slug, category=category, body=body,
                 prompt=request, refactor_of=refactor_of, thumbnail=thumbnail,
                 translation_key=translation_key, author=author, author_field=author_field,
-                cover=cover)
+                cover=cover, featured_field=featured_field)
     return path

@@ -20,6 +20,7 @@ from hugin.tui.widgets import TextArea
 from textual.containers import VerticalScroll
 
 from hugin import factcheck as fc
+from hugin import featured
 from hugin import research as web
 from hugin import verify
 from hugin.fsutil import atomic_write_text
@@ -589,6 +590,7 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                 cover=inherited.get("cover"),
                 author=self._author,
                 author_field=project.authors.author_field,
+                featured_field=featured.field_for(self._directory, self._posts),
             )
             try:
                 log = None
@@ -679,6 +681,7 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                 cover=inherited.get("cover"),
                 author=self._author,
                 author_field=load_project(self._directory).authors.author_field,
+                featured_field=featured.field_for(self._directory, self._posts),
             )
         except (OSError, ValueError):
             log_exception("draft: empty draft after failure")

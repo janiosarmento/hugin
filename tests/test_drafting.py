@@ -333,6 +333,26 @@ class TestInheritedFields:
         assert "thumbnail" not in meta
         assert meta.index("image") == meta.index("date") + 1
 
+    def test_the_placeholder_goes_in_the_blogs_featured_field(self, tmp_path):
+        path = create_draft(tmp_path, "T\n\nB.", "r", featured_field="image")
+        meta = frontmatter.load(str(path)).metadata
+        assert meta["image"] == "TBD" and "thumbnail" not in meta
+        assert list(meta).index("image") == list(meta).index("date") + 1
+
+    def test_featured_field_for_a_blog(self, tmp_path):
+        from types import SimpleNamespace
+
+        from hugin import featured
+        from hugin.project import ImagesSettings, ProjectConfig, save_project
+
+        posts = [SimpleNamespace(metadata={"image": "/a.avif", "thumbnail": "TBD"})]
+        assert featured.field_for(tmp_path, posts) == "image"
+        assert featured.field_for(tmp_path, []) == "thumbnail"
+        config = ProjectConfig()
+        config.images = ImagesSettings("static/images", "/images", "", featured="cover")
+        save_project(tmp_path, config)
+        assert featured.field_for(tmp_path, posts) == "cover"
+
     def test_create_draft_uses_thumbnail(self, tmp_path):
         path = create_draft(tmp_path, "T\n\nB.", "r", "journaling", thumbnail="/images/a.avif",
                             translation_key="my-first-pen")

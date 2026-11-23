@@ -46,6 +46,13 @@ def detect_field(posts) -> str | None:
     return counts.most_common(1)[0][0] if counts else None
 
 
+def field_for(directory: Path, posts) -> str:
+    """The blog's featured image field: [images] featured, else the posts' own, else thumbnail."""
+    from hugin.project import load_project
+
+    return load_project(directory).images.featured or detect_field(posts) or "thumbnail"
+
+
 def _body_start(text: str, block: tuple[int, int]) -> int:
     newline = text.find("\n", block[1])
     return len(text) if newline == -1 else newline + 1
