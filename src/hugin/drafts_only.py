@@ -1,9 +1,11 @@
 """What only drafts carry: front matter fields taken out once a post is published.
 
 The `prompt` field keeps the request an LLM draft was written from; it is of
-no use once the post is out. git sync removes it from every post that is not
-a draft. The field is cut from the text, so the rest of the front matter
-keeps its formatting.
+no use once the post is out. `refactor_of` names the post a refactor
+replaces; deleting that original (X) uses it to suggest a redirect, so it
+goes only once the original is gone. git sync removes them from every post
+that is not a draft. A field is cut from the text, so the rest of the front
+matter keeps its formatting.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ import yaml
 
 from hugin.fsutil import atomic_write_text
 
-DRAFT_ONLY_FIELDS = ("prompt",)
+DRAFT_ONLY_FIELDS = ("prompt", "refactor_of")
 
 
 def is_draft(text: str) -> bool:
@@ -65,21 +67,43 @@ def remove_field(text: str, key: str) -> str:
     return "\n".join(kept) if before == after else text
 
 
-def published_with_fields(content_dir: Path, keys=DRAFT_ONLY_FIELDS) -> list[Path]:
-    """Posts under `content_dir` that are not drafts and have any of `keys` in their front matter."""
-    found = []
-    for path in sorted(content_dir.rglob("*.md")):
+def fields_to_strip(text: str, post_names: set[str]) -> list[str]:
+    """The draft-only fields to take out of this post: none in a draft.
+
+    `post_names` are the file names of the blog's posts: `refactor_of`
+    stays while the original it names is one of them.
+    """
+    if not any(f"\n{key}:" in text for key in DRAFT_ONLY_FIELDS) or is_draft(text):
+        return []
+    import frontmatter
+
+    try:
+        meta = frontmatter.loads(text).metadata
+    except Exception:
+        return []
+    keys = [k for k in DRAFT_ONLY_FIELDS if k in meta]
+    if "refactor_of" in keys and str(meta["refactor_of"]) in post_names:
+        keys.remove("refactor_of")
+    return [k for k in keys if remove_field(text, k) != text]
+
+
+def published_with_fields(content_dir: Path) -> dict[Path, list[str]]:
+    """Posts under `content_dir` that are not drafts and have draft-only fields to take out."""
+    paths = sorted(content_dir.rglob("*.md"))
+    names = {p.name for p in paths}
+    found = {}
+    for path in paths:
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        if any(f"\n{key}:" in text for key in keys) and not is_draft(text):
-            if any(remove_field(text, key) != text for key in keys):
-                found.append(path)
+        keys = fields_to_strip(text, names)
+        if keys:
+            found[path] = keys
     return found
 
 
-def strip_fields(path: Path, keys=DRAFT_ONLY_FIELDS) -> bool:
+def strip_fields(path: Path, keys) -> bool:
     """Remove `keys` from the post's front matter; whether it changed."""
     text = path.read_text(encoding="utf-8")
     clean = text

@@ -2790,15 +2790,15 @@ class HuginScreen(Screen):
         for path in images.posts_with_typora_keys(content):
             images.strip_typora_keys(path)
             images.tidy_post(path)
-        # The prompt a draft was written from is of no use once the post is out
+        # prompt and refactor_of are of no use once the post is out
         stripped = 0
-        for path in drafts_only.published_with_fields(content):
+        for path, keys in drafts_only.published_with_fields(content).items():
             try:
-                stripped += drafts_only.strip_fields(path)
+                stripped += drafts_only.strip_fields(path, keys)
             except OSError:
                 log_exception("strip draft-only fields")
         if stripped:
-            self.notify(f"Removed the prompt field from {stripped} published post(s)")
+            self.notify(f"Removed draft-only fields (prompt, refactor_of) from {stripped} published post(s)")
         # Hugo would show a placeholder as text; drafts are not published
         self._drop_published_placeholders(
             content, lambda: self._adopt_inbox_images(images.posts_to_adopt(content, self._static_root()), confirm),

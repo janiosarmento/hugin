@@ -46,8 +46,23 @@ def test_only_published_posts_lose_the_prompt(tmp_path):
     draft.write_text(FRONT.format(draft="true"))
     (tmp_path / "c.md").write_text("---\ntitle: T\n---\nprompt: in the body\n")
 
-    assert drafts_only.published_with_fields(tmp_path) == [published]
-    assert drafts_only.strip_fields(published) and "prompt:" not in published.read_text().split("---")[1]
-    assert not drafts_only.strip_fields(published)
+    assert drafts_only.published_with_fields(tmp_path) == {published: ["prompt"]}
+    assert drafts_only.strip_fields(published, ["prompt"])
+    assert "prompt:" not in published.read_text().split("---")[1]
+    assert not drafts_only.strip_fields(published, ["prompt"])
     assert "prompt: 'Write" in draft.read_text()
-    assert drafts_only.published_with_fields(tmp_path) == []
+    assert drafts_only.published_with_fields(tmp_path) == {}
+
+
+def test_refactor_of_goes_once_the_original_is_gone(tmp_path):
+    (tmp_path / "pt").mkdir()
+    original = tmp_path / "pt/old-post.md"
+    original.write_text("---\ntitle: Old\n---\nBody\n")
+    refactor = tmp_path / "pt/new-post.md"
+    refactor.write_text("---\ntitle: New\ndraft: false\nrefactor_of: old-post.md\nprompt: Rewrite it\n---\nBody\n")
+
+    assert drafts_only.published_with_fields(tmp_path) == {refactor: ["prompt"]}
+    original.unlink()
+    assert drafts_only.published_with_fields(tmp_path) == {refactor: ["prompt", "refactor_of"]}
+    drafts_only.strip_fields(refactor, ["prompt", "refactor_of"])
+    assert refactor.read_text() == "---\ntitle: New\ndraft: false\n---\nBody\n"
