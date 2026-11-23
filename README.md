@@ -75,7 +75,7 @@ Press `?` at any time on the main screen for a modal listing every keybinding be
 | `E` | Open the post in `$HUGIN_EDITOR`, or `$EDITOR` when that is unset (suspends Hugin, reloads the post on return). For a GUI editor that must be quit to return: `export HUGIN_EDITOR='open -W -n -a Typora'`. Images the editor left in `~/Pictures/typora-inbox` are moved into the blog (see below) |
 | `I` | List the post's `[img]` placeholders; Enter copies a description for ChatGPT or Midjourney (see below) |
 | `p` | Create new post |
-| `g` | Sync repository with GitHub (commit + pull --rebase + push). First asks to remove `[img]` placeholders left in published posts (drafts keep theirs), then moves inbox images of any post into the blog, so no link to this Mac is committed. The confirmation lists what will be committed. Never prompts for credentials, times out instead of hanging, refuses new files that look like secrets (`.env`, `*.pem`, `*.key`…) and leaves a rebase/merge you started untouched |
+| `g` | Sync repository with GitHub (commit + pull --rebase + push). First removes the `prompt` field (the request an LLM draft was written from) from every post that is not a draft, asks to remove `[img]` placeholders left in published posts (drafts keep theirs), then moves inbox images of any post into the blog, so no link to this Mac is committed. The confirmation lists what will be committed. Never prompts for credentials, times out instead of hanging, refuses new files that look like secrets (`.env`, `*.pem`, `*.key`…) and leaves a rebase/merge you started untouched |
 | `/` | Inline search — filter post list by title or filename |
 | `Ctrl+P` | Change Textual theme (persists across sessions) |
 | `Escape` | Go back / cancel LLM call in progress |

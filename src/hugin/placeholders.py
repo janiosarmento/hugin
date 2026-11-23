@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from hugin.drafts_only import is_draft
 from hugin.fsutil import atomic_write_text
 
 _BODY = r"(?:(?!\[/?img\]).)*?"  # never runs past another marker
@@ -56,18 +57,6 @@ def remove(text: str) -> str:
     return text
 
 
-def _is_draft(text: str) -> bool:
-    import frontmatter
-
-    try:
-        draft = frontmatter.loads(text).metadata.get("draft", False)
-    except Exception:  # unparsable front matter: treat as published, the safe side
-        return False
-    if isinstance(draft, str):
-        return draft.strip().lower() in ("true", "yes", "on", "1")
-    return bool(draft)
-
-
 def published_with_placeholders(content_dir: Path) -> dict[Path, int]:
     """Posts under `content_dir` that are not drafts and still have placeholders, with how many."""
     found = {}
@@ -76,7 +65,7 @@ def published_with_placeholders(content_dir: Path) -> dict[Path, int]:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        if "[img]" not in text.lower() or _is_draft(text):
+        if "[img]" not in text.lower() or is_draft(text):
             continue
         count = len(descriptions(text))
         if count:

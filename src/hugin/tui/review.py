@@ -48,7 +48,7 @@ from hugin.tui.news_ideas import NewsIdeasScreen
 from hugin.tui.project_settings import ProjectSettingsScreen, save_and_sync
 from hugin.tui.images_screen import ImageConventionScreen
 from hugin.tui.placeholders_screen import PlaceholdersScreen, RemovePlaceholdersScreen
-from hugin import featured, images, placeholders
+from hugin import drafts_only, featured, images, placeholders
 from hugin.hugo import find_site_root
 from hugin.project import ImagesSettings
 from hugin.tui.redirects_screen import ConfirmDeleteScreen, RedirectSuggestScreen, RedirectsScreen
@@ -2790,6 +2790,15 @@ class HuginScreen(Screen):
         for path in images.posts_with_typora_keys(content):
             images.strip_typora_keys(path)
             images.tidy_post(path)
+        # The prompt a draft was written from is of no use once the post is out
+        stripped = 0
+        for path in drafts_only.published_with_fields(content):
+            try:
+                stripped += drafts_only.strip_fields(path)
+            except OSError:
+                log_exception("strip draft-only fields")
+        if stripped:
+            self.notify(f"Removed the prompt field from {stripped} published post(s)")
         # Hugo would show a placeholder as text; drafts are not published
         self._drop_published_placeholders(
             content, lambda: self._adopt_inbox_images(images.posts_to_adopt(content, self._static_root()), confirm),
