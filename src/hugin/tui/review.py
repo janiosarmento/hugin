@@ -1004,7 +1004,7 @@ class HuginScreen(Screen):
 
         link_keywords = self.index.get_link_keywords(post)
         if link_keywords:
-            table.add_row("link profile", link_keywords)
+            table.add_row("link profile", Text(link_keywords))
 
         self.query_one("#post-meta", Static).update(table)
         self.query_one("#btn-goto-original", Button).set_class(
@@ -1020,10 +1020,11 @@ class HuginScreen(Screen):
         """
 
         field = field or key
+        # Values are data, not markup: a draft's prompt may hold [img]…[/img]
         icon = Text(
             "⧉", style=Style(dim=True, meta={"@click": f"screen.copy_field({field!r})"})
         )
-        table.add_row(key, display, icon)
+        table.add_row(key, Text(display), icon)
 
     def action_copy_field(self, key: str) -> None:
         """Copy the raw value of a frontmatter field to the clipboard."""

@@ -97,6 +97,26 @@ def test_draft_prompt_asks_for_placeholders_in_english():
     assert "16:9" in message
 
 
+def test_new_posts_and_refactors_open_with_a_featured_image_placeholder(tmp_path):
+    original = SimpleNamespace(path=tmp_path / "old.md", metadata={"title": "Old"}, content="Old text.")
+    for message in (build_message([], "Write about cats"),
+                    build_message([], "Rewrite it", original=original)):
+        assert "Start the body with one placeholder for the post's featured image" in message
+
+
+def test_a_field_holding_a_placeholder_is_shown_as_text():
+    from rich.console import Console
+    from rich.table import Table
+
+    table = Table()
+    for _ in range(3):
+        table.add_column()
+    HuginScreen._add_field_row(table, "prompt", "Cats [img]A cat on a sofa.[/img] end")
+    console = Console(width=200, record=True)
+    console.print(table)
+    assert "[img]A cat on a sofa.[/img]" in console.export_text()
+
+
 def test_placeholder_words_do_not_hide_a_shorter_refactor():
     original = " ".join(["word"] * 100)
     shorter = " ".join(["word"] * 50) + "\n\n[img]" + " ".join(["detail"] * 80) + "[/img]\n"

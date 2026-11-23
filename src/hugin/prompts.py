@@ -321,7 +321,9 @@ _WRITER = [
         "English, whatever the language of the post, as a prompt for an "
         "image generator: one paragraph with the subject, the setting, the "
         "composition, the lighting and the style, ending with \"Aspect ratio "
-        "16:9.\" Add at most one per section, only where an image adds "
+        "16:9.\" Start the body with one placeholder for the post's featured "
+        "image, an image that stands for the whole post. In the rest of the "
+        "body, add at most one per section, only where an image adds "
         "something, and none next to an image the post already has."
     ), raw=True),
     _p("writer.guidelines", "Draft · editorial rules", "Guidelines:\n\n{constraints}", "constraints"),
