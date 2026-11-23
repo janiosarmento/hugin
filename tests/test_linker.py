@@ -4,10 +4,14 @@
 from hugin.linker import (
     apply_links,
     convert_html_links_to_markdown,
+    count_internal_links,
     extract_existing_links,
     find_broken_links,
     find_protected_zones,
     is_in_protected_zone,
+    list_links,
+    remove_specific_links,
+    strip_internal_links,
     write_post_with_links,
 )
 from hugin.scanner import Post
@@ -94,6 +98,50 @@ class TestExtractExistingLinks:
         urls = extract_existing_links(body)
         assert "/posts/st/" in urls
         assert "/img/photo.png" not in urls
+
+
+class TestImagesAreNotLinks:
+    BODY = (
+        "![Café screenshot](/images/cafe.png)\n\n"
+        "See [the guide](/posts/guide/) and the logo below.\n\n"
+        "[![Logo](/images/logo.png)](https://example.com/)"
+    )
+
+    def test_list_links_skips_images(self):
+        links = list_links(self.BODY)
+        assert [(link["anchor_text"], link["url"]) for link in links] == [
+            ("the guide", "/posts/guide/"),
+            ("![Logo](/images/logo.png)", "https://example.com/"),
+        ]
+
+    def test_extract_existing_links_uses_linked_image_target(self):
+        urls = extract_existing_links(self.BODY)
+        assert "https://example.com/" in urls
+        assert "/images/logo.png" not in urls
+
+    def test_remove_specific_links_keeps_images(self):
+        body, removed = remove_specific_links(
+            self.BODY, {"/images/cafe.png", "https://example.com/"}
+        )
+        assert removed == 1
+        assert "![Café screenshot](/images/cafe.png)" in body
+        assert "\n\n![Logo](/images/logo.png)" in body
+
+    def test_strip_internal_links_keeps_images(self):
+        body, removed = strip_internal_links(self.BODY)
+        assert removed == 1
+        assert "![Café screenshot](/images/cafe.png)" in body
+        assert "See the guide and" in body
+
+    def test_count_internal_links_skips_images(self):
+        assert count_internal_links(self.BODY) == 1
+
+    def test_paragraph_with_only_an_image_still_gets_a_link(self):
+        body = "![Timers diagram](/images/timers.png) explains systemd timers."
+        new_body, _ = apply_links(
+            body, [{"anchor_text": "systemd timers", "target_url": "/posts/st/"}]
+        )
+        assert "[systemd timers](/posts/st/)" in new_body
 
 
 class TestConvertHtmlLinks:

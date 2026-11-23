@@ -15,6 +15,12 @@ if TYPE_CHECKING:
     from hugin.scanner import Post
     from hugin.hugo import HugoSite
 
+# Inline Markdown link: [text](url). The lookbehind skips images ![alt](src);
+# the anchor may itself be an image, as in a linked image [![alt](src)](url).
+_INLINE_LINK_RE = re.compile(
+    r"(?<!!)\[((?:!\[[^\]]*\]\([^)]*\)|[^\[\]])+)\]\(([^)]+)\)"
+)
+
 
 def find_protected_zones(source: str) -> list[tuple[int, int]]:
     """Find byte ranges in source that must not be modified.
@@ -90,7 +96,7 @@ def extract_existing_links(body: str) -> set[str]:
     urls = set()
 
     # Inline Markdown links: [text](url) — negative lookbehind to skip images ![](url)
-    for m in re.finditer(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)", body):
+    for m in _INLINE_LINK_RE.finditer(body):
         urls.add(m.group(2).strip())
 
     # Reference-style definitions: [ref]: url
@@ -124,7 +130,7 @@ def _paragraph_has_link(body: str, para_start: int, para_end: int) -> bool:
     """Check if a paragraph already contains a link."""
     para_text = body[para_start:para_end]
     # Check for markdown links, autolinks, or HTML anchors
-    if re.search(r"\[([^\]]+)\]\([^)]+\)", para_text):
+    if _INLINE_LINK_RE.search(para_text):
         return True
     if re.search(r"<https?://[^>]+>", para_text):
         return True
@@ -340,7 +346,7 @@ def list_links(body: str) -> list[dict]:
     Returns list of dicts with keys: anchor_text, url, pos.
     """
     results = []
-    for m in re.finditer(r"\[([^\]]+)\]\(([^)]+)\)", body):
+    for m in _INLINE_LINK_RE.finditer(body):
         results.append({
             "anchor_text": m.group(1),
             "url": m.group(2),
@@ -365,7 +371,7 @@ def remove_specific_links(body: str, urls_to_remove: set[str]) -> tuple[str, int
             return text
         return match.group(0)
 
-    body = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", replace_if_selected, body)
+    body = _INLINE_LINK_RE.sub(replace_if_selected, body)
     return body, count
 
 
@@ -385,13 +391,13 @@ def strip_internal_links(body: str) -> tuple[str, int]:
             return text
         return match.group(0)
 
-    body = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", replace_internal, body)
+    body = _INLINE_LINK_RE.sub(replace_internal, body)
     return body, count
 
 
 def count_internal_links(body: str) -> int:
     """Count internal links (URLs starting with /) in the body."""
-    return sum(1 for m in re.finditer(r"\[([^\]]+)\]\((/[^)]+)\)", body))
+    return sum(1 for m in _INLINE_LINK_RE.finditer(body) if m.group(2).startswith("/"))
 
 
 @dataclass
