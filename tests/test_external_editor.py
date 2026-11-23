@@ -21,6 +21,8 @@ class FakeScreen:
     _image_settings = HuginScreen._image_settings
     _static_root = HuginScreen._static_root
     _base_url = HuginScreen._base_url
+    _featured_field = HuginScreen._featured_field
+    _take_featured = HuginScreen._take_featured
 
     def __init__(self, post_path: Path):
         self._state = STATE_BROWSING
@@ -28,6 +30,7 @@ class FakeScreen:
         self.directory = post_path.parent
         self.site = type("Site", (), {"config": {}})()
         self.current_index = 0
+        self.all_posts = []
         self.app = FakeApp()
         self.notices: list[tuple[str, str]] = []
         self.reloaded: list[int] = []
@@ -141,6 +144,27 @@ def test_typora_gets_its_keys_only_while_it_is_open(monkeypatch, tmp_path, image
     assert f'typora-copy-images-to: {tmp_path / "static/images/canetas"}\n' in seen[0]
     assert (tmp_path / "static/images/canetas").is_dir()
     assert post_path.read_text() == original
+    assert screen.reloaded == [0]
+
+
+def test_typora_shows_the_featured_image_atop_the_body(monkeypatch, tmp_path, images_configured):
+    post_path = tmp_path / "post.md"
+    original = "---\ntitle: T\ndate: 2026-11-22\nthumbnail: /images/old.avif\n---\nBody\n"
+    post_path.write_text(original)
+    monkeypatch.setenv("HUGIN_EDITOR", "open -W -n -a Typora")
+
+    def typora(cmd, **k):
+        # The author drops a new image on the featured line
+        post_path.write_text(post_path.read_text().replace("](/images/old.avif)", "](/images/new.avif)"))
+
+    monkeypatch.setattr(review.subprocess, "run", typora)
+    screen = FakeScreen(post_path)
+    screen.all_posts = [type("Post", (), {"metadata": {"thumbnail": "/images/x.avif"}})()]
+
+    screen.action_external_editor()
+
+    assert post_path.read_text() == original.replace("/images/old.avif", "/images/new.avif")
+    assert ("Featured image (thumbnail): /images/new.avif", "information") in screen.notices
     assert screen.reloaded == [0]
 
 

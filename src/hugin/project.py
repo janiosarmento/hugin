@@ -66,6 +66,7 @@ class ImagesSettings:
     dir: str = ""  # folder relative to the site root, e.g. "static/images"
     url: str = ""  # link prefix, e.g. "/images"
     date_folders: str = ""  # "", "YYYY", "YYYY/MM" or "YYYY/MM/DD"
+    featured: str = ""  # front matter field of the featured image; empty: learned from the posts
 
     @property
     def configured(self) -> bool:
@@ -148,6 +149,7 @@ def load_project(directory: Path) -> ProjectConfig:
             dir=str(images_data.get("dir", "")),
             url=str(images_data.get("url", "")),
             date_folders=str(images_data.get("date_folders", "")),
+            featured=str(images_data.get("featured", "")),
         ),
     )
 
@@ -196,6 +198,7 @@ def save_project(directory: Path, config: ProjectConfig) -> None:
             f"dir = {_toml_string(images.dir)}",
             f"url = {_toml_string(images.url)}",
             f"date_folders = {_toml_string(images.date_folders)}",
+            *([f"featured = {_toml_string(images.featured)}"] if images.featured else []),
             "",
         ]
     config.prompts = prompts.only_changed(config.prompts)

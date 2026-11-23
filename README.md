@@ -400,6 +400,25 @@ copies such a file into the post's image folder (the original stays) and turns
 the link into an image. It also removes the space Typora puts before an image
 alone on its line.
 
+Typora has also copied dragged images under the post's folder, joined to the
+whole intended path (`content/posts/Users/me/blog/static/...`), linked as
+`/../content/posts/Users/...`. Hugin moves such files to where Typora meant to
+put them, removes the stray folders and fixes the links.
+
+### Featured image in Typora
+
+Typora shows no front matter image, so while `E` has a post open in Typora the
+featured image is the first line of the body, `![Featured image](...)` (or the
+line "Featured image: drop one on this line" when the post has none). Drop a
+new image on that line, or replace it; on return the last image on the line
+becomes the featured image and the line leaves the body. Deleting the line
+changes nothing. A `hugin-featured-image` front matter key marks the line, so
+`g` finishes the job if Hugin missed Typora's return.
+
+The front matter field is the one the blog's posts use for an image path
+(`thumbnail`, `image`…). To name it yourself, set `featured = "cover"` under
+`[images]` in `hugin/config.toml`.
+
 After `E` and before `g`, Hugin moves inbox images into the blog and rewrites
 the links, whatever form the editor wrote them in (absolute, `file://`, or
 relative to the static folder), and turns file paths to site images into site

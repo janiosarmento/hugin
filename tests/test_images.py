@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import quote
 
 import pytest
 from textual.app import App
@@ -507,3 +508,25 @@ def test_tidy_post_and_adopt_leave_no_indented_image(blog, tmp_path):
     dragged = _write_post(blog, "q.md", "Intro.\n\n [b.avif](../../../Downloads/b.avif) ")
     images.adopt(dragged, blog.root, CONVENTION, inbox=blog.inbox)
     assert "\n![b.avif](/images/2026/11/b.avif)\n" in dragged.read_text()
+
+
+def test_adopt_moves_images_typora_copied_under_the_post_folder(blog):
+    # Typora joined the absolute copy folder onto the post's folder
+    static = blog.root / "static"
+    intended = static / "images/2026/11/a cat.webp"
+    misplaced = blog.posts / str(intended).lstrip("/")
+    misplaced.parent.mkdir(parents=True)
+    misplaced.write_bytes(b"cat")
+    (static / "images/2026/11").mkdir(parents=True)
+    (static / "images/2026/11/kept.webp").write_bytes(b"k")
+    (blog.posts / str(static / "images/2026/11/kept.webp").lstrip("/")).write_bytes(b"k")
+    link = f"/../content/post{quote(str(intended))}"
+    post = _write_post(blog, "p.md", f"![a]({link})\n\n![k](/../content/post{static}/images/2026/11/kept.webp)")
+    assert images.posts_to_adopt(blog.root / "content", static, blog.inbox) == [post]
+
+    result = images.adopt(post, blog.root, CONVENTION, inbox=blog.inbox)
+    assert result.moved == [("a cat.webp", "/images/2026/11/a%20cat.webp"),
+                            ("kept.webp", "/images/2026/11/kept.webp")]  # a copy already in place
+    assert "![a](/images/2026/11/a%20cat.webp)\n\n![k](/images/2026/11/kept.webp)" in post.read_text()
+    assert intended.read_bytes() == b"cat" and (static / "images/2026/11/kept.webp").read_bytes() == b"k"
+    assert sorted(p.name for p in blog.posts.iterdir()) == ["p.md"]  # the stray folders are gone

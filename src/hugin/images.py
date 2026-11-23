@@ -396,10 +396,34 @@ def _normpath(path: str) -> Path:
     return Path(os.path.normpath(path))
 
 
+def _intended(path: Path, static_root: Path) -> Path | None:
+    """The static-folder file Typora meant when it joined its absolute path onto another folder.
+
+    Typora has copied images to <post folder>/Users/me/blog/static/images/a.webp,
+    linked as /../content/posts/Users/me/blog/static/images/a.webp.
+    """
+    text, folder = str(path), str(static_root) + "/"
+    at = text.find(folder, 1)
+    return Path(text[at:]) if at > 0 else None
+
+
+def _prune(folder: Path, stop: Path) -> None:
+    """Remove `folder` and its parents below `stop` while they are empty."""
+    while folder != stop and folder.is_relative_to(stop):
+        try:
+            folder.rmdir()
+        except OSError:  # not empty
+            return
+        folder = folder.parent
+
+
 def resolve(
     ref: str, post_dir: Path, static_root: Path, inbox: Path, site_root: Path | None = None,
 ) -> tuple[str, Path] | None:
-    """("inbox" | "static" | "local", file) a local image reference points to, else None.
+    """("inbox" | "static" | "local" | "misplaced", file) a local image reference points to, else None.
+
+    "misplaced" is an image Typora copied below the post's folder, under its
+    whole intended path (see _intended()); adopt() moves it there.
 
     An editor may write an inbox image as an absolute path, a file:// URL, or
     (with typora-root-url set) relative to the static folder, as in
@@ -419,6 +443,12 @@ def resolve(
     for c in candidates:
         if c.is_relative_to(inbox):
             return "inbox", c
+    for c in candidates:
+        intended = _intended(c, static_root)
+        if intended is not None and c.is_file():
+            return "misplaced", c
+        if intended is not None and intended.is_file():
+            return "static", intended
     if path.startswith("/") and ".." not in path.split("/") and candidates[0].is_file():
         return None  # already a site path to an existing file
     for c in candidates:
@@ -502,6 +532,17 @@ def adopt(
         if kind == "static":
             link = "/" + quote(source.relative_to(static_root).as_posix())
             result.relinked.append(link)
+        elif kind == "misplaced":
+            target = _intended(source, static_root)
+            if target.is_file() and target.read_bytes() == source.read_bytes():
+                source.unlink()  # the same image is already where it belongs
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target = _free(target.parent, target.name)
+                shutil.move(str(source), target)
+            _prune(source.parent, post_path.parent)
+            link = "/" + quote(target.relative_to(static_root).as_posix())
+            result.moved.append((source.name, link))
         else:
             link = moved_before.get(source)
             if link is None and source.is_file():

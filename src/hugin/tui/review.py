@@ -48,7 +48,7 @@ from hugin.tui.news_ideas import NewsIdeasScreen
 from hugin.tui.project_settings import ProjectSettingsScreen, save_and_sync
 from hugin.tui.images_screen import ImageConventionScreen
 from hugin.tui.placeholders_screen import PlaceholdersScreen, RemovePlaceholdersScreen
-from hugin import images, placeholders
+from hugin import featured, images, placeholders
 from hugin.hugo import find_site_root
 from hugin.project import ImagesSettings
 from hugin.tui.redirects_screen import ConfirmDeleteScreen, RedirectSuggestScreen, RedirectsScreen
@@ -2064,6 +2064,10 @@ class HuginScreen(Screen):
                         log_exception("image destination")
                         copy_to = None
                 added = images.add_typora_keys(post.path, self._static_root(), copy_to)
+                # Typora shows no front matter image: the featured one goes atop the body
+                field = self._featured_field(settings) if added else None
+                if field:
+                    featured.show(post.path, field)
             try:
                 with self.app.suspend():
                     subprocess.run([*shlex.split(editor), str(post.path)])
@@ -2071,7 +2075,12 @@ class HuginScreen(Screen):
                 if added:
                     images.strip_typora_keys(post.path)
             images.tidy_post(post.path)  # Typora indents the images it inserts
-            self._adopt_inbox_images([post.path], reload)
+
+            def after_adopting() -> None:
+                self._take_featured([post.path])  # after adopt(): its link is then a site path
+                reload()
+
+            self._adopt_inbox_images([post.path], after_adopting)
 
         if "typora" in editor.lower():
             self._image_settings(1, run)
@@ -2170,6 +2179,32 @@ class HuginScreen(Screen):
             self._move_inbox_images(pending, settings, then)
 
         self._image_settings(len(pending), move)
+
+    def _featured_field(self, settings: "ImagesSettings | None") -> str | None:
+        """The front matter field of the featured image: the configured one, else the posts' own."""
+        if settings is not None and settings.featured:
+            return settings.featured
+        return featured.detect_field(self.all_posts)
+
+    def _take_featured(self, paths: list[Path]) -> None:
+        """Set the featured image of each post from the line show() put atop its body."""
+        for path in paths:
+            try:
+                taken = featured.take(path)
+            except OSError as e:
+                log_exception("featured image")
+                self.notify(f"Could not read the featured image of {path.name}: {e}", severity="error")
+                continue
+            if taken is None:
+                continue
+            if taken.unsafe:
+                self.notify(f"Featured image not set: {taken.unsafe} is not in the blog, "
+                            "so it stays in the body", severity="warning", timeout=12)
+            elif not taken.found:
+                self.notify("Featured image unchanged: the post no longer starts with it",
+                            severity="warning", timeout=10)
+            elif taken.changed:
+                self.notify(f"Featured image ({taken.field}): {taken.new or 'none'}")
 
     def _static_root(self) -> Path:
         static = self.site.config.get("staticDir")
@@ -2742,6 +2777,8 @@ class HuginScreen(Screen):
                 self._do_git_sync()
 
         def confirm() -> None:
+            # A featured line left atop a body (Hugin did not see Typora return)
+            self._take_featured(featured.posts_with_marker(content))
             # Moving images reloads nothing on screen: the next action picks up the files
             self.app.push_screen(ConfirmGitSyncScreen(pending_changes(self.directory)), on_confirm)
 
