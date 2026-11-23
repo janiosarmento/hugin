@@ -2070,6 +2070,7 @@ class HuginScreen(Screen):
             finally:
                 if added:
                     images.strip_typora_keys(post.path)
+            images.tidy_post(post.path)  # Typora indents the images it inserts
             self._adopt_inbox_images([post.path], reload)
 
         if "typora" in editor.lower():
@@ -2749,6 +2750,7 @@ class HuginScreen(Screen):
         content = content if content.is_dir() else self.directory
         for path in images.posts_with_typora_keys(content):
             images.strip_typora_keys(path)
+            images.tidy_post(path)
         # Hugo would show a placeholder as text; drafts are not published
         self._drop_published_placeholders(
             content, lambda: self._adopt_inbox_images(images.posts_to_adopt(content, self._static_root()), confirm),

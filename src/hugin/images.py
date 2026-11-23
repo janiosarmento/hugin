@@ -44,6 +44,10 @@ _REF = re.compile(
 )
 # A plain link, not an image: Typora inserts some image files (AVIF) this way
 _PLAIN_LINK = re.compile(r"(?<!!)\[([^\]]*)\]\(\s*(?:<([^>]+)>|([^)\s]+))\s*\)")
+# An image alone on its line, indented: Typora writes " ![](a.avif) "
+_LONE_IMAGE = re.compile(r"^ {1,3}(!\[[^\]\n]*\]\([^)\n]*\))[ \t]*$")
+_FENCE_LINE = re.compile(r"^[ \t]*(```|~~~)")
+_LIST_OR_INDENTED = re.compile(r"^(?:[ \t]|[-*+][ \t]|\d+[.)][ \t])")
 _YEAR = re.compile(r"(19|20)\d\d")
 _TWO = re.compile(r"\d\d")
 
@@ -346,6 +350,46 @@ def destination(post_path: Path, site_root: Path, convention: Convention, base_u
     return site_root / folder_rel, url_prefix
 
 
+def tidy_image_lines(text: str) -> str:
+    """`text` with images alone on their line no longer indented.
+
+    Typora inserts an image on its own line with a space before it. A line
+    that continues a list item keeps its indentation, as does code.
+    """
+    lines = text.split("\n")
+    in_fence = False
+    previous = ""  # the last line with text, outside code
+    for i, line in enumerate(lines):
+        if _FENCE_LINE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = _LONE_IMAGE.match(line)
+        # A blank line or a rule (the end of the front matter) starts a block
+        after_blank = i == 0 or lines[i - 1].strip() in ("", "---")
+        if m and after_blank and not _LIST_OR_INDENTED.match(previous):
+            lines[i] = m.group(1)
+        if line.strip():
+            previous = lines[i]
+    return "\n".join(lines)
+
+
+def tidy_post(post_path: Path) -> bool:
+    """tidy_image_lines() on the post at `post_path`; whether it changed."""
+    from hugin.fsutil import atomic_write_text
+
+    try:
+        text = post_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    clean = tidy_image_lines(text)
+    if clean == text:
+        return False
+    atomic_write_text(post_path, clean)
+    return True
+
+
 def _normpath(path: str) -> Path:
     import os
 
@@ -486,6 +530,7 @@ def adopt(
     )
     for ref, link in links.items():
         text = text.replace(f"<{ref}>", link).replace(ref, link)
+    text = tidy_image_lines(text)
     if result.changed:
         atomic_write_text(post_path, text)
     return result

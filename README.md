@@ -394,6 +394,12 @@ such as `/images/a.jpg` preview from the site's static folder, and
 folder. Opened outside Hugin, Typora shows site images as broken and puts
 pasted ones in the inbox.
 
+Typora sometimes inserts a dragged image (seen with AVIF) as a plain link to
+where it came from, such as `~/Downloads`. On return, and before `g`, Hugin
+copies such a file into the post's image folder (the original stays) and turns
+the link into an image. It also removes the space Typora puts before an image
+alone on its line.
+
 After `E` and before `g`, Hugin moves inbox images into the blog and rewrites
 the links, whatever form the editor wrote them in (absolute, `file://`, or
 relative to the static folder), and turns file paths to site images into site

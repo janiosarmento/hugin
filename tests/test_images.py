@@ -243,7 +243,7 @@ def test_adopt_copies_images_dragged_from_elsewhere_and_makes_plain_links_images
     assert result.moved == [("tabby cat.avif", "/images/2026/11/tabby-cat.avif")]
     body = post.read_text().split("---\n")[2]
     assert body == (
-        " ![tabby cat.avif](/images/2026/11/tabby-cat.avif) \n"
+        "![tabby cat.avif](/images/2026/11/tabby-cat.avif)\n"
         "[a pdf](../../../Downloads/notes.pdf)\n"
         "[site photo](../../static/images/site.jpg)\n"
         "[gone](../../../Downloads/gone.avif)\n"
@@ -469,3 +469,41 @@ def test_typora_paths_are_quoted_only_when_yaml_needs_it(tmp_path):
     post.write_text("---\ntitle: T\n---\nBody\n")
     images.add_typora_keys(post, Path("/Users/me/My Blogs/blog #1: cats/static"))
     assert post.read_text().startswith('---\ntypora-root-url: "/Users/me/My Blogs/blog #1: cats/static"\n')
+
+
+# --- Typora's indented images ---------------------------------------------------------------
+
+
+def test_tidy_unindents_images_alone_on_their_line():
+    text = (
+        "Intro.\n"
+        "\n"
+        " ![cat](/images/cat.avif) \n"
+        "\n"
+        "- a list item\n"
+        "\n"
+        "  ![in the item](/images/item.png)\n"
+        "\n"
+        "Text  ![inline](/images/i.png) stays.\n"
+        "```\n"
+        "\n"
+        " ![code](/images/code.png)\n"
+        "```\n"
+        "\n"
+        "    ![four spaces is code](/images/x.png)\n"
+    )
+    assert images.tidy_image_lines(text) == text.replace(
+        " ![cat](/images/cat.avif) \n", "![cat](/images/cat.avif)\n")
+
+
+def test_tidy_post_and_adopt_leave_no_indented_image(blog, tmp_path):
+    post = _write_post(blog, "p.md", "Intro.\n\n ![a](/images/a.png) ")
+    assert images.tidy_post(post) and "\n![a](/images/a.png)\n" in post.read_text()
+    assert not images.tidy_post(post)
+
+    downloads = tmp_path / "Downloads"
+    downloads.mkdir()
+    (downloads / "b.avif").write_bytes(b"b")
+    dragged = _write_post(blog, "q.md", "Intro.\n\n [b.avif](../../../Downloads/b.avif) ")
+    images.adopt(dragged, blog.root, CONVENTION, inbox=blog.inbox)
+    assert "\n![b.avif](/images/2026/11/b.avif)\n" in dragged.read_text()
