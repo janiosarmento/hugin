@@ -735,13 +735,19 @@ class DraftWaitScreen(ModalScreen[Path | None]):
         # invented experiences are checked against it, not its general facts
         facts = original is not None or self._research is not None
         status = self.query_one("#draft-wait-status", Label)
-        status.update(f"{escape(self._engine.id)} is checking the draft…")
         found = self._research or (self._fact_check.research if self._fact_check else None)
+        kept: list = []
+        if original is not None:
+            # The original's links go to the check too: does each page say what the text credits it with?
+            status.update("Reading the links kept from the original…")
+            kept, dead = await verify.kept_link_sources(body, self._research, self._fact_check)
+            issues += dead
+        status.update(f"{escape(self._engine.id)} is checking the draft…")
         body, fixed, left = await verify.check_and_fix(
             self._engine, body, original,
             brief=web.writer_context(self._brief, self._research) if self._research else None,
             decisions=fc.writer_context(self._fact_check) if self._fact_check else None,
-            sources=verify.linked_sources(body, found),
+            sources=verify.linked_sources(body, found) + kept,
             status=lambda text: status.update(escape(text)),
             request=self._request, facts=facts,
         )

@@ -64,3 +64,14 @@ def default_prompts():
     hugin.prompts.activate({})
     yield
     hugin.prompts.activate({})
+
+
+@pytest.fixture(autouse=True)
+def no_link_reads(monkeypatch):
+    """The draft check never opens real pages; a test that needs pages patches in its own."""
+    import hugin.verify
+
+    async def none(urls):
+        return []
+
+    monkeypatch.setattr(hugin.verify, "read_links", none)

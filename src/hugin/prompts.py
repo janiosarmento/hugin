@@ -63,7 +63,8 @@ _SUMMARY = [
     _p("summary.prompt", "Summary · prompt", """\
 Write a meta description for this blog post. {language} only. {words_range} words, one sentence, no quotes.
 
-NO "Descubra", "Aprenda", "Saiba", "Discover", "Learn". {style}
+NO "Descubra", "Aprenda", "Saiba", "Discover", "Learn". Say honestly what the post \
+delivers: no clickbait, no teasing, no promise the post does not keep. {style}
 
 {current_desc}POST:
 {content}""", "language", "words_range", "style", "current_desc", "content"),
@@ -233,7 +234,8 @@ _WRITER = [
         "add any. Rewrite only what the request makes necessary.\n"
         "2. Length: the original has about {words} words. The new post "
         "must have at least {min_words}, and more if the request "
-        "adds material. A shorter result is a failure.\n"
+        "adds material. A shorter result is a failure, and so is one "
+        "padded to reach the length: no filler, no repetition.\n"
         "3. Apply the request inside the story, not after it. If it "
         "brings new facts or a different outcome, rework the post "
         "around them: change the angle, the verdict and the conclusion, "
@@ -270,8 +272,8 @@ _WRITER = [
         "contradicts itself.\n"
         "3. Length: the posts have about {words} words together, and the "
         "longest has {longest}. The new post must have at least "
-        "{min_words}; only repetition may be cut. A shorter result is a "
-        "failure.\n"
+        "{min_words}; only repetition may be cut, and nothing may be "
+        "padded to reach the length. A shorter result is a failure.\n"
         "4. It is a single standalone post. Do not mention earlier posts "
         "or versions, and do not present it as an update, a compilation "
         "or a sequel (not in the text and not in the title). The title "
@@ -305,7 +307,9 @@ _WRITER = [
         "When sources disagree, say which says what. Never copy sentences "
         "from the sources. Keep my voice from the samples, not the tone of "
         "the sources. Facts marked \"(snippet)\" come from a search "
-        "snippet only: hedge them or leave them out. State a general "
+        "snippet only, and facts marked \"(secondary)\" only from other "
+        "blogs, shops or forums: hedge them or leave them out, and never "
+        "base a health claim on them. State a general "
         "caveat (individuals vary, ask a professional) at most once in the "
         "whole post, and spend the rest on specific information."
     ), "research", "use"),
@@ -332,7 +336,9 @@ _WRITER = [
     ), "claims"),
     _p("writer.title_format", "Draft · title format", (
         "Put the post title alone on the first line (plain text, no # or "
-        "other markup, no quotes), then a blank line, then the post body."
+        "other markup, no quotes), then a blank line, then the post body. "
+        "The title says plainly what the post delivers: no clickbait, no "
+        "suspense, no promise the body does not keep."
     ), raw=True),
     # One rule for every invented specific: a figure needs a reference
     _p("writer.figures", "Draft · precise figures", (
@@ -344,7 +350,26 @@ _WRITER = [
         "not a reference for figures. Without a reference, make the point "
         "without the figure (\"many cats\", not \"73% of cats\") when that "
         "general point is safe, or leave it out. Never invent a study, a "
-        "survey, an expert or a source."
+        "survey, an expert or a source, and never write \"studies show\", "
+        "\"experts say\" or the like without naming and linking them. "
+        "Information that changes over time (prices, laws and rules, "
+        "records, availability, anything \"current\" or \"this year\") "
+        "says when it was true and links its source. State an opinion as "
+        "an opinion (\"in my view\", \"we think\"), never as a fact."
+    ), raw=True),
+    _p("writer.structure", "Draft · structure", (
+        "Answer the question or keep the promise of the title in the first "
+        "paragraph, then give the details. Say each thing once: no filler, "
+        "no repetition, nothing added only to make the post longer."
+    ), raw=True),
+    _p("writer.health", "Draft · health", (
+        "Health, of people or animals: never give a medication dose or a "
+        "treatment protocol; say to ask the doctor or the veterinarian "
+        "instead. Signs of an emergency always come with going to the "
+        "doctor or the veterinarian right away. Say that a food, plant, "
+        "product or practice is safe (\"can eat\", \"is safe\") only when "
+        "a reference states it; otherwise say there is no good evidence "
+        "that it is safe."
     ), raw=True),
     # hugin/placeholders.py finds these, and keeps them off published posts
     _p("writer.image_placeholders", "Draft · image placeholders", (
@@ -356,7 +381,13 @@ _WRITER = [
         "16:9.\" Start the body with one placeholder for the post's featured "
         "image, an image that stands for the whole post. In the rest of the "
         "body, add at most one per section, only where an image adds "
-        "something, and none next to an image the post already has."
+        "something, and none next to an image the post already has. "
+        "Describe the subject as the post states it, with the traits that "
+        "identify it (for an animal breed: its ears, coat, colors and eye "
+        "color), so the image never contradicts the text. Never ask for a "
+        "realistic picture of a specific real event, a real person or a "
+        "real place, which would pass for a photo of it: describe a generic "
+        "scene, or ask for an illustration."
     ), raw=True),
     _p("writer.guidelines", "Draft · editorial rules", "Guidelines:\n\n{constraints}", "constraints"),
     _p("writer.request", "Draft · request", "Request:\n\n{request}", "request"),
@@ -414,6 +445,11 @@ state what it supports and what remains unresolved.
 ## Evidence
 List only evidence that helps answer the question. End each bullet with its \
 source number. Mark claims based only on search snippets with "(snippet)". \
+Mark claims that rest only on secondary sources with "(secondary)": a \
+primary source is a university or research center, a professional, \
+scientific or official body, a published study, or the maker of a product \
+about its own product; other blogs, shops, forums and news rewrites are \
+secondary. \
 Distinguish what a source shows directly from what a seller, commenter, or \
 other source claims. When the question is about the meaning of a term, \
 distinguish evidence about how the term is used from evidence about the \
@@ -536,7 +572,9 @@ Answer with a JSON array only, e.g. \
 Below are claims from my blog post "{title}", each followed by the web \
 sources found for it. Decide each claim using only its sources:
 
-- "keep": a source confirms it.
+- "keep": a reliable source confirms it. Another blog, a shop or a forum \
+alone is not enough (the maker's own page is, for its product); without a \
+reliable source the claim is "unconfirmed".
 - "correct": a source contradicts it or states it more precisely; give the \
 corrected claim in "correction", in the post's language. A claim that is \
 true only with a scope (e.g. "most popular" -> "most registered breed with \
@@ -589,6 +627,14 @@ removed claim still there, a correction stated differently, a claim not \
 confirmed presented as verified or still stated with its precise figure.
 - "attribution": a fact the draft attributes to a source (by name or link) \
 that the text of that source does not contain.""", raw=True),
+    _p("verify.vague_kind", "Verify · check, vague attributions", """\
+- "vague": a claim credited to unnamed studies, research, experts or \
+specialists ("studies show", "experts say") instead of a named, linked \
+reference.""", raw=True),
+    _p("verify.health_kind", "Verify · check, health risks", """\
+- "health": a medication dose or a treatment protocol, or a statement that \
+a food, plant, product or practice is safe for a person or an animal that \
+no reference states.""", raw=True),
     _p("verify.figure_kind", "Verify · check, unsourced figures", """\
 - "figure": a precise figure (statistic, percentage, count or measure, \
 price, date, record, result of a study or survey, or a quote or finding \
@@ -631,6 +677,11 @@ swap in another figure;
 - a wrong attribution: attribute the fact to the reference that contains \
 it, or drop the attribution;
 - against a decision: follow the decision;
+- a vague attribution: name and link the reference that states it, or \
+drop the attribution and make the point less specific;
+- a health problem: take the dose or protocol out and say to ask the \
+veterinarian or the doctor; a "safe" without a reference becomes "there is \
+no good evidence that it is safe";
 - an invented experience: take the experience out and keep the passage \
 working without it (a general observation or a question can keep an \
 opening's hook); never replace it with another experience.

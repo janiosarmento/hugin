@@ -12,7 +12,7 @@ Two checks, shown before the draft is saved:
   states. Precise figures (statistics, percentages, studies, records…)
   need a reference other than the original, whose own figures may be
   invented; a plain new post, with only the request as reference, gets
-  only the figure and experience checks. Numbers of the draft found in no
+  only the figure, vague-attribution, health and experience checks. Numbers of the draft found in no
   reference (a text match, no LLM) are pointed out to the checker.
 
 The second check is itself an LLM and can miss things: it narrows what the
@@ -44,6 +44,8 @@ KINDS = {
     "attribution": "wrong attribution",
     "figure": "unsourced figure",
     "personal": "invented experience",
+    "vague": "vague attribution",
+    "health": "health risk",
 }
 
 
@@ -104,6 +106,52 @@ def linked_sources(draft: str, research: web.Research | None) -> list[tuple[int,
         text = page.text if page is not None and page.ok else f"(search snippet only) {r.snippet}"
         out.append((r.rank, r.title, r.url, text[:SOURCE_CHARS]))
     return out
+
+
+# Links a refactor keeps from the original, read so the check can see what they say
+MAX_KEPT_LINKS = 10
+# Kept links are numbered after the research sources: 101, 102…
+KEPT_LINK_BASE = 100
+# Errors that mean the page is gone, not that it refused a robot (403, 429…)
+_GONE = ("HTTP 404", "HTTP 410", "ConnectError")
+
+
+async def read_links(urls: list[str]) -> list[web.PageRead]:
+    """Read each page (at most MAX_KEPT_LINKS); a failed read is a PageRead with its error."""
+    import asyncio
+
+    import httpx
+
+    async with httpx.AsyncClient() as client:
+        return list(await asyncio.gather(
+            *(web.fetch_page(client, url) for url in urls[:MAX_KEPT_LINKS])
+        ))
+
+
+async def kept_link_sources(
+    draft: str, research: web.Research | None, check: fc.FactCheck | None,
+) -> tuple[list[tuple[int, str, str, str]], list[tuple[str, str]]]:
+    """Sources for the draft's links that no research found, and the dead ones.
+
+    These links come from the original post. Their pages go to the check
+    like research sources, so a fact credited to one of them is checked
+    against what the page says. Returns (sources, [("dead link", detail)]).
+    """
+    found = {
+        _norm(r.url)
+        for res in (research, check.research if check else None) if res is not None
+        for r in res.results
+    }
+    urls = [u for u in external_links(draft) if _norm(u) not in found]
+    if not urls:
+        return [], []
+    sources, dead = [], []
+    for i, page in enumerate(await read_links(urls), start=1):
+        if page.ok:
+            sources.append((KEPT_LINK_BASE + i, "linked from the original", page.url, page.text[:SOURCE_CHARS]))
+        elif page.error and page.error.startswith(_GONE):
+            dead.append(("dead link", f"{page.url}  ({page.error})"))
+    return sources, dead
 
 
 # A number as written: 30, 1.500, 2,5, 30%; the digits are what is compared
@@ -170,8 +218,11 @@ def build_verify_prompt(
     decisions: str | None = None, sources: list[tuple[int, str, str, str]] | None = None,
     request: str | None = None, facts: bool = True,
 ) -> str:
-    """With `facts` False (no references but the request) only figures and experiences are checked."""
-    kinds = (["verify.fact_kinds"] if facts else []) + ["verify.figure_kind", "verify.personal_kind"]
+    """With `facts` False (no references but the request) only figures, vague
+    attributions, health risks and experiences are checked."""
+    kinds = (["verify.fact_kinds"] if facts else []) + [
+        "verify.figure_kind", "verify.vague_kind", "verify.health_kind", "verify.personal_kind",
+    ]
     text = [prompts.text(k).strip() for k in kinds]
     # The original is left out: its own figures need another reference; so are
     # the claims a decision did not confirm, which repeat the original's figures

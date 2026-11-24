@@ -1256,7 +1256,6 @@ class HuginScreen(Screen):
 
         post.tags = final_tags
         post.metadata["tags"] = final_tags
-        post.metadata["lastmod"] = datetime.now().isoformat(timespec="seconds")
         self._stop_spinner(done=True)
 
         parts = []
@@ -1367,7 +1366,6 @@ class HuginScreen(Screen):
 
         write_summary(post.path, final_summary)
         post.metadata["description"] = final_summary
-        post.metadata["lastmod"] = datetime.now().isoformat(timespec="seconds")
         self._stop_spinner(done=True)
         self.notify(f"{post.filename}: summary updated")
 

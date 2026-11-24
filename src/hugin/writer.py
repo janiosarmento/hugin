@@ -77,14 +77,31 @@ def _reorder_metadata(meta: dict) -> dict:
     return ordered
 
 
+def content_changed(path: Path, post) -> bool:
+    """Whether `post` differs from the file at `path` in body or title (True when unreadable)."""
+    try:
+        current = frontmatter.load(str(path))
+    except (OSError, ValueError, yaml.YAMLError):
+        return True
+    return (
+        current.content.strip() != post.content.strip()
+        or str(current.metadata.get("title", "")) != str(post.metadata.get("title", ""))
+    )
+
+
 def save_post(path: Path, post) -> None:
     """Write a frontmatter Post to disk.
 
     This is the ONLY function that should write post files.
     It handles: lastmod update, datetime stringification,
     metadata reordering, and atomic write (temp file + rename).
+
+    lastmod tells readers and search engines the content changed, so it moves
+    only when the body or the title did (or the file is new); new tags, a new
+    description or a flag leave it as it was.
     """
-    post.metadata["lastmod"] = datetime.now()
+    if content_changed(path, post):
+        post.metadata["lastmod"] = datetime.now()
     _ensure_datetime_fields(post.metadata)
     post.metadata = _reorder_metadata(dict(post.metadata))
 
