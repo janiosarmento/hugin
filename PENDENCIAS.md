@@ -103,6 +103,12 @@ O projeto deixou de usar o beads. Estes eram os itens abertos nele; o texto abai
 - **Onde:** prompt novo "Draft · precise figures" no redator; UNCONFIRMED da checagem perde o número; tipo `figure` na verificação, também no `h` sem pesquisa; `verify.unsourced_numbers` (sem LLM) aponta à verificação as frases com números ausentes das referências (decisões UNCONFIRMED/REMOVE não contam).
 - **Avaliar:** num `R` de post antigo cheio de números, se sobra número sem fonte e se o texto não fica genérico demais; se números inofensivos (lista, anedota) são mantidos.
 
+### 14. Check-list editorial do Amo Meu Gato (implementado em 2026-11-23, falta configurar e validar)
+- **Feito:** regras nos prompts (título/descrição sem clickbait, resposta no início, sem enchimento, "estudos mostram" proibido, informação datada, opinião marcada, saúde), checagens novas ("vague", "health"), links mantidos do original abertos e conferidos, fontes confiáveis/excluídas, imagens (largura e alt no `g`), "Already on the blog?" no `h`, `keep_url`, `lastmod` só com mudança real, links nunca para posts substituídos, fusão de posts.
+- **Falta configurar no Amo Meu Gato (`,`):** marcar "keep the original's address and date"; preencher as fontes confiáveis (cornell.edu, icatcare.org, catvets.com, wsava.org, cfmv.gov.br…); largura mínima 1200; `redacao-amg` como primeiro autor; regras editoriais do blog.
+- **Não dá pelo Hugin:** garantir que a imagem gerada bate com a raça (só revisão humana); IPTC `DigitalSourceType` (sem exiftool na máquina e a conversão é feita pelo `tools/convert_to_avif.py` do blog); "marcado para remover" (não existe essa marca; hoje só refactor/merge marcam um post como substituído).
+- **Tensão conhecida:** o piso de 90% do tamanho no refactor contra "sem enchimento". O prompt agora proíbe enchimento, e o piso só gera aviso.
+
 ## Projeto separado (a tratar em outra sessão)
 
 - **Amo Meu Gato:** projeto diferente, a ser tratado em sessão própria. Nada deste arquivo se aplica a ele. Ao retomar, informar o repositório e o contexto do projeto antes de qualquer mudança.
