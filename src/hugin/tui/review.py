@@ -47,7 +47,7 @@ from hugin.tui.engine_picker import EnginePickerScreen
 from hugin.tui.news_ideas import NewsIdeasScreen
 from hugin.tui.project_settings import ProjectSettingsScreen, save_and_sync
 from hugin.tui.images_screen import ImageConventionScreen
-from hugin.tui.placeholders_screen import PlaceholdersScreen, RemovePlaceholdersScreen
+from hugin.tui.placeholders_screen import PlaceholdersScreen
 from hugin import drafts_only, featured, image_check, images, placeholders
 from hugin.drafts_only import merged_names
 from hugin.hugo import find_site_root
@@ -2164,31 +2164,27 @@ class HuginScreen(Screen):
         title = str(post.metadata.get("title") or post.path.stem)
         self.app.push_screen(PlaceholdersScreen(title, found))
 
-    def _drop_published_placeholders(self, content: Path, then) -> None:
-        """Run `then` once no published post has placeholders; the user may cancel instead."""
-        found = placeholders.published_with_placeholders(content)
+    PLACEHOLDER_TITLES_SHOWN = 5
+
+    def _published_placeholders_block(self, content: Path) -> bool:
+        """Whether a published post contains [img]; if so, tell the user which, and nothing is synced."""
+        found = placeholders.published_with_marker(content)
         if not found:
-            then()
-            return
-
-        def on_answer(remove: bool) -> None:
-            if not remove:
-                self.notify("Sync cancelled: published posts still have \\[img] placeholders",
-                            severity="warning", timeout=8)
-                return
-            for path in found:
-                try:
-                    placeholders.remove_from(path)
-                except OSError as e:
-                    log_exception("remove placeholders")
-                    self.notify(f"Could not edit {path.name}: {e}; sync cancelled", severity="error", timeout=10)
-                    return
-            self._sync_current_post()
-            self.notify(f"Removed {sum(found.values())} placeholder(s) from {len(found)} post(s)")
-            then()
-
-        names = [(p.relative_to(content).as_posix(), n) for p, n in found.items()]
-        self.app.push_screen(RemovePlaceholdersScreen(names), on_answer)
+            return False
+        titles = []
+        for path in found[: self.PLACEHOLDER_TITLES_SHOWN]:
+            try:
+                title = str(fm.loads(path.read_text(encoding="utf-8")).metadata.get("title") or "")
+            except Exception:  # unparsable front matter: fall back to the file name
+                title = ""
+            titles.append(f"  {escape(title or path.relative_to(content).as_posix())}")
+        rest = len(found) - len(titles)
+        closing = f"These and {rest} more block the push." if rest else "These block the push."
+        self.notify(
+            "Sync cancelled: published posts contain \\[img]\n" + "\n".join(titles) + "\n" + closing,
+            severity="error", timeout=30,
+        )
+        return True
 
     # === IMAGES PASTED IN AN EXTERNAL EDITOR ===
 
@@ -2865,6 +2861,12 @@ class HuginScreen(Screen):
         if self._state != STATE_BROWSING:
             return
 
+        content = find_site_root(self.directory) / "content"
+        content = content if content.is_dir() else self.directory
+        # Hugo would show a placeholder as text; checked first, so a blocked sync edits nothing
+        if self._published_placeholders_block(content):
+            return
+
         def on_confirm(confirmed: bool) -> None:
             if confirmed:
                 self._start_spinner(self.current_index, "Syncing with GitHub...")
@@ -2879,8 +2881,6 @@ class HuginScreen(Screen):
             self.app.push_screen(ConfirmGitSyncScreen(changes), on_confirm)
 
         # Never commit a path on this Mac: Typora's preview root, or links to inbox images
-        content = find_site_root(self.directory) / "content"
-        content = content if content.is_dir() else self.directory
         for path in images.posts_with_typora_keys(content):
             images.strip_typora_keys(path)
             images.tidy_post(path)
@@ -2893,10 +2893,7 @@ class HuginScreen(Screen):
                 log_exception("strip draft-only fields")
         if stripped:
             self.notify(f"Removed draft-only fields (prompt, refactor_of, merged_from) from {stripped} published post(s)")
-        # Hugo would show a placeholder as text; drafts are not published
-        self._drop_published_placeholders(
-            content, lambda: self._adopt_inbox_images(images.posts_to_adopt(content, self._static_root()), confirm),
-        )
+        self._adopt_inbox_images(images.posts_to_adopt(content, self._static_root()), confirm)
 
     def _warn_image_problems(self, changes: list[str]) -> None:
         """Point out narrow images and missing alt text in the published posts about to be committed."""

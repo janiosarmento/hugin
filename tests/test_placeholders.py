@@ -4,12 +4,11 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 from textual.app import App
 
 from hugin import placeholders
 from hugin.drafting import build_message, refactor_losses
-from hugin.tui.placeholders_screen import PlaceholdersScreen, RemovePlaceholdersScreen
+from hugin.tui.placeholders_screen import PlaceholdersScreen
 from hugin.tui.review import HuginScreen
 
 POST = """\
@@ -81,11 +80,9 @@ def test_only_published_posts_count(tmp_path):
     _write(tmp_path, "c.md", "true")
     _write(tmp_path, "d.md", '"true"')
     _write(tmp_path, "e.md", "false", body="Clean.\n")
-    assert placeholders.published_with_placeholders(tmp_path) == {published: 1, no_front: 1}
-
-    assert placeholders.remove_from(published)
-    assert published.read_text() == "---\ntitle: pt/a.md\ndraft: false\n---\nText.\n"
-    assert not placeholders.remove_from(published)
+    in_code = _write(tmp_path, "f.md", "false", body="Use `[img]a cat[/img]` like this.\n")
+    unclosed = _write(tmp_path, "g.md", "false", body="A stray [IMG] marker.\n")
+    assert placeholders.published_with_marker(tmp_path) == [no_front, in_code, unclosed, published]
 
 
 # --- drafting -----------------------------------------------------------------------------
@@ -152,66 +149,71 @@ def test_enter_copies_the_highlighted_description():
     assert copied == ["second [x]"] and result is None
 
 
-@pytest.mark.parametrize("key, answer", [("y", True), ("n", False), ("escape", False)])
-def test_removal_question(key, answer):
-    async def keys(app, pilot):
-        assert "pt/a.md: 2" in str(app.screen.query_one("#remove-placeholders-posts").render())
-        await pilot.press(key)
-
-    assert _run(RemovePlaceholdersScreen([("pt/a.md", 2)]), keys)[0] is answer
-
-
 class FakeApp:
     def __init__(self):
         self.screens = []
 
-    def push_screen(self, screen, callback):
+    def push_screen(self, screen, callback=None):
         self.screens.append((screen, callback))
 
 
 class FakeScreen:
-    _drop_published_placeholders = HuginScreen._drop_published_placeholders
+    PLACEHOLDER_TITLES_SHOWN = HuginScreen.PLACEHOLDER_TITLES_SHOWN
+    _published_placeholders_block = HuginScreen._published_placeholders_block
 
     def __init__(self):
         self.app = FakeApp()
         self.notices = []
-        self.synced = 0
 
     def notify(self, message, **kw):
         self.notices.append((message, kw.get("severity", "information")))
 
-    def _sync_current_post(self):
-        self.synced += 1
+
+def test_a_published_placeholder_blocks_the_sync_and_names_the_post(tmp_path):
+    published = tmp_path / "a.md"
+    published.write_text("---\ntitle: Cats [at] home\n---\n[img]A photo.[/img]\n")
+    no_title = _write(tmp_path, "pt/b.md", None)
+    _write(tmp_path, "c.md", "true")
+    before = published.read_text()
+    screen = FakeScreen()
+    assert screen._published_placeholders_block(tmp_path)
+    message, severity = screen.notices[-1]
+    assert severity == "error"
+    assert message.splitlines()[1:] == ["  Cats \\[at] home", "  pt/b.md", "These block the push."]
+    assert no_title.exists()
+    assert published.read_text() == before  # nothing is removed
 
 
-def test_sync_asks_then_removes_from_published_posts_only(tmp_path):
-    published = _write(tmp_path, "a.md", "false")
-    draft = _write(tmp_path, "b.md", "true")
-    screen, done = FakeScreen(), []
-    screen._drop_published_placeholders(tmp_path, lambda: done.append(True))
-
-    modal, callback = screen.app.screens[0]
-    assert isinstance(modal, RemovePlaceholdersScreen) and modal._posts == [("a.md", 1)] and not done
-    callback(True)
-    assert done == [True] and screen.synced == 1
-    assert "[img]" not in published.read_text() and "[img]" in draft.read_text()
-    assert screen.notices[-1][0] == "Removed 1 placeholder(s) from 1 post(s)"
+def test_the_block_shows_five_titles_and_counts_the_rest(tmp_path):
+    for n in range(8):
+        _write(tmp_path, f"p{n}.md", "false")
+    (tmp_path / "x.md").write_text("[img]no front matter[/img]\n")
+    screen = FakeScreen()
+    assert screen._published_placeholders_block(tmp_path)
+    lines = screen.notices[-1][0].splitlines()
+    assert lines[1:6] == [f"  p{n}.md" for n in range(5)]
+    assert lines[-1] == "These and 4 more block the push."
 
 
-def test_declining_cancels_the_sync(tmp_path):
-    published = _write(tmp_path, "a.md", "false")
-    screen, done = FakeScreen(), []
-    screen._drop_published_placeholders(tmp_path, lambda: done.append(True))
-    screen.app.screens[0][1](False)
-    assert not done and "[img]" in published.read_text()
-    assert screen.notices[-1][1] == "warning"
-
-
-def test_no_placeholders_goes_straight_on(tmp_path):
+def test_drafts_alone_do_not_block(tmp_path):
     _write(tmp_path, "a.md", "true")
-    screen, done = FakeScreen(), []
-    screen._drop_published_placeholders(tmp_path, lambda: done.append(True))
-    assert done == [True] and screen.app.screens == []
+    screen = FakeScreen()
+    assert not screen._published_placeholders_block(tmp_path)
+    assert screen.notices == []
+
+
+def test_the_block_comes_before_any_file_is_edited(tmp_path, monkeypatch):
+    from hugin.tui import review
+
+    _write(tmp_path, "a.md", "false")
+    touched = []
+    monkeypatch.setattr(review.images, "posts_with_typora_keys", lambda c: touched.append(c) or [])
+    monkeypatch.setattr(review, "find_site_root", lambda d: tmp_path)
+    screen = FakeScreen()
+    screen._state, screen.directory = review.STATE_BROWSING, tmp_path
+    HuginScreen.action_git_sync(screen)
+    assert screen.notices and screen.notices[-1][1] == "error"
+    assert touched == [] and screen.app.screens == []
 
 
 def test_review_shortcut_opens_the_list(tmp_path):

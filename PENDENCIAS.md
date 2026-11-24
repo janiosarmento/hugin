@@ -114,6 +114,10 @@ O projeto deixou de usar o beads. Estes eram os itens abertos nele; o texto abai
 - **Continua igual:** a migração de keywords pode fazer um commit local (sem push), mas só roda com a árvore limpa, então não age enquanto houver posts alterados.
 - **Para desfazer quando a refatoração terminar:** `git revert` do commit "Touch the blog repository only on 'g'". `commit_settings` e seus testes continuam em `git.py`, então o revert volta tudo como estava.
 
+### 16. `[img]` em post publicado bloqueia o `g` (implementado em 2026-11-24; exceções a pensar)
+- **Estado:** antes de qualquer outro passo do `g`, o Hugin procura `[img]` (sem diferenciar maiúsculas, inclusive dentro de código) em todo post que não é rascunho. Se achar, cancela a sincronização sem editar nada e mostra até 5 títulos, com "These and N more block the push.". Saiu a opção antiga de remover os marcadores automaticamente.
+- **Falta decidir:** como liberar posts que mostram `[img]` de propósito (por exemplo, um tutorial de shortcodes). Hoje eles também bloqueiam.
+
 ## Projeto separado (a tratar em outra sessão)
 
 - **Amo Meu Gato:** projeto diferente, a ser tratado em sessão própria. Nada deste arquivo se aplica a ele. Ao retomar, informar o repositório e o contexto do projeto antes de qualquer mudança.

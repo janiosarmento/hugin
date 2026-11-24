@@ -4,7 +4,7 @@ The draft prompts ask the LLM to mark spots for an optional illustration with
 `[img]description[/img]`, the description written in English as a prompt for
 ChatGPT or Midjourney. The author generates the image by hand and puts it in
 place of the placeholder. Hugo would publish a forgotten placeholder as plain
-text, so a published post must not keep any; a draft may.
+text, so a published post with `[img]` blocks the sync; a draft may keep them.
 
 Placeholders inside code (fenced blocks or inline code spans) are text about
 placeholders, not placeholders, and are left alone.
@@ -16,7 +16,6 @@ import re
 from pathlib import Path
 
 from hugin.drafts_only import is_draft
-from hugin.fsutil import atomic_write_text
 
 _BODY = r"(?:(?!\[/?img\]).)*?"  # never runs past another marker
 # A placeholder alone on its line, with the blank line after it
@@ -57,27 +56,18 @@ def remove(text: str) -> str:
     return text
 
 
-def published_with_placeholders(content_dir: Path) -> dict[Path, int]:
-    """Posts under `content_dir` that are not drafts and still have placeholders, with how many."""
-    found = {}
+def published_with_marker(content_dir: Path) -> list[Path]:
+    """Posts under `content_dir` that are not drafts and contain `[img]` anywhere.
+
+    Stricter than `descriptions`: a marker inside code counts too, so a post
+    that teaches the shortcode is caught as well. Such posts block a sync.
+    """
+    found = []
     for path in sorted(content_dir.rglob("*.md")):
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        if "[img]" not in text.lower() or is_draft(text):
-            continue
-        count = len(descriptions(text))
-        if count:
-            found[path] = count
+        if "[img]" in text.lower() and not is_draft(text):
+            found.append(path)
     return found
-
-
-def remove_from(path: Path) -> bool:
-    """Take the placeholders out of the post at `path`; whether it changed."""
-    text = path.read_text(encoding="utf-8")
-    clean = remove(text)
-    if clean == text:
-        return False
-    atomic_write_text(path, clean)
-    return True
