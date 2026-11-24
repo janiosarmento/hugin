@@ -109,6 +109,11 @@ O projeto deixou de usar o beads. Estes eram os itens abertos nele; o texto abai
 - **Não dá pelo Hugin:** garantir que a imagem gerada bate com a raça (só revisão humana); IPTC `DigitalSourceType` (o Hugin não converte nem grava imagens: isso cabe à ferramenta de imagens); "marcado para remover" (não existe essa marca; hoje só refactor/merge marcam um post como substituído).
 - **Tamanho é guia (2026-11-23):** o tamanho pedido no `h` e o do original no `R` são referência, não meta. Só um refactor abaixo de 60% do original (ou uma fusão abaixo de 60% do post mais longo) gera aviso de possível perda de conteúdo.
 
+### 15. Sincronização automática desligada (temporário, desde 2026-11-24)
+- **Estado:** durante a grande refatoração do Amo Meu Gato, o Hugin só mexe no repositório do blog com o `g`. Saíram as duas sincronizações do início (`cli.py`: commit, pull e push ao abrir e depois das migrações) e o commit com push ao salvar as configurações do projeto (`save_and_sync` em `tui/project_settings.py` agora só grava o arquivo; as configurações vão no próximo `g`).
+- **Continua igual:** a migração de keywords pode fazer um commit local (sem push), mas só roda com a árvore limpa, então não age enquanto houver posts alterados.
+- **Para desfazer quando a refatoração terminar:** `git revert` do commit "Touch the blog repository only on 'g'". `commit_settings` e seus testes continuam em `git.py`, então o revert volta tudo como estava.
+
 ## Projeto separado (a tratar em outra sessão)
 
 - **Amo Meu Gato:** projeto diferente, a ser tratado em sessão própria. Nada deste arquivo se aplica a ele. Ao retomar, informar o repositório e o contexto do projeto antes de qualquer mudança.

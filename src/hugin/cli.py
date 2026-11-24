@@ -20,7 +20,6 @@ from hugin.scanner import (
     load_posts,
 )
 from hugin.state import load_state
-from hugin.git import git_sync
 from hugin.authors import ordered_authors, post_authors
 from hugin.project import load_project
 from hugin.tui.app import HuginApp
@@ -34,7 +33,7 @@ from hugin.version import current as current_version
 def _ignore_ctrl_z() -> None:
     """Keep Ctrl+Z from stopping Hugin outside the TUI.
 
-    Before the TUI starts (git sync, embedding index) and between restarts the
+    Before the TUI starts (migrations, embedding index) and between restarts the
     terminal is in normal mode, so Ctrl+Z sends SIGTSTP and the shell stops
     Hugin mid-startup. While the TUI runs, Textual turns that key into a plain
     keypress. Textual also installs its own SIGTSTP handler and restores normal
@@ -42,20 +41,6 @@ def _ignore_ctrl_z() -> None:
     """
     if hasattr(signal, "SIGTSTP"):
         signal.signal(signal.SIGTSTP, signal.SIG_IGN)
-
-
-def _git_sync_startup(directory: Path) -> None:
-    """On startup: commit local changes, pull --rebase, push. Exit on error."""
-
-    result = git_sync(directory)
-    if not result.success:
-        click.echo(f"Git sync failed:\n{result.output}\n")
-        click.echo(
-            "To resolve conflicts, stash your changes and try again:\n"
-            "  git stash && git pull --rebase && git stash pop\n"
-            "Then restart hugin."
-        )
-        raise SystemExit(1)
 
 
 def _missing_author_warning(directory: Path, posts: list[Post]) -> str | None:
@@ -104,8 +89,7 @@ def main(
     directory = directory.resolve()
     config = load_config()
 
-    _git_sync_startup(directory)
-
+    # No git sync here: the blog repository is changed only by the in-app 'g' action
     load_problems: list[str] = []
     posts = load_posts(directory, load_problems)
     if not posts:
@@ -119,7 +103,6 @@ def main(
     for message in messages:
         click.echo(message)
     if messages:
-        _git_sync_startup(directory)  # commit and push the settings and migrated posts
         posts = load_posts(directory, [])
     warning = _missing_author_warning(directory, posts)
     if warning:

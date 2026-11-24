@@ -10,26 +10,12 @@ from hugin.tui.form import titled
 from hugin.tui.widgets import TextArea
 
 from hugin import prompts
-from hugin.git import SETTINGS_PUSHED, commit_settings
-from hugin.hugo import find_site_root
 from hugin.project import DEFAULT_EDITORIAL_CONSTRAINTS, ProjectConfig, save_project
 
 
 def save_and_sync(app, directory: Path, config: ProjectConfig, what: str) -> None:
-    """Save the settings file, then commit and push it on a worker thread.
-
-    The commit is for the settings file alone, so a sync is never blocked on posts.
-    """
+    """Save the settings file. It is committed and pushed with everything else by 'g'."""
     save_project(directory, config)
-    root = find_site_root(directory)
-
-    def sync() -> None:
-        line = commit_settings(root, f"Hugin settings: update {what}")
-        if line:
-            severity = "information" if line == SETTINGS_PUSHED else "warning"
-            app.call_from_thread(app.notify, line, severity=severity, timeout=10)
-
-    app.run_worker(sync, thread=True)
 
 
 def _domains(text: str) -> list[str]:
