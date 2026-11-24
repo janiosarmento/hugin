@@ -113,7 +113,7 @@ STATE_BROWSING = "browsing"
 STATE_LOADING = "loading"
 STATE_REVIEWING = "reviewing"
 
-# Post list orders, cycled with S: key name -> label shown when picked
+# Post list orders, cycled with O: key name -> label shown when picked
 SORT_MODES = {
     "default": "drafts first, then published date",
     "date": "published date",
@@ -635,7 +635,7 @@ class HuginScreen(Screen):
         Binding("r", "redirects", "Redirs", show=False, tooltip="Manage URL redirects (_redirects file)"),
         Binding("X", "delete_post", "Delete", show=False, tooltip="Delete the current post (with confirmation)"),
         Binding("comma", "project_settings", "Sett", show=False, tooltip="Project settings"),
-        Binding("S", "cycle_sort", "Sort", show=False, tooltip="Sort posts: default → published date → last modified"),
+        Binding("O", "cycle_sort", "Sort", show=False, tooltip="Sort posts: default → published date → last modified"),
     ]
 
     DEFAULT_CSS = """

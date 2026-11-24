@@ -1,4 +1,4 @@
-"""Post list sorting (S) and the date columns on the main screen."""
+"""Post list sorting (O) and the date columns on the main screen."""
 
 import asyncio
 from unittest.mock import MagicMock
@@ -69,18 +69,18 @@ def test_sort_cycles_and_keeps_selection(tmp_path):
             screen._navigate_to_post(3)  # Oldest
             await pilot.pause()
 
-            await pilot.press("S")
+            await pilot.press("O")
             await pilot.pause()
             assert _titles(screen) == ["Newest", "Middle", "Oldest", "Draft"]
             assert screen.posts[screen.current_index].metadata["title"] == "Oldest"
             table = screen.query_one("#post-table", DataTable)
             assert table.cursor_row == screen.current_index
 
-            await pilot.press("S")
+            await pilot.press("O")
             await pilot.pause()
             assert _titles(screen) == ["Middle", "Draft", "Newest", "Oldest"]
 
-            await pilot.press("S")
+            await pilot.press("O")
             await pilot.pause()
             assert _titles(screen) == ["Draft", "Newest", "Middle", "Oldest"]
 
