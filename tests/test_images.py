@@ -486,6 +486,33 @@ def test_typora_paths_are_quoted_only_when_yaml_needs_it(tmp_path):
 # --- Typora's indented images ---------------------------------------------------------------
 
 
+def test_trailing_spaces_leave_the_body_and_line_breaks_keep_rendering():
+    text = (
+        "---\ntitle: kept  \n---\n"
+        "![a cat](/images/cat.avif) \n\n"
+        "First line.  \nSecond line. \n\t\n"
+        "- item  \n- next  \n"
+        "## Heading  \nText.\n"
+        "```\ncode  \n```\n"
+        "Last.  "
+    )
+    assert images.strip_trailing_spaces(text) == (
+        "---\ntitle: kept  \n---\n"
+        "![a cat](/images/cat.avif)\n\n"
+        "First line.\\\nSecond line.\n\n"
+        "- item\n- next\n"
+        "## Heading\nText.\n"
+        "```\ncode\n```\n"
+        "Last."
+    )
+
+
+def test_tidy_post_strips_trailing_spaces(blog):
+    post = _write_post(blog, "p.md", "Text. \n\nMore.")
+    assert images.tidy_post(post) and "Text.\n\nMore.\n" in post.read_text()
+    assert not images.tidy_post(post)
+
+
 def test_tidy_unindents_images_alone_on_their_line():
     text = (
         "Intro.\n"
@@ -541,3 +568,16 @@ def test_adopt_moves_images_typora_copied_under_the_post_folder(blog):
     assert "![a](/images/2026/11/a%20cat.webp)\n\n![k](/images/2026/11/kept.webp)" in post.read_text()
     assert intended.read_bytes() == b"cat" and (static / "images/2026/11/kept.webp").read_bytes() == b"k"
     assert sorted(p.name for p in blog.posts.iterdir()) == ["p.md"]  # the stray folders are gone
+
+
+def test_sync_tidies_only_the_posts_about_to_be_committed(tmp_path, monkeypatch):
+    from hugin.tui import review
+
+    (tmp_path / "a.md").write_text("Edited. \n")
+    (tmp_path / "b.md").write_text("Untouched. \n")
+    (tmp_path / "pic.png").write_bytes(b"x")
+    monkeypatch.setattr(review, "repo_root", lambda d: tmp_path)
+    monkeypatch.setattr(review, "pending_changes", lambda d: [
+        " M a.md", " D gone.md", "?? pic.png", "R  old.md -> a.md"])
+    screen = SimpleNamespace(directory=tmp_path)
+    assert HuginScreen._changed_posts(screen) == [tmp_path / "a.md"]

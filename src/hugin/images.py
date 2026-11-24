@@ -48,6 +48,8 @@ _PLAIN_LINK = re.compile(r"(?<!!)\[([^\]]*)\]\(\s*(?:<([^>]+)>|([^)\s]+))\s*\)")
 _LONE_IMAGE = re.compile(r"^ {1,3}(!\[[^\]\n]*\]\([^)\n]*\))[ \t]*$")
 _FENCE_LINE = re.compile(r"^[ \t]*(```|~~~)")
 _LIST_OR_INDENTED = re.compile(r"^(?:[ \t]|[-*+][ \t]|\d+[.)][ \t])")
+# A line that starts a block of its own rather than continuing the paragraph above
+_NEW_BLOCK = re.compile(r"^[ \t]*(?:[-*+][ \t]|\d+[.)][ \t]|#|>|\||```|~~~|---|\*\*\*|<)")
 _YEAR = re.compile(r"(19|20)\d\d")
 _TWO = re.compile(r"\d\d")
 
@@ -375,15 +377,46 @@ def tidy_image_lines(text: str) -> str:
     return "\n".join(lines)
 
 
+def strip_trailing_spaces(text: str) -> str:
+    """`text` with no whitespace at the end of any line of the body; front matter untouched.
+
+    Typora leaves a space after the images it inserts. Two or more spaces
+    before a line that continues the paragraph are a Markdown line break:
+    that one becomes a backslash, so the post renders the same.
+    """
+    block = _yaml_front_matter(text)
+    if block:
+        newline = text.find("\n", block[1])
+        if newline == -1:
+            return text
+        start = newline + 1
+    else:
+        start = 0
+    lines = text[start:].split("\n")
+    in_fence = False
+    for i, line in enumerate(lines):
+        stripped = line.rstrip()
+        if _FENCE_LINE.match(line):
+            in_fence = not in_fence
+        elif stripped != line and not in_fence:
+            following = lines[i + 1] if i + 1 < len(lines) else ""
+            if (line.endswith("  ") and stripped and not stripped.endswith("\\")
+                    and following.strip() and not _NEW_BLOCK.match(following)
+                    and not re.match(r"[ \t]*(?:#|\|)", line)):
+                stripped += "\\"
+        lines[i] = stripped
+    return text[:start] + "\n".join(lines)
+
+
 def tidy_post(post_path: Path) -> bool:
-    """tidy_image_lines() on the post at `post_path`; whether it changed."""
+    """tidy_image_lines() and strip_trailing_spaces() on the post at `post_path`; whether it changed."""
     from hugin.fsutil import atomic_write_text
 
     try:
         text = post_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return False
-    clean = tidy_image_lines(text)
+    clean = strip_trailing_spaces(tidy_image_lines(text))
     if clean == text:
         return False
     atomic_write_text(post_path, clean)

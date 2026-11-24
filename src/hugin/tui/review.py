@@ -2884,6 +2884,9 @@ class HuginScreen(Screen):
         for path in images.posts_with_typora_keys(content):
             images.strip_typora_keys(path)
             images.tidy_post(path)
+        # Posts about to be committed: no indented images, no spaces at the end of a line
+        for path in self._changed_posts():
+            images.tidy_post(path)
         # prompt and refactor_of are of no use once the post is out
         stripped = 0
         for path, keys in drafts_only.published_with_fields(content).items():
@@ -2894,6 +2897,16 @@ class HuginScreen(Screen):
         if stripped:
             self.notify(f"Removed draft-only fields (prompt, refactor_of, merged_from) from {stripped} published post(s)")
         self._adopt_inbox_images(images.posts_to_adopt(content, self._static_root()), confirm)
+
+    def _changed_posts(self) -> list[Path]:
+        """Markdown files the next commit would include that still exist."""
+        root = repo_root(self.directory) or find_site_root(self.directory)
+        found = []
+        for line in pending_changes(self.directory):
+            path = root / line[3:].strip().strip('"').split(" -> ")[-1]
+            if path.suffix == ".md" and path.is_file():
+                found.append(path)
+        return list(dict.fromkeys(found))
 
     def _warn_image_problems(self, changes: list[str]) -> None:
         """Point out narrow images and missing alt text in the published posts about to be committed."""
