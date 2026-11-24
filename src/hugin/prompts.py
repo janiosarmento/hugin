@@ -216,7 +216,11 @@ _WRITER = [
     _p("writer.new_task", "Draft · new post task",
        "Write a new post in my voice, following the request below. {no_invented_experience}",
        "no_invented_experience"),
-    _p("writer.target_length", "Draft · target length", "Target length: about {words} words.", "words"),
+    _p("writer.target_length", "Draft · target length", (
+        "Length: about {words} words, as a guide only. The topic decides: "
+        "stop when it is covered, even well short of that, and go longer "
+        "when it needs more."
+    ), "words"),
     _p("writer.original", "Draft · refactor, original post",
        "Here is the post to rewrite:\n\n<original>\n# {title}\n\n{content}\n</original>", "title", "content"),
     _p("writer.refactor_task", "Draft · refactor task", (
@@ -232,10 +236,11 @@ _WRITER = [
         "URLs). Links to my own posts and affiliate links were taken out "
         "of the original on purpose; I add them back later, so do not "
         "add any. Rewrite only what the request makes necessary.\n"
-        "2. Length: the original has about {words} words. The new post "
-        "must have at least {min_words}, and more if the request "
-        "adds material. A shorter result is a failure, and so is one "
-        "padded to reach the length: no filler, no repetition.\n"
+        "2. Length is not a goal. The original has about {words} words: "
+        "a reference, not a target. Keep everything it gives the reader; "
+        "the new post may end up shorter only by dropping repetition and "
+        "filler, never content, and longer when the request adds "
+        "material. Never pad it.\n"
         "3. Apply the request inside the story, not after it. If it "
         "brings new facts or a different outcome, rework the post "
         "around them: change the angle, the verdict and the conclusion, "
@@ -270,10 +275,10 @@ _WRITER = [
         "the fullest version; where they disagree, keep the newest one "
         "and fix every statement it contradicts, so the post never "
         "contradicts itself.\n"
-        "3. Length: the posts have about {words} words together, and the "
-        "longest has {longest}. The new post must have at least "
-        "{min_words}; only repetition may be cut, and nothing may be "
-        "padded to reach the length. A shorter result is a failure.\n"
+        "3. Length is not a goal. The posts have about {words} words "
+        "together, and the longest has {longest}: a reference, not a "
+        "target. Only repetition and filler may go, never content, and "
+        "nothing may be padded.\n"
         "4. It is a single standalone post. Do not mention earlier posts "
         "or versions, and do not present it as an update, a compilation "
         "or a sequel (not in the text and not in the title). The title "

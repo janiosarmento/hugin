@@ -111,13 +111,13 @@ def test_merge_losses_cover_every_post_and_use_the_merge_floor(tmp_path):
     losses = drafting.refactor_losses(source, new, min_words=40)
     assert ("image", "/img/p1.jpg") in losses
     assert any(kind == "external link" and "example.com/1" in d for kind, d in losses)
-    assert ("length", f"{len(new.split())} words; the merge needs at least 40") in losses
+    assert ("length", f"{len(new.split())} words, under 40: check that no content was lost") in losses
 
 
-def test_merge_floor_is_90_percent_of_the_longest_post(tmp_path):
+def test_merge_floor_is_60_percent_of_the_longest_post(tmp_path):
     short, long_ = _posts(tmp_path)[:2]
     long_.content = "word " * 100
-    assert drafting.merge_min_words(short, [long_]) == 90
+    assert drafting.merge_min_words(short, [long_]) == 60
 
 
 # --- Front matter ---

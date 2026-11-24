@@ -289,7 +289,7 @@ class DraftPromptScreen(ModalScreen[str | None]):
                         yield Static(self._merged_text(), id="draft-merged")
                 if self._original is None:
                     yield titled(
-                        "Length (words)",
+                        "Length (words, a guide)",
                         Input(value=str(DEFAULT_TARGET_WORDS), id="draft-words", type="integer"),
                         classes="short",
                     )

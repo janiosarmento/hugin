@@ -376,10 +376,18 @@ def test_write_draft_strips_reasoning(monkeypatch):
     assert drafting.parse_answer(text, "req") == ("Real Title", "Body")
 
 
-def test_build_message_states_the_target_length_for_new_posts(tmp_path):
+def test_build_message_gives_the_length_as_a_guide_for_new_posts(tmp_path):
     p = make_post(tmp_path, "a.md", 1)
-    assert "Target length: about 800 words." in build_message([p], "req", words=800)
-    assert "Target length" not in build_message([p], "req")
+    message = build_message([p], "req", words=800)
+    assert "Length: about 800 words, as a guide only." in message
+    assert "stop when it is covered" in message
+    assert "as a guide only" not in build_message([p], "req")
+
+
+def test_a_refactor_has_no_minimum_length(tmp_path):
+    p = make_post(tmp_path, "a.md", 1)
+    message = build_message([], "req", p)
+    assert "Length is not a goal" in message and "must have at least" not in message
 
 
 class TestAuthorFilter:

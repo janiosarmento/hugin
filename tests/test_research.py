@@ -725,7 +725,7 @@ def test_refactor_losses_lists_what_went_missing():
     # Links to own posts and affiliate links are left out on purpose
     assert drafting.refactor_losses(ORIGINAL_BODY, new) == [
         ("external link", "https://club.example/stats  “club”"),
-        ("length", "56 words; the original has 114"),
+        ("length", "56 words; the original has 114: check that no content was lost"),
     ]
     assert drafting.refactor_losses(ORIGINAL_BODY, ORIGINAL_BODY) == []
 

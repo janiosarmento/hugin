@@ -330,8 +330,9 @@ async def write_draft(message: str, engine) -> str:
 
 # Markdown link or image: ![alt](url "title") / [text](url)
 MD_TARGET = re.compile(r"(!?)\[([^\]]*)\]\(\s*<?([^)\s>]+)")
-# Below this share of the original's words, a refactor is reported as shorter
-REFACTOR_MIN_WORDS = 0.9
+# Length is a guide, not a goal: only a refactor far below its original's
+# words is reported, as a sign that content may have been lost
+REFACTOR_MIN_WORDS = 0.6
 
 
 def _targets(body: str) -> dict[str, tuple[bool, str]]:
@@ -368,7 +369,7 @@ def recreatable_links(body: str) -> tuple[int, int]:
 
 
 def merge_min_words(original: Post, merged: list[Post]) -> int:
-    """Shortest acceptable merge: 90% of the longest post (repetition may go)."""
+    """Below this, a merge probably lost content: 60% of the longest post."""
     return int(max(len(p.content.split()) for p in [original, *merged]) * REFACTOR_MIN_WORDS)
 
 
@@ -398,9 +399,9 @@ def refactor_losses(
     old_words, new_words = len(placeholders.remove(original).split()), len(placeholders.remove(new).split())
     if min_words is not None:
         if new_words < min_words:
-            losses.append(("length", f"{new_words} words; the merge needs at least {min_words}"))
+            losses.append(("length", f"{new_words} words, under {min_words}: check that no content was lost"))
     elif old_words and new_words < old_words * REFACTOR_MIN_WORDS:
-        losses.append(("length", f"{new_words} words; the original has {old_words}"))
+        losses.append(("length", f"{new_words} words; the original has {old_words}: check that no content was lost"))
     return losses
 
 

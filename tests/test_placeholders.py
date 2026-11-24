@@ -120,7 +120,7 @@ def test_a_field_holding_a_placeholder_is_shown_as_text():
 def test_placeholder_words_do_not_hide_a_shorter_refactor():
     original = " ".join(["word"] * 100)
     shorter = " ".join(["word"] * 50) + "\n\n[img]" + " ".join(["detail"] * 80) + "[/img]\n"
-    assert ("length", "50 words; the original has 100") in refactor_losses(original, shorter)
+    assert ("length", "50 words; the original has 100: check that no content was lost") in refactor_losses(original, shorter)
 
 
 # --- screens ------------------------------------------------------------------------------
