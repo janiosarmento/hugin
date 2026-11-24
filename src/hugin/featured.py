@@ -36,6 +36,23 @@ _IMAGE = re.compile(
     re.IGNORECASE,
 )
 
+# Images (or the request for one) at the very start of a paragraph
+_LEADING = re.compile(rf"(?:[ \t]*(?:{_IMAGE.pattern}|{re.escape(PLACEHOLDER)})[ \t]*\n?)+", re.IGNORECASE)
+_OWN_IMAGE = re.compile(rf"!\[{re.escape(ALT)}\]\(", re.IGNORECASE)
+
+
+def _split_featured_line(paragraph: str) -> tuple[str, str]:
+    """(featured line, text joined to it) for a first paragraph.
+
+    Typora may glue the paragraph after the featured line onto it. The images
+    at its start are the featured line when they include show()'s own (its alt
+    text, or the request for one); otherwise the whole paragraph is the line.
+    """
+    m = _LEADING.match(paragraph)
+    if m and paragraph[m.end():].strip() and (_OWN_IMAGE.search(m.group()) or PLACEHOLDER in m.group()):
+        return paragraph[:m.end()], paragraph[m.end():].lstrip()
+    return paragraph, ""
+
 
 def detect_field(posts) -> str | None:
     """The top-level front matter field most posts use for an image path, or None."""
@@ -155,19 +172,22 @@ def take(post_path: Path) -> Taken | None:
     rest = body[lead:]
     end = rest.find("\n\n")
     paragraph = rest if end == -1 else rest[:end]
-    links = [next(g for g in m.groups() if g).strip() for m in _IMAGE.finditer(paragraph)]
-    leftover = _IMAGE.sub("", paragraph).replace(PLACEHOLDER, "").replace(f"![{ALT}]()", "")
+    line, joined = _split_featured_line(paragraph)
+    links = [next(g for g in m.groups() if g).strip() for m in _IMAGE.finditer(line)]
+    leftover = _IMAGE.sub("", line).replace(PLACEHOLDER, "").replace(f"![{ALT}]()", "")
     result = Taken(key, old, old, found=not leftover.strip())
     if not result.found:
         # The line was edited into text: only the request for an image goes
         body = body[:lead] + rest.replace(PLACEHOLDER, "", 1).lstrip(" ")
-    elif links and not _site_link(links[-1]):
+    elif links and not _site_link(links[-1]) and links[-1] != old:  # the field's own value is safe to drop
         result.unsafe = links[-1]  # kept in the body: the image would be lost otherwise
     else:
         result.new = links[-1] if links else old
         after = rest[len(paragraph):]
-        # show() added the line and one blank line; the body's own start is kept
-        body = body[:lead] + (after[2:] if after.startswith("\n\n") else after.lstrip("\n"))
+        if joined:  # the line goes, the text glued to it stays the first paragraph
+            body = body[:lead] + joined + after
+        else:  # show() added the line and one blank line; the body's own start is kept
+            body = body[:lead] + (after[2:] if after.startswith("\n\n") else after.lstrip("\n"))
         if result.changed:
             front = _set_field(front, key, result.new)
     atomic_write_text(post_path, text[:block[0]] + front + text[block[1]:start] + body)

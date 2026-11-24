@@ -92,6 +92,47 @@ def test_an_image_still_outside_the_blog_stays_in_the_body(tmp_path):
     assert "![Featured image](../../Downloads/x.avif)\n\nIntro" in post.read_text()
 
 
+@pytest.mark.parametrize("gap", [" ", "\n"])
+def test_text_glued_to_the_featured_line_stays_in_the_body(tmp_path, gap):
+    post = _post(tmp_path)
+    featured.show(post, "thumbnail")
+    post.write_text(post.read_text().replace(
+        "![Featured image](/images/old.avif)\n\nIntro",
+        f"![Featured image](/images/2026/11/new-cat.avif){gap}Intro",
+    ))
+    taken = featured.take(post)
+    assert taken.found and taken.new == "/images/2026/11/new-cat.avif"
+    assert post.read_text() == POST.replace("/images/old.avif", "/images/2026/11/new-cat.avif")
+
+
+def test_glued_text_with_an_image_outside_the_blog_keeps_both(tmp_path):
+    post = _post(tmp_path)
+    featured.show(post, "thumbnail")
+    post.write_text(post.read_text().replace(
+        "![Featured image](/images/old.avif)\n\nIntro", "![Featured image](../../Downloads/x.avif) Intro"))
+    taken = featured.take(post)
+    assert taken.unsafe == "../../Downloads/x.avif" and not taken.changed
+    assert "\n---\n![Featured image](../../Downloads/x.avif) Intro paragraph." in post.read_text()
+
+
+def test_a_body_that_opens_with_its_own_image_is_not_the_featured_line(tmp_path):
+    post = _post(tmp_path, POST.replace("Intro paragraph.", "![a cat](/images/cat.avif) Intro paragraph."))
+    featured.show(post, "thumbnail")
+    post.write_text(post.read_text().replace("![Featured image](/images/old.avif)\n\n", ""))
+    taken = featured.take(post)
+    assert not taken.found and not taken.changed
+    assert "![a cat](/images/cat.avif) Intro paragraph." in post.read_text()
+
+
+def test_a_field_value_that_is_not_a_path_never_piles_up_in_the_body(tmp_path):
+    post = _post(tmp_path, POST.replace("/images/old.avif", "TBD"))
+    for _ in range(2):
+        featured.show(post, "thumbnail")
+        taken = featured.take(post)
+        assert taken.found and not taken.unsafe and not taken.changed
+    assert post.read_text() == POST.replace("/images/old.avif", "TBD")
+
+
 def test_toml_front_matter_is_left_alone(tmp_path):
     post = _post(tmp_path, '+++\ntitle = "T"\n+++\nBody\n')
     assert not featured.show(post, "image") and featured.take(post) is None

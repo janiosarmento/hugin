@@ -254,6 +254,17 @@ def test_adopt_copies_images_dragged_from_elsewhere_and_makes_plain_links_images
     assert not images.needs_adopting(post, blog.root / "static", blog.inbox)
 
 
+def test_a_dragged_image_linked_from_the_static_folder_is_found(tmp_path):
+    # With typora-root-url, Typora writes a dragged file relative to static/, not to the post
+    home = tmp_path / "home"
+    (home / "Downloads").mkdir(parents=True)
+    (home / "Downloads" / "cat.avif").write_bytes(b"c")
+    static = home / "projects" / "blog" / "static"
+    post_dir = home / "projects" / "blog" / "content" / "posts"
+    hit = images.resolve("../../../Downloads/cat.avif", post_dir, static, tmp_path / "inbox")
+    assert hit == ("local", home / "Downloads" / "cat.avif")
+
+
 def test_images_inside_the_site_are_never_copied(blog):
     (blog.root / "content/post/bundle").mkdir()
     (blog.root / "content/post/bundle/a.png").write_bytes(b"a")

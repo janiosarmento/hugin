@@ -427,7 +427,8 @@ def resolve(
 
     An editor may write an inbox image as an absolute path, a file:// URL, or
     (with typora-root-url set) relative to the static folder, as in
-    /../../../Pictures/typora-inbox/a.png; and a site image as a path relative
+    /../../../Pictures/typora-inbox/a.png or ../../../Downloads/a.avif (a file
+    dragged in); and a site image as a path relative
     to the post. "local" is an existing image file elsewhere on this Mac and
     outside the site (one dragged in from Downloads). Plain site paths
     (/images/a.jpg) are None: nothing to fix.
@@ -438,8 +439,8 @@ def resolve(
         return None
     if path.startswith("/"):
         candidates = [_normpath(f"{static_root}{path}"), _normpath(path)]
-    else:
-        candidates = [_normpath(str(post_dir / path))]
+    else:  # relative to the post, or (Typora with typora-root-url) to the static folder
+        candidates = [_normpath(str(post_dir / path)), _normpath(str(static_root / path))]
     for c in candidates:
         if c.is_relative_to(inbox):
             return "inbox", c
