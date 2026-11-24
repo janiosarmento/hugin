@@ -209,3 +209,39 @@ def write_body(path: Path, body: str) -> None:
     post = frontmatter.load(str(path))
     post.content = body
     save_post(path, post)
+
+
+def write_flag(path: Path, key: str, value: bool) -> None:
+    """Set a boolean frontmatter flag where omission means false, touching nothing else.
+
+    True writes `key: true` (TOML: `key = true`), replacing an existing entry
+    in place or going just before description/tags/keywords, which stay last.
+    False removes the entry. Not a full re-save, so lastmod is left alone.
+    """
+    lines = path.read_text(encoding="utf-8").split("\n")
+    toml = lines[0].strip() == "+++"
+    sep = r"\s*=" if toml else r"\s*:"
+    entry = f"{key} = true" if toml else f"{key}: true"
+    own = re.compile(rf"^{re.escape(key)}{sep}")
+    tail = re.compile(rf"^(description|tags|keywords){sep}")
+
+    def is_end(line: str) -> bool:
+        return line.strip() == "+++" if toml else bool(_FRONTMATTER_END.match(line))
+
+    if not is_end(lines[0]):
+        if value:
+            atomic_write_text(path, "\n".join(["---", entry, "---", *lines]))
+        return
+    end = next(i for i in range(1, len(lines)) if is_end(lines[i]))
+    current = next((i for i in range(1, end) if own.match(lines[i])), None)
+    if current is not None:
+        if value:
+            lines[current] = entry
+        else:
+            del lines[current]
+    elif value:
+        at = next((i for i in range(1, end) if tail.match(lines[i])), end)
+        lines.insert(at, entry)
+    else:
+        return
+    atomic_write_text(path, "\n".join(lines))

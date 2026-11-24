@@ -82,12 +82,12 @@ from hugin.llm import (
 from hugin.normalizer import (
     MAX_TAG_WORDS, detect_language, is_valid_tag, normalize_tag, normalize_tags, strip_accents,
 )
-from hugin.scanner import Post, format_pool_for_prompt
+from hugin.scanner import Post, format_pool_for_prompt, parse_date
 from hugin import prompts
 from hugin.project import load_project
 from hugin.log import log_exception, log_info
 from hugin.state import mark_processed, save_state, get_last_post, set_last_post
-from hugin.writer import write_keywords_block, write_summary, write_tags
+from hugin.writer import write_flag, write_keywords_block, write_summary, write_tags
 from hugin.migrations import parse_profile
 from rich.text import Text
 from rich.table import Table
@@ -112,6 +112,25 @@ SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 STATE_BROWSING = "browsing"
 STATE_LOADING = "loading"
 STATE_REVIEWING = "reviewing"
+
+# Post list orders, cycled with S: key name -> label shown when picked
+SORT_MODES = {
+    "default": "drafts first, then published date",
+    "date": "published date",
+    "lastmod": "last modified",
+}
+
+
+def _day(value) -> str:
+    """A frontmatter date as YYYY-MM-DD, or blank when missing or unparseable."""
+    dt = parse_date(value)
+    return dt.strftime("%Y-%m-%d") if dt else ""
+
+
+def _is_fact_checked(meta: dict) -> bool:
+    """The factcheck flag; omission (or anything but true) means false."""
+    value = meta.get("factcheck")
+    return value is True or str(value).strip().lower() == "true"
 
 
 class PostTable(DataTable):
@@ -622,6 +641,7 @@ class HuginScreen(Screen):
         Binding("r", "redirects", "Redirs", show=False, tooltip="Manage URL redirects (_redirects file)"),
         Binding("X", "delete_post", "Delete", show=False, tooltip="Delete the current post (with confirmation)"),
         Binding("comma", "project_settings", "Sett", show=False, tooltip="Project settings"),
+        Binding("S", "cycle_sort", "Sort", show=False, tooltip="Sort posts: default → published date → last modified"),
     ]
 
     DEFAULT_CSS = """
@@ -775,6 +795,7 @@ class HuginScreen(Screen):
         self._adopted_images: dict[Path, str] = {}
         self._search_mode: bool = False
         self._search_base: list = []  # full self.posts saved during search
+        self._sort_mode = "default"
 
     @property
     def _words_per_link(self) -> int:
@@ -801,6 +822,7 @@ class HuginScreen(Screen):
                     yield Button("Copy .md to clipboard", id="btn-copy-post")
                     yield Button("Copy body", id="btn-copy-body")
                     yield Button("Go to original", id="btn-goto-original", classes="hidden")
+                    yield Checkbox("Fact-checked", id="cb-factcheck")
                 yield Label("", classes="section-label", id="section-header")
                 yield Vertical(id="suggested-tags-container")
                 # The Field is what gets hidden, or its empty border would stay on screen
@@ -818,15 +840,11 @@ class HuginScreen(Screen):
         table = self.query_one("#post-table", DataTable)
         table.add_column("", key="status", width=1)
         table.add_column("Post", key="title")
+        table.add_column("Published", key="date", width=10)
+        table.add_column("Modified", key="lastmod", width=10)
 
         for i, post in enumerate(self.posts):
-            title = post.metadata.get("title", post.filename)
-            if post.metadata.get("draft"):
-                cell = Text(f"[DRAFT] {title}", style="dim")
-            else:
-                cell = Text(title)
-            status = "—" if self.index.has_no_outgoing(post) else " "
-            table.add_row(status, cell, key=f"post-{i}")
+            table.add_row(*self._row_cells(post), key=f"post-{i}")
             self._row_keys.append(f"post-{i}")
 
         self._build_incoming_index()
@@ -966,6 +984,8 @@ class HuginScreen(Screen):
         for key, value in meta.items():
             if key in skip_last:
                 continue
+            if key == "factcheck":
+                continue  # shown by the checkbox
             row = self._format_meta_value(value)
             if row is not None:
                 self._add_field_row(table, key, row)
@@ -1010,7 +1030,75 @@ class HuginScreen(Screen):
         self.query_one("#btn-goto-original", Button).set_class(
             not meta.get("refactor_of"), "hidden"
         )
+        checkbox = self.query_one("#cb-factcheck", Checkbox)
+        with checkbox.prevent(Checkbox.Changed):
+            checkbox.value = _is_fact_checked(meta)
+        # Actions change title and lastmod in memory; keep the row in step
+        self._refresh_row(self.current_index)
         self._clear_action_area()
+
+    def _row_cells(self, post: Post) -> tuple:
+        """Cells of a post-list row: status, title, published, modified."""
+        title = post.metadata.get("title", post.filename)
+        cell = Text(f"[DRAFT] {title}", style="dim") if post.metadata.get("draft") else Text(title)
+        status = "—" if self.index.has_no_outgoing(post) else " "
+        return status, cell, _day(post.metadata.get("date")), _day(post.metadata.get("lastmod"))
+
+    def _refresh_row(self, index: int) -> None:
+        if not 0 <= index < len(self._row_keys):
+            return
+        table = self.query_one("#post-table", DataTable)
+        _, title, published, modified = self._row_cells(self.posts[index])
+        key = self._row_keys[index]
+        table.update_cell(key, "title", title)
+        table.update_cell(key, "date", published)
+        table.update_cell(key, "lastmod", modified)
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.id != "cb-factcheck" or not self.posts:
+            return
+        index = self.current_index
+        self._sync_from_disk(index)
+        post = self.posts[index]
+        try:
+            write_flag(post.path, "factcheck", event.value)
+        except (OSError, StopIteration) as e:
+            self.notify(f"Could not save factcheck: {e}", severity="error")
+            with event.checkbox.prevent(Checkbox.Changed):
+                event.checkbox.value = not event.value
+            return
+        if event.value:
+            post.metadata["factcheck"] = True
+        else:
+            post.metadata.pop("factcheck", None)
+        try:
+            post.mtime = post.path.stat().st_mtime
+        except OSError:
+            post.mtime = None
+        self.notify(f"{post.filename}: {'fact-checked' if event.value else 'not fact-checked'}")
+
+    # --- Sorting ---
+
+    def _sort_key(self, post: Post):
+        published = parse_date(post.metadata.get("date")) or datetime.min
+        if self._sort_mode == "lastmod":
+            return parse_date(post.metadata.get("lastmod")) or datetime.min
+        if self._sort_mode == "date":
+            return published
+        return (bool(post.metadata.get("draft", False)), published)
+
+    def action_cycle_sort(self) -> None:
+        """Reorder the post list, newest first: default → published → modified."""
+        if self._state != STATE_BROWSING or self._search_mode or not self.posts:
+            return
+        modes = list(SORT_MODES)
+        self._sort_mode = modes[(modes.index(self._sort_mode) + 1) % len(modes)]
+        selected = self.posts[self.current_index]
+        self.posts.sort(key=self._sort_key, reverse=True)
+        self._rebuild_post_table()
+        index = next(i for i, p in enumerate(self.posts) if p.path == selected.path)
+        self._navigate_to_post(index)
+        self.notify(f"Sorted by {SORT_MODES[self._sort_mode]}")
 
     @staticmethod
     def _add_field_row(table, key: str, display: str, field: str | None = None) -> None:
@@ -2651,10 +2739,7 @@ class HuginScreen(Screen):
         post.has_tags = bool(post.tags)
         self.index.update_post(post, self.site.post_url)
         self._build_incoming_index()
-        new_title = post.metadata.get("title", post.filename)
-        cell = Text(f"[DRAFT] {new_title}", style="dim") if post.metadata.get("draft") else Text(new_title)
-        table = self.query_one("#post-table", DataTable)
-        table.update_cell(self._row_keys[index], "title", cell)
+        self._refresh_row(index)
 
     def _sync_from_disk(self, index: int) -> bool:
         """Reload the post at `index` if its file changed since it was read.
@@ -2909,11 +2994,8 @@ class HuginScreen(Screen):
         table.clear()
         self._row_keys = []
         for i, post in enumerate(self.posts):
-            title = post.metadata.get("title", post.filename)
-            cell = Text(f"[DRAFT] {title}", style="dim") if post.metadata.get("draft") else Text(title)
-            status = "—" if self.index.has_no_outgoing(post) else " "
             key = f"search-{i}-{post.filename}"
-            table.add_row(status, cell, key=key)
+            table.add_row(*self._row_cells(post), key=key)
             self._row_keys.append(key)
         # Reset cursor to first row
         self.current_index = 0

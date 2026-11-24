@@ -30,7 +30,7 @@ class Post:
         return self.path.name
 
 
-def _parse_date(value) -> datetime | None:
+def parse_date(value) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -162,8 +162,8 @@ def load_posts(directory: Path, problems: list[str] | None = None) -> list[Post]
             content=post.content,
             has_tags=bool(tags),
             tags=list(tags),
-            date=_parse_date(post.metadata.get("date")),
-            lastmod=_parse_date(post.metadata.get("lastmod")),
+            date=parse_date(post.metadata.get("date")),
+            lastmod=parse_date(post.metadata.get("lastmod")),
             mtime=path.stat().st_mtime,
         ))
 

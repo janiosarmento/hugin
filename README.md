@@ -59,6 +59,10 @@ hugin-profiles ~/blog/content/posts --engine cerebras
 
 The main screen shows the running version next to the logo, and `hugin --version` prints it: `build 259 · 0f7ec97 · 2026-11-11`. The build number is the commit count of the checkout Hugin runs from, so a higher number is a newer Hugin; the short hash and date identify the commit (compare with `git log -1` in the repository). "local changes" means the checkout has uncommitted edits. The version is read when Hugin starts: after a `git pull`, restart Hugin to run the new code. It is also written to `~/.hugin/hugin.log` at each start.
 
+### Fact-checked flag
+
+The **Fact-checked** checkbox next to the copy buttons sets `factcheck: true` in the post's frontmatter; unchecking removes the field (omission means false). Only that line is written, so `lastmod` and the other fields are left as they are. Themes can use it for a conditional message in the post.
+
 ## Keybindings
 
 Press `?` at any time on the main screen for a modal listing every keybinding below, including the ones no longer shown in the footer.
@@ -98,6 +102,7 @@ Hidden from the footer to keep it uncluttered, but still active — press `?` to
 | `r` | Manage URL redirects (`_redirects` file) |
 | `X` | Delete the current post (with confirmation; the file is moved to `~/.hugin/trash/`, not erased). Then offers a redirect from its URL; when a draft refactored from it exists (`refactor_of`), that draft comes preselected. The redirect is optional ("No redirect" is the default otherwise; Ctrl+S confirms, Esc skips), and is not offered for drafts, which were never published |
 | `,` (comma) | Project settings |
+| `S` | Sort the post list, newest first, cycling: default (drafts first, then published date) → published date (`date`) → last modified (`lastmod`). The grid shows both dates; the selected post stays selected |
 
 ### Tag manager keybindings
 
