@@ -88,5 +88,5 @@ def test_vague_and_health_are_checked_even_without_references():
 def test_merge_and_refactor_never_pad(tmp_path):
     original = Post(tmp_path / "a.md", {"title": "A"}, "word " * 50, False)
     other = Post(tmp_path / "b.md", {"title": "B"}, "word " * 20, False)
-    assert "padded" in drafting.build_message([], "x", original)
-    assert "padded" in drafting.build_message([], "x", original, merged=[other])
+    assert "Never pad it" in drafting.build_message([], "x", original)
+    assert "nothing may be padded" in drafting.build_message([], "x", original, merged=[other])

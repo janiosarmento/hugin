@@ -295,7 +295,7 @@ class TestRefactor:
         msg = build_message(posts[1:], "tighter", original=posts[0])
         assert "<original>\n# a.md" in msg and "REFACTOR, not a new post and not a follow-up" in msg and "REPLACE the original" in msg
         assert msg.endswith("tighter")
-        assert "about 1 words" in msg and "at least 0" in msg  # length floor from the original
+        assert "about 1 words" in msg and "a reference, not a target" in msg  # length is a guide
         assert "<original>" not in build_message(posts, "x")
 
     def test_create_draft_links_back_to_original(self, tmp_path):

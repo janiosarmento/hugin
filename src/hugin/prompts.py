@@ -254,7 +254,7 @@ _WRITER = [
         "5. The other posts above are only samples of my voice; do not "
         "borrow their content. {no_invented_experience}\n\n"
         "The request below says what to change."
-    ), "words", "min_words", "no_invented_experience"),
+    ), "words", "no_invented_experience"),
     _p("writer.merge_other", "Draft · merge, other post",
        "Here is another post to merge into it:\n\n<original>\n# {title}\n\n{content}\n</original>",
        "title", "content"),
@@ -286,7 +286,7 @@ _WRITER = [
         "5. The other posts at the top are only samples of my voice; do "
         "not borrow their content. {no_invented_experience}\n\n"
         "The request below may say what else to change."
-    ), "count", "words", "longest", "min_words", "no_invented_experience"),
+    ), "count", "words", "longest", "no_invented_experience"),
     _p("writer.research_use_new", "Draft · research, how to use (new post)", (
         "Use the brief to decide what to cover and for facts. Take facts "
         "only from it."
