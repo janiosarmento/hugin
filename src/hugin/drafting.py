@@ -224,8 +224,9 @@ def build_message(
     samples: list[Post], request: str, original: Post | None = None,
     constraints: str | None = None, words: int | None = None,
     profile: str | None = None, research: str | None = None,
-    claims: str | None = None,
+    claims: str | None = None, merged: list[Post] | None = None,
 ) -> str:
+    """The writer's message. `merged`: posts fused into `original` (a merge)."""
     blocks = []
     for post in samples:
         title = post.metadata.get("title", post.path.stem)
@@ -251,10 +252,23 @@ def build_message(
         no_invented = prompts.render(
             "writer.no_invented_experience", where="the original or the request",
         )
-        task = [prompts.render(
-            "writer.refactor_task", words=words, min_words=int(words * 0.9),
-            no_invented_experience=no_invented,
-        )]
+        if merged:
+            for post in merged:
+                extra += "\n\n" + prompts.render(
+                    "writer.merge_other", title=post.metadata.get("title", post.path.stem),
+                    content=unlink_internal(post.content).strip(),
+                ).strip()
+            counts = [len(p.content.split()) for p in [original, *merged]]
+            task = [prompts.render(
+                "writer.merge_task", count=len(counts), words=sum(counts),
+                longest=max(counts), min_words=merge_min_words(original, merged),
+                no_invented_experience=no_invented,
+            )]
+        else:
+            task = [prompts.render(
+                "writer.refactor_task", words=words, min_words=int(words * 0.9),
+                no_invented_experience=no_invented,
+            )]
     if research and research.strip():
         use = prompts.text(
             "writer.research_use_new" if original is None else "writer.research_use_refactor"
@@ -332,12 +346,25 @@ def recreatable_links(body: str) -> tuple[int, int]:
     return sum(1 for u in urls if u.startswith("/") and not _is_affiliate_url(u)), affiliate
 
 
-def refactor_losses(original: str, new: str) -> list[tuple[str, str]]:
+def merge_min_words(original: Post, merged: list[Post]) -> int:
+    """Shortest acceptable merge: 90% of the longest post (repetition may go)."""
+    return int(max(len(p.content.split()) for p in [original, *merged]) * REFACTOR_MIN_WORDS)
+
+
+def source_text(original: Post, merged: list[Post] | None = None) -> str:
+    """The bodies a refactor or merge starts from, as one text for the checks."""
+    return "\n\n".join(p.content for p in [original, *(merged or [])])
+
+
+def refactor_losses(
+    original: str, new: str, min_words: int | None = None,
+) -> list[tuple[str, str]]:
     """What the original body has and the refactored one lost, as (kind, detail).
 
     Kinds: "image", "external link", "length". Links to own posts and
     affiliate links are left out on purpose (see unlink_internal). A pure
-    text check: no LLM involved.
+    text check: no LLM involved. `min_words` replaces the length floor
+    (a merge, whose `original` is several posts with repetitions).
     """
     kept = _targets(new)
     losses = []
@@ -348,7 +375,10 @@ def refactor_losses(original: str, new: str) -> list[tuple[str, str]]:
         losses.append((kind, f"{url}" + (f"  “{text}”" if text and not image else "")))
     # Placeholder descriptions are not post text; they would hide a shorter post
     old_words, new_words = len(placeholders.remove(original).split()), len(placeholders.remove(new).split())
-    if old_words and new_words < old_words * REFACTOR_MIN_WORDS:
+    if min_words is not None:
+        if new_words < min_words:
+            losses.append(("length", f"{new_words} words; the merge needs at least {min_words}"))
+    elif old_words and new_words < old_words * REFACTOR_MIN_WORDS:
         losses.append(("length", f"{new_words} words; the original has {old_words}"))
     return losses
 
@@ -429,6 +459,7 @@ def create_draft(
     author_field: str = "author",
     cover: dict[str, str] | None = None,
     featured_field: str = "thumbnail",
+    merged_from: list[str] | None = None,
 ) -> Path:
 
     title, body = parse_answer(text, request)
@@ -441,5 +472,5 @@ def create_draft(
     create_post(path, title=title, slug=slug, category=category, body=body,
                 prompt=request, refactor_of=refactor_of, thumbnail=thumbnail,
                 translation_key=translation_key, author=author, author_field=author_field,
-                cover=cover, featured_field=featured_field)
+                cover=cover, featured_field=featured_field, merged_from=merged_from)
     return path

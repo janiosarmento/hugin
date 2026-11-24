@@ -3,7 +3,8 @@
 The `prompt` field keeps the request an LLM draft was written from; it is of
 no use once the post is out. `refactor_of` names the post a refactor
 replaces; deleting that original (X) uses it to suggest a redirect, so it
-goes only once the original is gone. git sync removes them from every post
+goes only once the original is gone. `merged_from` does the same for the
+other posts a merge fused in, and goes once none of them is left. git sync removes them from every post
 that is not a draft. A field is cut from the text, so the rest of the front
 matter keeps its formatting.
 """
@@ -17,7 +18,7 @@ import yaml
 
 from hugin.fsutil import atomic_write_text
 
-DRAFT_ONLY_FIELDS = ("prompt", "refactor_of")
+DRAFT_ONLY_FIELDS = ("prompt", "refactor_of", "merged_from")
 
 
 def is_draft(text: str) -> bool:
@@ -44,7 +45,8 @@ def remove_field(text: str, key: str) -> str:
     """`text` without the top-level `key` in its YAML front matter; unchanged when absent.
 
     The entry runs from its key to the next line starting at column 0 (its
-    value may span indented and blank lines). The text is returned unchanged
+    value may span indented and blank lines, and block list items, which
+    Hugin writes at column 0: "- a.md"). The text is returned unchanged
     when the cut would change any other field.
     """
     lines = text.split("\n")
@@ -55,7 +57,9 @@ def remove_field(text: str, key: str) -> str:
     if start is None:
         return text
     stop = start + 1
-    while stop < end and (not lines[stop].strip() or lines[stop][:1].isspace()):
+    while stop < end and (
+        not lines[stop].strip() or lines[stop][:1].isspace() or lines[stop].startswith("- ")
+    ):
         stop += 1
     kept = lines[:start] + lines[stop:]
     try:
@@ -67,11 +71,20 @@ def remove_field(text: str, key: str) -> str:
     return "\n".join(kept) if before == after else text
 
 
+def merged_names(meta: dict) -> list[str]:
+    """File names in a post's `merged_from` (a list, or a lone name)."""
+    value = meta.get("merged_from")
+    if not value:
+        return []
+    return [str(v) for v in value] if isinstance(value, list) else [str(value)]
+
+
 def fields_to_strip(text: str, post_names: set[str]) -> list[str]:
     """The draft-only fields to take out of this post: none in a draft.
 
     `post_names` are the file names of the blog's posts: `refactor_of`
-    stays while the original it names is one of them.
+    stays while the original it names is one of them, `merged_from` while
+    any post it lists is.
     """
     if not any(f"\n{key}:" in text for key in DRAFT_ONLY_FIELDS) or is_draft(text):
         return []
@@ -84,6 +97,8 @@ def fields_to_strip(text: str, post_names: set[str]) -> list[str]:
     keys = [k for k in DRAFT_ONLY_FIELDS if k in meta]
     if "refactor_of" in keys and str(meta["refactor_of"]) in post_names:
         keys.remove("refactor_of")
+    if "merged_from" in keys and set(merged_names(meta)) & post_names:
+        keys.remove("merged_from")
     return [k for k in keys if remove_field(text, k) != text]
 
 

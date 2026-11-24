@@ -46,6 +46,7 @@ from hugin.drafting import (
     _select_parts,
     draw_random,
     inherited_fields,
+    merge_min_words,
     original_query,
     pick_category,
     pick_similar,
@@ -54,6 +55,7 @@ from hugin.drafting import (
     unlink_internal,
     select_refactor_samples,
     select_samples,
+    source_text,
     write_draft,
 )
 from hugin.authors import pick_author, post_author
@@ -62,6 +64,7 @@ from hugin.hugo import load_categories
 from hugin.normalizer import detect_language
 from hugin.project import load_project
 from hugin.scanner import Post
+from hugin.tui.post_picker import PostPickerScreen
 from rich.markup import escape
 
 
@@ -138,6 +141,17 @@ class DraftPromptScreen(ModalScreen[str | None]):
         margin-bottom: 1;
     }
 
+    #draft-merge-row {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    #draft-merged {
+        width: 1fr;
+        padding: 1 0 0 1;
+        color: $text-muted;
+    }
+
     #draft-samples {
         height: auto;
         color: $text-muted;
@@ -173,6 +187,8 @@ class DraftPromptScreen(ModalScreen[str | None]):
         self._engine = engine
         self._original = original
         self._posts = posts or []
+        # Refactor only: other posts fused into the original (a merge)
+        self.merged: list[Post] = []
         self._authors = authors or []
         self._profiles = profiles or {}
         # Refactors keep the original's author unless the operator changes it
@@ -196,10 +212,28 @@ class DraftPromptScreen(ModalScreen[str | None]):
 
     def _recompute_pool(self) -> None:
         """Recent posts and the candidates for the similar ones, for the chosen author."""
-        self._recent, rest = _select_parts(self._posts, self._original, self.author)
+        self._recent, rest = _select_parts(self._sample_posts(), self._original, self.author)
         # Drawn once per author, so the title shown is the one that gets sent.
         self.random_pick = None if self._original else draw_random(rest)
         self._pool = [p for p in rest if p is not self.random_pick]
+
+    def _sample_posts(self) -> list[Post]:
+        """Posts that may be writing samples: never one being merged."""
+        merged = {p.path for p in self.merged}
+        return [p for p in self._posts if p.path not in merged]
+
+    def _heading(self) -> str:
+        if self._original is None:
+            return "New draft — describe the post"
+        if not self.merged:
+            return f"Refactor — {self._title(self._original)}"
+        more = len(self.merged)
+        return f"Merge — {self._title(self._original)} + {more} post{'s' if more > 1 else ''}"
+
+    def _merged_text(self) -> str:
+        if not self.merged:
+            return "No other posts: a plain refactor."
+        return "Merging into it:\n" + "\n".join(f"  • {escape(self._title(p))}" for p in self.merged)
 
     def _has_profile(self) -> bool:
         return bool(self._profiles.get(self.author or ""))
@@ -207,14 +241,13 @@ class DraftPromptScreen(ModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="draft-modal"):
             with VerticalScroll(id="draft-body"):
+                heading = self._heading()
                 if self._original is None:
-                    heading = "New draft — describe the post"
                     mix = f"{N_RECENT} latest, {N_SIMILAR} similar to your prompt"
                     if N_RANDOM:
                         mix += f", {N_RANDOM} random"
                     count = MIN_SAMPLES
                 else:
-                    heading = f"Refactor — {self._title(self._original)}"
                     mix = (
                         f"{R_N_RECENT} latest, {R_N_SIMILAR} similar to your prompt, "
                         f"{R_N_LIKE_ORIGINAL} similar to the original"
@@ -223,7 +256,8 @@ class DraftPromptScreen(ModalScreen[str | None]):
                 yield Label(heading, id="draft-title")
                 refactor_note = (
                     "The post is rewritten in full to replace the original (not a follow-up): "
-                    "say what to change or improve. "
+                    "say what to change or improve. To fuse other posts into it, "
+                    "use Merge with posts. "
                     if self._original is not None else ""
                 )
                 yield Static(
@@ -241,6 +275,10 @@ class DraftPromptScreen(ModalScreen[str | None]):
                         disabled=not self._has_profile(), id="draft-profile",
                     )
                 yield titled("Prompt", TextArea(id="draft-prompt"))
+                if self._original is not None:
+                    with Horizontal(id="draft-merge-row"):
+                        yield Button("Merge with posts…", id="btn-draft-merge")
+                        yield Static(self._merged_text(), id="draft-merged")
                 if self._original is None:
                     yield titled(
                         "Length (words)",
@@ -287,7 +325,7 @@ class DraftPromptScreen(ModalScreen[str | None]):
         # Everything but the text area takes ~27 rows (border, title, hint, research,
         # samples, buttons); give the prompt field what is left, between 4 and 10.
         # The field's own border takes 2 of those rows.
-        room = int(self.size.height * 0.9) - 28
+        room = int(self.size.height * 0.9) - 28 - (4 if self._original is not None else 0)
         self.query_one("#draft-prompt", TextArea).styles.height = max(4, min(10, room)) - 2
 
     def _writer_label(self) -> str:
@@ -402,8 +440,38 @@ class DraftPromptScreen(ModalScreen[str | None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-draft-send":
             self.action_submit()
+        elif event.button.id == "btn-draft-merge":
+            self._pick_merged()
         else:
             self.action_cancel()
+
+    def _pick_merged(self) -> None:
+        def on_pick(selected: list[dict] | None) -> None:
+            if selected is None:
+                return
+            paths = [item["path"] for item in selected]
+            by_path = {str(p.path.resolve()): p for p in self._posts}
+            self._set_merged([by_path[path] for path in paths if path in by_path])
+
+        self.app.push_screen(
+            PostPickerScreen(
+                self._posts, self._original,
+                heading="Pick the posts to merge into this one:",
+                include_drafts=True, allow_empty=True,
+                preselected={str(p.path.resolve()) for p in self.merged},
+            ),
+            on_pick,
+        )
+
+    def _set_merged(self, posts: list[Post]) -> None:
+        self.merged = posts
+        self.query_one("#draft-title", Label).update(self._heading())
+        self.query_one("#draft-merged", Static).update(self._merged_text())
+        # A merged post is no writing sample any more
+        self._recompute_pool()
+        self._similar = []
+        self._like_original = []
+        self._pick_displayed()
 
     def action_submit(self) -> None:
         text = self.query_one("#draft-prompt", TextArea).text.strip()
@@ -411,7 +479,7 @@ class DraftPromptScreen(ModalScreen[str | None]):
             self.notify("Write a prompt first.", severity="warning")
             return
         self.profile = self._profile_to_send()
-        if not has_enough_samples(self._posts, self._original, self.author) and not self.profile:
+        if not has_enough_samples(self._sample_posts(), self._original, self.author) and not self.profile:
             who = f" by {self.author}" if self.author else ""
             self.notify(
                 f"Not enough published posts{who} to use as samples. "
@@ -487,9 +555,14 @@ class DraftWaitScreen(ModalScreen[Path | None]):
     }
     """
 
-    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, original: Post | None = None, words: int | None = None, author: str | None = None, profile: str | None = None, research: "web.Research | None" = None, brief: str | None = None, fact_check: "fc.FactCheck | None" = None) -> None:
+    def __init__(self, request: str, posts: list[Post], directory: Path, engine, index=None, random_pick: Post | None = None, original: Post | None = None, words: int | None = None, author: str | None = None, profile: str | None = None, research: "web.Research | None" = None, brief: str | None = None, fact_check: "fc.FactCheck | None" = None, merged: list[Post] | None = None) -> None:
         super().__init__()
         self._fact_check = fact_check
+        # A merge: posts fused into `original`; never writing samples
+        self._merged = list(merged or []) if original is not None else []
+        if self._merged:
+            gone = {p.path for p in self._merged}
+            posts = [p for p in posts if p.path not in gone]
         # Approved web research; used only when both are given
         self._research = research if brief and brief.strip() else None
         self._brief = brief
@@ -553,6 +626,7 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                 research=web.writer_context(self._brief, self._research)
                 if self._research else None,
                 claims=fc.writer_context(self._fact_check) if self._fact_check else None,
+                merged=self._merged,
             )
             text = await write_draft(message, self._engine)
             who = f"{self._engine.id} / {self._engine.model}"
@@ -591,6 +665,7 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                 author=self._author,
                 author_field=project.authors.author_field,
                 featured_field=featured.field_for(self._directory, self._posts),
+                merged_from=[p.filename for p in self._merged],
             )
             try:
                 log = None
@@ -622,10 +697,10 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                     timeout=15,
                 )
             if self._original is not None:
-                own, affiliate = recreatable_links(self._original.content)
+                own, affiliate = recreatable_links(self._source())
                 if own or affiliate:
                     self.notify(
-                        f"Left out of the refactor: {own} link(s) to your posts and "
+                        f"Left out of the {'merge' if self._merged else 'refactor'}: {own} link(s) to your posts and "
                         f"{affiliate} affiliate link(s). Add them back with o, d and z.",
                         timeout=15,
                     )
@@ -644,8 +719,15 @@ class DraftWaitScreen(ModalScreen[Path | None]):
         Unknown links become their text; unsupported statements are rewritten
         from the references. Refactor losses are only reported.
         """
-        original = self._original.content if self._original is not None else None
-        issues = refactor_losses(original, body) if original is not None else []
+        original = self._source()
+        if original is None:
+            issues = []
+        elif self._merged:
+            issues = refactor_losses(
+                original, body, min_words=merge_min_words(self._original, self._merged),
+            )
+        else:
+            issues = refactor_losses(original, body)
         allowed = verify.allowed_links(original, self._research, self._fact_check)
         fixes = [("link removed", detail) for _, detail in verify.unknown_links(body, allowed)]
         body = verify.strip_links(body, allowed)
@@ -669,6 +751,12 @@ class DraftWaitScreen(ModalScreen[Path | None]):
         body = verify.strip_links(body, allowed)
         return body, fixes + fixed, issues + left
 
+    def _source(self) -> str | None:
+        """What the draft rewrites: the original's body, plus the merged ones; None for a new post."""
+        if self._original is None:
+            return None
+        return source_text(self._original, self._merged)
+
     def _empty_draft(self, error: str) -> Path | None:
         """After a failure, keep the prompt: an empty draft with it in the frontmatter."""
         try:
@@ -682,6 +770,7 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                 author=self._author,
                 author_field=load_project(self._directory).authors.author_field,
                 featured_field=featured.field_for(self._directory, self._posts),
+                merged_from=[p.filename for p in self._merged],
             )
         except (OSError, ValueError):
             log_exception("draft: empty draft after failure")

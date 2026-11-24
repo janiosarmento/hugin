@@ -248,6 +248,38 @@ _WRITER = [
         "borrow their content. {no_invented_experience}\n\n"
         "The request below says what to change."
     ), "words", "min_words", "no_invented_experience"),
+    _p("writer.merge_other", "Draft · merge, other post",
+       "Here is another post to merge into it:\n\n<original>\n# {title}\n\n{content}\n</original>",
+       "title", "content"),
+    _p("writer.merge_task", "Draft · merge task", (
+        "This is a MERGE: the {count} posts above become ONE post. The "
+        "new post will REPLACE all of them on my blog, so a reader who "
+        "only sees it must get everything each of them gave them.\n\n"
+        "How to do it:\n"
+        "1. Edit and combine, do not summarize. Start from the first "
+        "post and work the others into it, in the place where each "
+        "piece fits best. Keep every section, anecdote, joke, detail and "
+        "explanation (their precise figures follow the rule on figures "
+        "below), and keep every markdown image and every link to an "
+        "external source exactly as written (same URLs). Links to my own "
+        "posts and affiliate links were taken out on purpose; I add them "
+        "back later, so do not add any.\n"
+        "2. Say each thing once. Where the posts repeat themselves, keep "
+        "the fullest version; where they disagree, keep the newest one "
+        "and fix every statement it contradicts, so the post never "
+        "contradicts itself.\n"
+        "3. Length: the posts have about {words} words together, and the "
+        "longest has {longest}. The new post must have at least "
+        "{min_words}; only repetition may be cut. A shorter result is a "
+        "failure.\n"
+        "4. It is a single standalone post. Do not mention earlier posts "
+        "or versions, and do not present it as an update, a compilation "
+        "or a sequel (not in the text and not in the title). The title "
+        "may change to cover the whole.\n"
+        "5. The other posts at the top are only samples of my voice; do "
+        "not borrow their content. {no_invented_experience}\n\n"
+        "The request below may say what else to change."
+    ), "count", "words", "longest", "min_words", "no_invented_experience"),
     _p("writer.research_use_new", "Draft · research, how to use (new post)", (
         "Use the brief to decide what to cover and for facts. Take facts "
         "only from it."

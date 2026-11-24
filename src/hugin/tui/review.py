@@ -49,6 +49,7 @@ from hugin.tui.project_settings import ProjectSettingsScreen, save_and_sync
 from hugin.tui.images_screen import ImageConventionScreen
 from hugin.tui.placeholders_screen import PlaceholdersScreen, RemovePlaceholdersScreen
 from hugin import drafts_only, featured, images, placeholders
+from hugin.drafts_only import merged_names
 from hugin.hugo import find_site_root
 from hugin.project import ImagesSettings
 from hugin.tui.redirects_screen import ConfirmDeleteScreen, RedirectSuggestScreen, RedirectsScreen
@@ -95,7 +96,8 @@ from rich.style import Style
 import numpy as np
 from hugin.authors import ordered_authors
 from hugin.authors import post_author
-from hugin.drafting import has_enough_samples, is_published
+from hugin.drafting import has_enough_samples, is_published, source_text
+from dataclasses import replace
 from hugin.redirects import find_redirects_file
 import httpx
 from hugin.git import pending_changes
@@ -2436,6 +2438,7 @@ class HuginScreen(Screen):
                     words=prompt_screen.target_words,
                     author=prompt_screen.author, profile=prompt_screen.profile,
                     research=found, brief=brief, fact_check=check,
+                    merged=prompt_screen.merged,
                 ),
                 on_created,
             )
@@ -2466,8 +2469,14 @@ class HuginScreen(Screen):
 
                     self.app.push_screen(ClaimsReviewScreen(check, error), on_review)
 
+                # A merge checks the claims of every post it fuses
+                checked = original
+                if prompt_screen.merged:
+                    checked = replace(
+                        original, content=source_text(original, prompt_screen.merged)
+                    )
                 self.app.push_screen(
-                    FactCheckScreen(original, self.engine, search_key, language), on_check,
+                    FactCheckScreen(checked, self.engine, search_key, language), on_check,
                 )
                 return
 
@@ -2655,10 +2664,13 @@ class HuginScreen(Screen):
         )
 
     def _replacement_for(self, post: Post) -> dict | None:
-        """The newest refactor of `post` (refactor_of = its file), as a redirect target."""
+        """The newest refactor or merge of `post` (its file in refactor_of or merged_from)."""
         refactors = [
             p for p in self.all_posts
-            if p.path != post.path and p.metadata.get("refactor_of") == post.filename
+            if p.path != post.path and (
+                p.metadata.get("refactor_of") == post.filename
+                or post.filename in merged_names(p.metadata)
+            )
         ]
         if not refactors:
             return None
@@ -2849,7 +2861,7 @@ class HuginScreen(Screen):
             except OSError:
                 log_exception("strip draft-only fields")
         if stripped:
-            self.notify(f"Removed draft-only fields (prompt, refactor_of) from {stripped} published post(s)")
+            self.notify(f"Removed draft-only fields (prompt, refactor_of, merged_from) from {stripped} published post(s)")
         # Hugo would show a placeholder as text; drafts are not published
         self._drop_published_placeholders(
             content, lambda: self._adopt_inbox_images(images.posts_to_adopt(content, self._static_root()), confirm),

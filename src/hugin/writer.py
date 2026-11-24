@@ -111,6 +111,7 @@ def create_post(
     author_field: str = "author",
     cover: dict[str, str] | None = None,
     featured_field: str = "thumbnail",
+    merged_from: list[str] | None = None,
 ) -> frontmatter.Post:
     """Create a new post with a complete frontmatter skeleton.
 
@@ -121,6 +122,7 @@ def create_post(
 
     `prompt` (LLM-generated posts) is kept in the frontmatter for reference.
     `refactor_of` is the filename of the post this one rewrites.
+    `merged_from` lists the filenames of the other posts a merge fused into it.
     `author` is the post's author (multi-author blogs).
     `cover` holds cover-image fields copied as they are (e.g. {"image": ...});
     when given, it replaces the featured image placeholder.
@@ -154,6 +156,8 @@ def create_post(
         metadata["prompt"] = prompt
     if refactor_of:
         metadata["refactor_of"] = refactor_of
+    if merged_from:
+        metadata["merged_from"] = list(merged_from)
     post = frontmatter.Post(body, **metadata)
     save_post(path, post)
     return post
