@@ -5,7 +5,7 @@ from pathlib import Path
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Select, Static
+from textual.widgets import Button, Checkbox, Input, Label, Select, Static
 from hugin.tui.form import titled
 from hugin.tui.widgets import TextArea
 
@@ -30,6 +30,16 @@ def save_and_sync(app, directory: Path, config: ProjectConfig, what: str) -> Non
             app.call_from_thread(app.notify, line, severity=severity, timeout=10)
 
     app.run_worker(sync, thread=True)
+
+
+def _domains(text: str) -> list[str]:
+    """Comma- or space-separated domains, without scheme, path or www."""
+    out = []
+    for item in text.replace(",", " ").split():
+        domain = item.lower().split("://", 1)[-1].split("/", 1)[0].removeprefix("www.")
+        if domain and domain not in out:
+            out.append(domain)
+    return out
 
 
 class ProjectSettingsScreen(ModalScreen[bool]):
@@ -109,6 +119,43 @@ class ProjectSettingsScreen(ModalScreen[bool]):
             ))
             yield Static(f"1 link per N words (0 = use global default: {self._global_wpl})", classes="field-hint")
 
+            yield Checkbox(
+                "Refactors and merges keep the original's address and date",
+                value=self._config.writing.keep_url, id="input-keep-url",
+            )
+            yield Static(
+                "The draft gets the original's slug, url and date, so the post stays at its "
+                "address and X offers no redirect for it",
+                classes="field-hint",
+            )
+
+            yield titled("Trusted sources", Input(
+                value=", ".join(self._config.research.trusted),
+                placeholder="cornell.edu, icatcare.org",
+                id="input-trusted",
+            ))
+            yield Static(
+                "Domains read first in web research and fact checks, and named as reliable "
+                "(subdomains included)",
+                classes="field-hint",
+            )
+            yield titled("Excluded sources", Input(
+                value=", ".join(self._config.research.excluded),
+                id="input-excluded",
+            ))
+            yield Static("Domains never read nor cited", classes="field-hint")
+
+            yield titled("Minimum image width (px)", Input(
+                value=str(self._config.checks.min_image_width),
+                id="input-min-width",
+                type="integer",
+            ))
+            yield Static(
+                "git sync points out narrower images in the published posts it commits (0 = no check); "
+                "missing alt text is always pointed out",
+                classes="field-hint",
+            )
+
             yield Label("Editorial rules", classes="field-label")
             yield Static(
                 "Guidelines sent with every LLM draft of this blog, and per-language overrides.",
@@ -172,8 +219,16 @@ class ProjectSettingsScreen(ModalScreen[bool]):
         self._config.summary.words = words
         self._config.summary.style = style or self._config.summary.style
         self._config.links.words_per_link = wpl
+        self._config.writing.keep_url = self.query_one("#input-keep-url", Checkbox).value
+        self._config.research.trusted = _domains(self.query_one("#input-trusted", Input).value)
+        self._config.research.excluded = _domains(self.query_one("#input-excluded", Input).value)
+        try:
+            min_width = max(0, int(self.query_one("#input-min-width", Input).value.strip() or 0))
+        except ValueError:
+            min_width = self._config.checks.min_image_width
+        self._config.checks.min_image_width = min_width
 
-        save_and_sync(self.app, self._directory, self._config, "summary and links")
+        save_and_sync(self.app, self._directory, self._config, "project settings")
         self.dismiss(True)
 
     def action_cancel(self) -> None:

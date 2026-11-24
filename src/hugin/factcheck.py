@@ -211,8 +211,9 @@ def _claim_block(claim: Claim, check: FactCheck) -> str:
         body = relevant_excerpt(page.text, f"{claim.text} {claim.query}") if read else (
             result.snippet or "(no snippet)"
         )
+        trusted = ' trusted="yes"' if web.is_trusted(result.url) else ""
         blocks.append(
-            f'<source n="{n}" status="{"read" if read else "snippet"}" url="{result.url}">\n'
+            f'<source n="{n}" status="{"read" if read else "snippet"}"{trusted} url="{result.url}">\n'
             f"# {result.title}\n\n{body}\n</source>"
         )
     sources = "\n\n".join(blocks) if blocks else "(no sources found)"

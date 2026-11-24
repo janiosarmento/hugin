@@ -1068,3 +1068,31 @@ def test_prompt_screen_blocks_send_when_profile_is_unchecked(tmp_path):
         posts, None, None, authors=["Ana"], profiles={"Ana": "Warm."}
     )
     assert _run(factory, keys) is None
+
+
+def test_new_draft_box_shows_the_closest_existing_posts(tmp_path):
+    posts = _posts(tmp_path)
+    posts[2].metadata["draft"] = True
+
+    class FakeIndex:
+        def rank_by_text(self, text):
+            return [str(p.path.resolve()) for p in (posts[2], posts[5], posts[4], posts[3])]
+
+    class Fast(ed.DraftPromptScreen):
+        DEBOUNCE_SECONDS = 0.05
+
+    async def go():
+        app = App()
+        async with app.run_test() as pilot:
+            screen = Fast(posts, FakeIndex())
+            app.push_screen(screen)
+            await pilot.pause()
+            assert "as you type" in str(screen.query_one("#draft-existing").render())
+            await pilot.press(*"cats")
+            await pilot.pause(0.4)
+            shown = str(screen.query_one("#draft-existing").render())
+            # Drafts count: the topic may be on its way already
+            assert "P2 (draft)" in shown and "P5" in shown and "P4" in shown
+            assert "P3" not in shown
+
+    asyncio.run(go())

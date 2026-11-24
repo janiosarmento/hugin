@@ -44,6 +44,8 @@ class WritingSettings:
     constraints: str = DEFAULT_EDITORIAL_CONSTRAINTS
     # Keyed by language name as detect_language() returns it ("Portuguese", ...)
     by_language: dict[str, str] = field(default_factory=dict)
+    # A refactor or merge keeps the original's slug, url and date (same address, no redirect)
+    keep_url: bool = False
 
     def for_language(self, language: str) -> str:
         return self.by_language.get(language, self.constraints)
@@ -74,12 +76,37 @@ class ImagesSettings:
 
 
 @dataclass
+class ResearchSettings:
+    """Web sources for research and fact checks, by domain ("cornell.edu" covers its subdomains)."""
+
+    trusted: list[str] = field(default_factory=list)  # read first, and named as primary
+    excluded: list[str] = field(default_factory=list)  # never read or cited
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.trusted or self.excluded)
+
+
+@dataclass
+class ChecksSettings:
+    """Checks git sync (g) runs on the posts it commits."""
+
+    min_image_width: int = 0  # px; 0 = no check
+
+    @property
+    def changed(self) -> bool:
+        return self.min_image_width > 0
+
+
+@dataclass
 class ProjectConfig:
     summary: SummarySettings = field(default_factory=SummarySettings)
     links: LinksSettings = field(default_factory=LinksSettings)
     writing: WritingSettings = field(default_factory=WritingSettings)
     authors: AuthorsSettings = field(default_factory=AuthorsSettings)
     images: ImagesSettings = field(default_factory=ImagesSettings)
+    research: ResearchSettings = field(default_factory=ResearchSettings)
+    checks: ChecksSettings = field(default_factory=ChecksSettings)
     # LLM prompts the blog changed, keyed as in hugin.prompts.PROMPTS
     prompts: dict[str, str] = field(default_factory=dict)
 
@@ -116,6 +143,9 @@ def load_project(directory: Path) -> ProjectConfig:
     authors_file = authors_path(directory)
     if not path.exists() and not authors_file.exists():
         prompts.activate({})
+        from hugin import research as web
+
+        web.activate_sources([], [])
         return ProjectConfig()
 
     data = _read_toml(path) if path.exists() else {}
@@ -124,6 +154,8 @@ def load_project(directory: Path) -> ProjectConfig:
     writing_data = data.get("writing", {})
     authors_data = data.get("authors", {})
     images_data = data.get("images", {})
+    research_data = data.get("research", {})
+    checks_data = data.get("checks", {})
     # Older settings kept the author list here; the Hugo data file wins once it exists
     if authors_file.exists():
         names = _read_toml(authors_file).get("names", [])
@@ -131,6 +163,9 @@ def load_project(directory: Path) -> ProjectConfig:
         names = authors_data.get("names", [])
     overrides = prompts.only_changed(dict(data.get("prompts", {})))
     prompts.activate(overrides)  # the loaded site's prompts are the ones sent
+    from hugin import research as web  # lazy: research pulls in drafting and the LLM client
+
+    web.activate_sources(research_data.get("trusted", []), research_data.get("excluded", []))
     return ProjectConfig(
         prompts=overrides,
         authors=_authors_settings(names, authors_data.get("profiles", {}), authors_data.get("field", DEFAULT_AUTHOR_FIELD)),
@@ -144,7 +179,13 @@ def load_project(directory: Path) -> ProjectConfig:
         writing=WritingSettings(
             constraints=writing_data.get("constraints", DEFAULT_EDITORIAL_CONSTRAINTS),
             by_language=dict(writing_data.get("by_language", {})),
+            keep_url=bool(writing_data.get("keep_url", False)),
         ),
+        research=ResearchSettings(
+            trusted=[str(d) for d in research_data.get("trusted", [])],
+            excluded=[str(d) for d in research_data.get("excluded", [])],
+        ),
+        checks=ChecksSettings(min_image_width=int(checks_data.get("min_image_width", 0) or 0)),
         images=ImagesSettings(
             dir=str(images_data.get("dir", "")),
             url=str(images_data.get("url", "")),
@@ -169,8 +210,12 @@ def save_project(directory: Path, config: ProjectConfig) -> None:
     ]
     writing = config.writing
     # Written only when changed, so the built-in default keeps evolving with the code
-    if writing.constraints != DEFAULT_EDITORIAL_CONSTRAINTS or writing.by_language:
-        lines += ["[writing]", f"constraints = {_toml_string(writing.constraints)}"]
+    if writing.constraints != DEFAULT_EDITORIAL_CONSTRAINTS or writing.by_language or writing.keep_url:
+        lines += ["[writing]"]
+        if writing.constraints != DEFAULT_EDITORIAL_CONSTRAINTS:
+            lines.append(f"constraints = {_toml_string(writing.constraints)}")
+        if writing.keep_url:
+            lines.append("keep_url = true  # refactors and merges keep the original's address and date")
         if writing.by_language:
             lines += ["", "[writing.by_language]"]
             lines += [
@@ -201,6 +246,16 @@ def save_project(directory: Path, config: ProjectConfig) -> None:
             *([f"featured = {_toml_string(images.featured)}"] if images.featured else []),
             "",
         ]
+    if config.research.changed:
+        lines += [
+            "[research]",
+            "# Source domains for web research and fact checks",
+            f"trusted = [{', '.join(_toml_string(d) for d in config.research.trusted)}]",
+            f"excluded = [{', '.join(_toml_string(d) for d in config.research.excluded)}]",
+            "",
+        ]
+    if config.checks.changed:
+        lines += ["[checks]", f"min_image_width = {config.checks.min_image_width}  # px, checked by git sync", ""]
     config.prompts = prompts.only_changed(config.prompts)
     if config.prompts:
         lines += ["[prompts]", "# Only the prompts changed from Hugin's defaults; see hugin/prompts.py"]
@@ -210,6 +265,9 @@ def save_project(directory: Path, config: ProjectConfig) -> None:
         lines.append("")
     atomic_write_text(path, "\n".join(lines))
     prompts.activate(config.prompts)
+    from hugin import research as web
+
+    web.activate_sources(config.research.trusted, config.research.excluded)
 
     if authors.names:
         authors_file = authors_path(directory)

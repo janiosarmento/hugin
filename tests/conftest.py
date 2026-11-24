@@ -60,10 +60,13 @@ def isolated_search_cache(tmp_path_factory, monkeypatch):
 def default_prompts():
     """Each test starts with Hugin's built-in prompts (loading a site activates its overrides)."""
     import hugin.prompts
+    import hugin.research
 
     hugin.prompts.activate({})
+    hugin.research.activate_sources([], [])
     yield
     hugin.prompts.activate({})
+    hugin.research.activate_sources([], [])
 
 
 @pytest.fixture(autouse=True)

@@ -46,6 +46,12 @@ def pending_changes(directory: Path) -> list[str]:
     return out.splitlines() if ok and out else []
 
 
+def repo_root(directory: Path) -> Path | None:
+    """The top folder of the repository `directory` is in; status paths are relative to it."""
+    ok, out = _run(directory, ["git", "rev-parse", "--show-toplevel"])
+    return Path(out.strip()) if ok and out.strip() else None
+
+
 def is_repository(directory: Path) -> bool:
     ok, _ = _run(directory, ["git", "rev-parse", "--is-inside-work-tree"])
     return ok

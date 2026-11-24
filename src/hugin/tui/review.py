@@ -48,7 +48,7 @@ from hugin.tui.news_ideas import NewsIdeasScreen
 from hugin.tui.project_settings import ProjectSettingsScreen, save_and_sync
 from hugin.tui.images_screen import ImageConventionScreen
 from hugin.tui.placeholders_screen import PlaceholdersScreen, RemovePlaceholdersScreen
-from hugin import drafts_only, featured, images, placeholders
+from hugin import drafts_only, featured, image_check, images, placeholders
 from hugin.drafts_only import merged_names
 from hugin.hugo import find_site_root
 from hugin.project import ImagesSettings
@@ -100,7 +100,7 @@ from hugin.drafting import has_enough_samples, is_published, source_text
 from dataclasses import replace
 from hugin.redirects import find_redirects_file
 import httpx
-from hugin.git import pending_changes
+from hugin.git import pending_changes, repo_root
 from hugin.git import git_sync
 from hugin.hugo import slugify
 from hugin.writer import create_post
@@ -121,6 +121,10 @@ SORT_MODES = {
     "date": "published date",
     "lastmod": "last modified",
 }
+
+
+def _same_url(a: str, b: str) -> bool:
+    return a.strip().rstrip("/") == b.strip().rstrip("/")
 
 
 def _day(value) -> str:
@@ -1394,7 +1398,7 @@ class HuginScreen(Screen):
 
         self._clear_action_area()
         post = self.posts[self.current_index]
-        existing_urls = extract_existing_links(post.content)
+        existing_urls = set(extract_existing_links(post.content)) | self._replaced_urls()
         results = self.index.find_similar(
             post,
             n=self.config.links.candidates,
@@ -1479,8 +1483,9 @@ class HuginScreen(Screen):
         def url_fn(meta, fname):
             return self.site.post_url(meta, fname)
 
+        replaced = {p.path for p in self._replaced_posts()}
         self.app.push_screen(
-            PostPickerScreen(self.all_posts, post, url_fn),
+            PostPickerScreen([p for p in self.all_posts if p.path not in replaced], post, url_fn),
             on_pick,
         )
 
@@ -1694,7 +1699,8 @@ class HuginScreen(Screen):
             lap("profile")
 
             self._set_spinner_message("Step 2 — Searching similar posts...")
-            existing_urls = extract_existing_links(post.content)
+            # Posts a refactor or merge replaces are going away: never link to them
+            existing_urls = set(extract_existing_links(post.content)) | self._replaced_urls()
             pre_filter_n = max(self.config.links.candidates * 4, 20)
 
             # Pool 1: semantic similarity
@@ -2647,6 +2653,10 @@ class HuginScreen(Screen):
                 append_redirect(redirects_path, post_url, dest)
                 self.notify(f"Redirect: {post_url} → {dest}")
 
+            if replacement and _same_url(replacement["url"], post_url):
+                self.notify(f"{replacement['title']} keeps this address: no redirect needed")
+                return
+
             self.app.push_screen(
                 RedirectSuggestScreen(origin=post_url, candidates=candidates,
                                       replacement=replacement),
@@ -2660,6 +2670,27 @@ class HuginScreen(Screen):
             ),
             on_confirm,
         )
+
+    def _replaced_posts(self) -> list[Post]:
+        """Posts on their way out: a refactor or a merge of them exists (refactor_of, merged_from)."""
+        names = set()
+        for p in self.all_posts:
+            if p.metadata.get("refactor_of"):
+                names.add(str(p.metadata["refactor_of"]))
+            names.update(merged_names(p.metadata))
+        return [p for p in self.all_posts if p.filename in names]
+
+    def _replaced_urls(self) -> set[str]:
+        """URLs of the posts on their way out, never offered as link targets or sources."""
+        def url_of(p: Post) -> str | None:
+            return self.index.get_post_url(p) or self.site.post_url(p.metadata, p.filename)
+
+        # A refactor that kept the original's address is the live post at that URL
+        replacing = {
+            url_of(p) for p in self.all_posts
+            if p.metadata.get("refactor_of") or merged_names(p.metadata)
+        }
+        return {url for p in self._replaced_posts() if (url := url_of(p)) and url not in replacing}
 
     def _replacement_for(self, post: Post) -> dict | None:
         """The newest refactor or merge of `post` (its file in refactor_of or merged_from)."""
@@ -2842,8 +2873,10 @@ class HuginScreen(Screen):
         def confirm() -> None:
             # A featured line left atop a body (Hugin did not see Typora return)
             self._take_featured(featured.posts_with_marker(content))
+            changes = pending_changes(self.directory)
+            self._warn_image_problems(changes)
             # Moving images reloads nothing on screen: the next action picks up the files
-            self.app.push_screen(ConfirmGitSyncScreen(pending_changes(self.directory)), on_confirm)
+            self.app.push_screen(ConfirmGitSyncScreen(changes), on_confirm)
 
         # Never commit a path on this Mac: Typora's preview root, or links to inbox images
         content = find_site_root(self.directory) / "content"
@@ -2864,6 +2897,30 @@ class HuginScreen(Screen):
         self._drop_published_placeholders(
             content, lambda: self._adopt_inbox_images(images.posts_to_adopt(content, self._static_root()), confirm),
         )
+
+    def _warn_image_problems(self, changes: list[str]) -> None:
+        """Point out narrow images and missing alt text in the published posts about to be committed."""
+        root = repo_root(self.directory) or find_site_root(self.directory)
+        min_width = self._project.checks.min_image_width
+        report = []
+        for line in changes:
+            name = line[3:].strip().strip('"').split(" -> ")[-1]
+            path = root / name
+            if path.suffix != ".md" or not path.is_file():
+                continue
+            try:
+                post = fm.load(str(path))
+            except Exception:  # unparsable front matter: the sync reports it elsewhere
+                continue
+            if drafts_only.is_draft(path.read_text(encoding="utf-8")):
+                continue
+            found = image_check.problems(
+                post.metadata, post.content, self._static_root(), self._base_url(), min_width,
+            )
+            report += [f"{path.name}: {problem}" for problem in found]
+        if report:
+            shown = report[:8] + ([f"…and {len(report) - 8} more"] if len(report) > 8 else [])
+            self.notify("Image check:\n" + "\n".join(shown), severity="warning", timeout=30)
 
     @work(thread=True)
     def _do_git_sync(self) -> None:

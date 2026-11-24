@@ -116,6 +116,25 @@ def inherited_fields(original: Post) -> dict:
     }
 
 
+def kept_address(original: Post) -> dict:
+    """The original's slug, url and date, for a refactor that keeps its address.
+
+    The slug falls back to the file name, which is what Hugo uses without one.
+    """
+    meta = original.metadata
+    date = meta.get("date")
+    if isinstance(date, str):
+        try:
+            date = datetime.fromisoformat(date)
+        except ValueError:
+            date = None
+    return {
+        "slug": str(meta.get("slug") or original.path.stem),
+        "url": str(meta["url"]) if meta.get("url") else None,
+        "date": date if isinstance(date, datetime) else None,
+    }
+
+
 def _select_parts(
     posts: list[Post], original: Post | None = None, author: str | None = None
 ) -> tuple[list[Post], list[Post]]:
@@ -462,17 +481,23 @@ def create_draft(
     cover: dict[str, str] | None = None,
     featured_field: str = "thumbnail",
     merged_from: list[str] | None = None,
+    keep: dict | None = None,
 ) -> Path:
+    """Write the draft. `keep` holds an original's slug, date and url (see kept_address)."""
+    keep = keep or {}
 
     title, body = parse_answer(text, request)
-    base = slugify(title) or "draft"
+    base = keep.get("slug") or slugify(title) or "draft"
     slug, n = base, 1
     while (directory / f"{slug}.md").exists():
         slug = f"{base}-{n}"
         n += 1
     path = directory / f"{slug}.md"
+    # The file name may need a suffix next to the original; the slug stays the original's
+    slug = keep.get("slug") or slug
     create_post(path, title=title, slug=slug, category=category, body=body,
                 prompt=request, refactor_of=refactor_of, thumbnail=thumbnail,
                 translation_key=translation_key, author=author, author_field=author_field,
-                cover=cover, featured_field=featured_field, merged_from=merged_from)
+                cover=cover, featured_field=featured_field, merged_from=merged_from,
+                date=keep.get("date"), url=keep.get("url"))
     return path

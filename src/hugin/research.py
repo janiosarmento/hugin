@@ -221,9 +221,41 @@ def _clean(text: str) -> str:
     return " ".join(unescape(re.sub(r"<[^>]+>", "", text or "")).split())
 
 
+# The blog's source domains (project [research]); set when its settings load
+_trusted: list[str] = []
+_excluded: list[str] = []
+
+
+def activate_sources(trusted: list[str], excluded: list[str]) -> None:
+    """Use these source domains from now on (see ResearchSettings)."""
+    _trusted[:] = [_domain(d) for d in trusted if _domain(d)]
+    _excluded[:] = [_domain(d) for d in excluded if _domain(d)]
+
+
+def _domain(text: str) -> str:
+    text = text.strip().lower()
+    text = text.split("://", 1)[-1].split("/", 1)[0]
+    return text.removeprefix("www.")
+
+
+def _on(url: str, domains: list[str]) -> bool:
+    host = _domain(url)
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
+def is_trusted(url: str) -> bool:
+    return _on(url, _trusted)
+
+
 def parse_brave(data: dict, count: int = N_RESULTS) -> list[SearchResult]:
+    """Results in Brave's order, trusted domains first, excluded ones left out."""
     results = []
-    for item in (data.get("web") or {}).get("results") or []:
+    items = [
+        item for item in (data.get("web") or {}).get("results") or []
+        if not _on(str(item.get("url") or ""), _excluded)
+    ]
+    items.sort(key=lambda item: not is_trusted(str(item.get("url") or "")))  # stable
+    for item in items:
         url = item.get("url")
         if not url or not url.startswith(("http://", "https://")):
             continue
@@ -273,7 +305,13 @@ async def brave_search(
     client: httpx.AsyncClient, query: str, api_key: str,
     country: str, search_lang: str, count: int = N_RESULTS,
 ) -> list[SearchResult]:
-    """Search results, from the 24-hour cache when the same search was made."""
+    """Search results, from the 24-hour cache when the same search was made.
+
+    With source domains set, more results are asked for, so that leaving
+    out excluded ones and moving trusted ones up still fills `count`.
+    """
+    wanted = count
+    count = min(20, count * 2) if (_trusted or _excluded) else count
     params = _search_params(query, country, search_lang, count)
     data = cached_search(query, country, search_lang, count)
     if data is None:
@@ -285,7 +323,7 @@ async def brave_search(
         response.raise_for_status()
         data = response.json()
         _save_search(params, data)
-    return parse_brave(data, count)
+    return parse_brave(data, wanted)
 
 
 # --- page reading -----------------------------------------------------------
@@ -497,8 +535,9 @@ def _source_block(n: int, result: SearchResult, research: Research) -> str:
         status, body = "read", page.text
     else:
         status, body = "snippet", result.snippet or "(no snippet)"
+    trusted = ' trusted="yes"' if is_trusted(result.url) else ""
     return (
-        f'<source n="{n}" status="{status}" url="{result.url}">\n'
+        f'<source n="{n}" status="{status}"{trusted} url="{result.url}">\n'
         f"# {result.title}\n\n{body}\n</source>"
     )
 

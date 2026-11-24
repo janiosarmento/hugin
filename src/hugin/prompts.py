@@ -445,6 +445,7 @@ state what it supports and what remains unresolved.
 ## Evidence
 List only evidence that helps answer the question. End each bullet with its \
 source number. Mark claims based only on search snippets with "(snippet)". \
+A source with trusted="yes" is on my list of reliable sources. \
 Mark claims that rest only on secondary sources with "(secondary)": a \
 primary source is a university or research center, a professional, \
 scientific or official body, a published study, or the maker of a product \
@@ -583,7 +584,8 @@ the GCCF") is a correction, not a removal.
 is a dated figure (a price, a count) with no current source.
 - "unconfirmed": the sources do not address it. Do not guess.
 
-A source marked status="snippet" is only a search snippet, not the page: it \
+A source with trusted="yes" is on my list of reliable sources. A source \
+marked status="snippet" is only a search snippet, not the page: it \
 can support "unconfirmed" or point to a correction, but say so in "note".
 "cited" lists the source numbers your verdict rests on (none for \
 unconfirmed). "note": one short sentence on why, in the post's language.

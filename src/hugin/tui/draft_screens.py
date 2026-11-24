@@ -46,6 +46,7 @@ from hugin.drafting import (
     _select_parts,
     draw_random,
     inherited_fields,
+    kept_address,
     merge_min_words,
     original_query,
     pick_category,
@@ -72,6 +73,8 @@ WAIT_TEXT = "Waiting for {who} (can take several minutes)…"
 
 
 SIMILAR_PENDING = f"{N_SIMILAR} closest to your prompt (picked when you send)"
+# Closest posts of the whole blog shown under a new draft's prompt, to spot a topic already covered
+N_EXISTING = 3
 R_SIMILAR_PENDING = f"{R_N_SIMILAR} closest to your prompt (picked when you send)"
 
 
@@ -150,6 +153,11 @@ class DraftPromptScreen(ModalScreen[str | None]):
         width: 1fr;
         padding: 1 0 0 1;
         color: $text-muted;
+    }
+
+    #draft-existing {
+        height: auto;
+        margin-bottom: 1;
     }
 
     #draft-samples {
@@ -307,6 +315,8 @@ class DraftPromptScreen(ModalScreen[str | None]):
                         placeholder="empty: derived from the prompt",
                         id="draft-query", disabled=True,
                     ), classes="query")
+                if self._original is None:
+                    yield Static(self._existing_text(), id="draft-existing")
                 yield Static(self._samples_text(), id="draft-samples")
             with Horizontal(id="draft-buttons"):
                 yield Button("Send (Ctrl+S)", id="btn-draft-send", variant="primary")
@@ -361,8 +371,24 @@ class DraftPromptScreen(ModalScreen[str | None]):
             lines.append(f"  [i]no published posts{who}[/i]")
         return "Writing samples sent along:\n" + "\n".join(lines)
 
+    def _existing_text(self) -> str:
+        """The blog's posts closest to the prompt, drafts and every author included."""
+        if not self._ranked_prompt:
+            return "Already on the blog? [i]the closest posts show here as you type[/i]"
+        by_path = {str(p.path.resolve()): p for p in self._posts}
+        closest = [by_path[path] for path in self._ranked_prompt if path in by_path][:N_EXISTING]
+        if not closest:
+            return "Already on the blog? [i]no similar post found[/i]"
+        rows = [
+            f"  • {escape(self._title(p))}" + (" [i](draft)[/i]" if p.metadata.get("draft") else "")
+            for p in closest
+        ]
+        return "Already on the blog? Closest posts to your prompt:\n" + "\n".join(rows)
+
     def _refresh_samples(self) -> None:
         self.query_one("#draft-samples", Static).update(self._samples_text())
+        for existing in self.query("#draft-existing"):
+            existing.update(self._existing_text())
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         if event.checkbox.id != "draft-research":
@@ -666,6 +692,7 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                 author_field=project.authors.author_field,
                 featured_field=featured.field_for(self._directory, self._posts),
                 merged_from=[p.filename for p in self._merged],
+                keep=self._kept(project),
             )
             try:
                 log = None
@@ -757,6 +784,12 @@ class DraftWaitScreen(ModalScreen[Path | None]):
         body = verify.strip_links(body, allowed)
         return body, fixes + fixed, issues + left
 
+    def _kept(self, project) -> dict | None:
+        """The original's address when the blog keeps it on refactors (writing.keep_url)."""
+        if self._original is None or not project.writing.keep_url:
+            return None
+        return kept_address(self._original)
+
     def _source(self) -> str | None:
         """What the draft rewrites: the original's body, plus the merged ones; None for a new post."""
         if self._original is None:
@@ -767,6 +800,7 @@ class DraftWaitScreen(ModalScreen[Path | None]):
         """After a failure, keep the prompt: an empty draft with it in the frontmatter."""
         try:
             inherited = inherited_fields(self._original) if self._original else {}
+            project = load_project(self._directory)
             path = create_draft(
                 self._directory, "", self._request, inherited.get("category"),
                 refactor_of=self._original.filename if self._original else None,
@@ -774,9 +808,10 @@ class DraftWaitScreen(ModalScreen[Path | None]):
                 translation_key=inherited.get("translation_key"),
                 cover=inherited.get("cover"),
                 author=self._author,
-                author_field=load_project(self._directory).authors.author_field,
+                author_field=project.authors.author_field,
                 featured_field=featured.field_for(self._directory, self._posts),
                 merged_from=[p.filename for p in self._merged],
+                keep=self._kept(project),
             )
         except (OSError, ValueError):
             log_exception("draft: empty draft after failure")
