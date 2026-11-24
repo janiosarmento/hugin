@@ -92,14 +92,14 @@ def _quote_frontmatter_fields(raw: str, fields: tuple[str, ...] = ("title", "des
 FIELD_ROWS = (
     ("title",),
     ("date",),
-    ("draft", "toc"),
+    ("draft", "toc", "factcheck"),
     ("slug",),
     ("url",),
     ("description",),
 )
 EDITABLE_FIELDS = tuple(name for row in FIELD_ROWS for name in row)
 # Fields edited as a checkbox instead of text
-BOOLEAN_FIELDS = ("draft", "toc")
+BOOLEAN_FIELDS = ("draft", "toc", "factcheck")
 # Dates get a picker next to the text field
 DATE_FIELDS = ("date",)
 # Fields managed by other tools: show but don't edit here (lastmod is set on every save, so not shown)

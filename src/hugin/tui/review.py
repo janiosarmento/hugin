@@ -87,7 +87,7 @@ from hugin import prompts
 from hugin.project import load_project
 from hugin.log import log_exception, log_info
 from hugin.state import mark_processed, save_state, get_last_post, set_last_post
-from hugin.writer import write_flag, write_keywords_block, write_summary, write_tags
+from hugin.writer import write_keywords_block, write_summary, write_tags
 from hugin.migrations import parse_profile
 from rich.text import Text
 from rich.table import Table
@@ -125,12 +125,6 @@ def _day(value) -> str:
     """A frontmatter date as YYYY-MM-DD, or blank when missing or unparseable."""
     dt = parse_date(value)
     return dt.strftime("%Y-%m-%d") if dt else ""
-
-
-def _is_fact_checked(meta: dict) -> bool:
-    """The factcheck flag; omission (or anything but true) means false."""
-    value = meta.get("factcheck")
-    return value is True or str(value).strip().lower() == "true"
 
 
 class PostTable(DataTable):
@@ -822,7 +816,6 @@ class HuginScreen(Screen):
                     yield Button("Copy .md to clipboard", id="btn-copy-post")
                     yield Button("Copy body", id="btn-copy-body")
                     yield Button("Go to original", id="btn-goto-original", classes="hidden")
-                    yield Checkbox("Fact-checked", id="cb-factcheck")
                 yield Label("", classes="section-label", id="section-header")
                 yield Vertical(id="suggested-tags-container")
                 # The Field is what gets hidden, or its empty border would stay on screen
@@ -984,8 +977,6 @@ class HuginScreen(Screen):
         for key, value in meta.items():
             if key in skip_last:
                 continue
-            if key == "factcheck":
-                continue  # shown by the checkbox
             row = self._format_meta_value(value)
             if row is not None:
                 self._add_field_row(table, key, row)
@@ -1030,9 +1021,6 @@ class HuginScreen(Screen):
         self.query_one("#btn-goto-original", Button).set_class(
             not meta.get("refactor_of"), "hidden"
         )
-        checkbox = self.query_one("#cb-factcheck", Checkbox)
-        with checkbox.prevent(Checkbox.Changed):
-            checkbox.value = _is_fact_checked(meta)
         # Actions change title and lastmod in memory; keep the row in step
         self._refresh_row(self.current_index)
         self._clear_action_area()
@@ -1053,29 +1041,6 @@ class HuginScreen(Screen):
         table.update_cell(key, "title", title)
         table.update_cell(key, "date", published)
         table.update_cell(key, "lastmod", modified)
-
-    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
-        if event.checkbox.id != "cb-factcheck" or not self.posts:
-            return
-        index = self.current_index
-        self._sync_from_disk(index)
-        post = self.posts[index]
-        try:
-            write_flag(post.path, "factcheck", event.value)
-        except (OSError, StopIteration) as e:
-            self.notify(f"Could not save factcheck: {e}", severity="error")
-            with event.checkbox.prevent(Checkbox.Changed):
-                event.checkbox.value = not event.value
-            return
-        if event.value:
-            post.metadata["factcheck"] = True
-        else:
-            post.metadata.pop("factcheck", None)
-        try:
-            post.mtime = post.path.stat().st_mtime
-        except OSError:
-            post.mtime = None
-        self.notify(f"{post.filename}: {'fact-checked' if event.value else 'not fact-checked'}")
 
     # --- Sorting ---
 

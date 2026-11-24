@@ -59,10 +59,6 @@ hugin-profiles ~/blog/content/posts --engine cerebras
 
 The main screen shows the running version next to the logo, and `hugin --version` prints it: `build 259 · 0f7ec97 · 2026-11-11`. The build number is the commit count of the checkout Hugin runs from, so a higher number is a newer Hugin; the short hash and date identify the commit (compare with `git log -1` in the repository). "local changes" means the checkout has uncommitted edits. The version is read when Hugin starts: after a `git pull`, restart Hugin to run the new code. It is also written to `~/.hugin/hugin.log` at each start.
 
-### Fact-checked flag
-
-The **Fact-checked** checkbox next to the copy buttons sets `factcheck: true` in the post's frontmatter; unchecking removes the field (omission means false). Only that line is written, so `lastmod` and the other fields are left as they are. Themes can use it for a conditional message in the post.
-
 ## Keybindings
 
 Press `?` at any time on the main screen for a modal listing every keybinding below, including the ones no longer shown in the footer.
@@ -75,7 +71,7 @@ Press `?` at any time on the main screen for a modal listing every keybinding be
 | `s` | Generate summary with LLM |
 | `i` | Find incoming link candidates (embedding only) |
 | `o` | Generate outgoing link suggestions (embedding + LLM) |
-| `e` | Open built-in editor |
+| `e` | Open built-in editor. `draft`, `toc` and `factcheck` are checkboxes on one line; an unchecked flag the post never had is not written (omission means false) |
 | `E` | Open the post in `$HUGIN_EDITOR`, or `$EDITOR` when that is unset (suspends Hugin, reloads the post on return). For a GUI editor that must be quit to return: `export HUGIN_EDITOR='open -W -n -a Typora'`. Images the editor left in `~/Pictures/typora-inbox` are moved into the blog (see below) |
 | `I` | List the post's `[img]` placeholders; Enter copies a description for ChatGPT or Midjourney (see below) |
 | `p` | Create new post |

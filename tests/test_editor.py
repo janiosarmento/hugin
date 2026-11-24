@@ -92,14 +92,16 @@ def test_toc_shares_the_draft_row_and_lastmod_is_not_shown(tmp_path):
             seen["toc"] = screen._field_inputs["toc"]
             seen["row"] = screen._field_inputs["draft"].parent
             seen["toc_row"] = screen._field_inputs["toc"].parent
+            seen["factcheck_row"] = screen._field_inputs["factcheck"].parent
             # The checkbox carries its own label, beside the box
-            seen["titles"] = [str(screen._field_inputs[f].label) for f in ("draft", "toc")]
+            seen["titles"] = [str(screen._field_inputs[f].label) for f in ("draft", "toc", "factcheck")]
             seen["fields"] = set(screen._field_inputs)
 
     asyncio.run(go())
     assert isinstance(seen["toc"], Checkbox) and seen["toc"].value is True
     assert isinstance(seen["row"], Horizontal) and seen["toc_row"] is seen["row"]
-    assert seen["titles"] == ["draft", "toc"]
+    assert seen["factcheck_row"] is seen["row"]
+    assert seen["titles"] == ["draft", "toc", "factcheck"]
     assert "lastmod" not in seen["fields"]
 
 
@@ -112,6 +114,18 @@ def test_saving_toc_as_a_boolean(tmp_path):
 
     _run(post, uncheck_and_save)
     assert frontmatter.load(str(post.path)).metadata["toc"] is False
+
+
+def test_factcheck_is_a_checkbox_saved_as_a_boolean(tmp_path):
+    post = _post(tmp_path, "")
+
+    def check_and_save(screen):
+        assert screen._field_inputs["factcheck"].value is False
+        screen._field_inputs["factcheck"].value = True
+        screen.action_save()
+
+    _run(post, check_and_save)
+    assert frontmatter.load(str(post.path)).metadata["factcheck"] is True
 
 
 def test_invalid_date_blocks_the_save(tmp_path):

@@ -1,11 +1,11 @@
-"""Post list sorting (S) and the fact-checked checkbox on the main screen."""
+"""Post list sorting (S) and the date columns on the main screen."""
 
 import asyncio
 from unittest.mock import MagicMock
 
 import frontmatter
 from textual.app import App
-from textual.widgets import Checkbox, DataTable
+from textual.widgets import DataTable
 
 from hugin.config import EmbeddingsConfig, FrontmatterConfig, HuginConfig, LinksConfig
 from hugin.engines import Engine
@@ -98,35 +98,3 @@ def test_grid_shows_published_and_modified_days(tmp_path):
 
     asyncio.run(go())
 
-
-def test_factcheck_checkbox_writes_and_clears_the_flag(tmp_path):
-    async def go():
-        app = _host(tmp_path)
-        async with app.run_test(size=(160, 50)) as pilot:
-            await pilot.pause()
-            screen = app.screen
-            screen._navigate_to_post(1)
-            await pilot.pause()
-            post = screen.posts[1]
-            checkbox = screen.query_one("#cb-factcheck", Checkbox)
-            assert checkbox.value is False
-
-            checkbox.value = True
-            await pilot.pause()
-            assert frontmatter.load(str(post.path)).metadata["factcheck"] is True
-            assert post.metadata["factcheck"] is True
-
-            # Other posts show their own state
-            screen._navigate_to_post(2)
-            await pilot.pause()
-            assert checkbox.value is False
-            assert "factcheck" not in frontmatter.load(str(screen.posts[2].path)).metadata
-
-            screen._navigate_to_post(1)
-            await pilot.pause()
-            assert checkbox.value is True
-            checkbox.value = False
-            await pilot.pause()
-            assert "factcheck" not in frontmatter.load(str(post.path)).metadata
-
-    asyncio.run(go())
