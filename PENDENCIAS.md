@@ -118,6 +118,12 @@ O projeto deixou de usar o beads. Estes eram os itens abertos nele; o texto abai
 - **Estado:** antes de qualquer outro passo do `g`, o Hugin procura `[img]` (sem diferenciar maiúsculas, inclusive dentro de código) em todo post que não é rascunho. Se achar, cancela a sincronização sem editar nada e mostra até 5 títulos, com "These and N more block the push.". Saiu a opção antiga de remover os marcadores automaticamente.
 - **Falta decidir:** como liberar posts que mostram `[img]` de propósito (por exemplo, um tutorial de shortcodes). Hoje eles também bloqueiam.
 
+### 17. `hugin-resize`: variantes `-480w`/`-800w` das imagens (implementado em 2026-11-26; falta a primeira rodada real)
+- **Estado:** comando separado (`hugin-resize [SITE] [--dry-run] [--jobs N]`), fora do fluxo da TUI. Lê as larguras de `config/_default/params.toml` (`[imageProcessing.content] widths`), cria `nome-<W>w.ext` ao lado de cada imagem de `static/`, no mesmo formato, com `magick`. Não amplia imagens e não toca variantes que já existem. O `g` já as inclui no commit (`git add -A`).
+- **Dry-run no Amo Meu Gato:** 2429 imagens, 4609 variantes a criar, 249 puladas por serem estreitas demais.
+- **Falta:** rodar de verdade e conferir o tamanho final do repositório. O tema supõe que o original tem 1440w no `srcset`; para imagens menores isso fica impreciso.
+- **Ambiente:** `uv sync` falha porque `requires-python = ">=3.11"` e o `secrets-resolver` exige ≥3.12. Contorno: `uv pip install -e . --no-deps`. Correção provável: subir `requires-python` para `>=3.12`.
+
 ## Projeto separado (a tratar em outra sessão)
 
 - **Amo Meu Gato:** projeto diferente, a ser tratado em sessão própria. Nada deste arquivo se aplica a ele. Ao retomar, informar o repositório e o contexto do projeto antes de qualquer mudança.
