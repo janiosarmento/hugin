@@ -284,8 +284,46 @@ class Adopted:
         return bool(self.moved or self.relinked)
 
 
+# Letters NFD does not split into base letter + accent (kpar's permalink rule)
+_LETTERS = {"ß": "ss", "æ": "ae", "œ": "oe", "ø": "o", "đ": "d", "ł": "l", "þ": "th", "ð": "d"}
+
+
+def slug(name: str) -> str:
+    """`name` as lowercase ASCII letters and digits, words joined by single hyphens.
+
+    Accents go (Café → cafe); spaces, dots, underscores and any other symbol
+    separate words. "image" when nothing is left.
+    """
+    import unicodedata
+
+    out: list[str] = []
+    separate = False
+    for ch in unicodedata.normalize("NFD", name):
+        if unicodedata.category(ch) == "Mn":
+            continue  # a combining accent: the base letter stays
+        ch = ch.lower()
+        piece = _LETTERS.get(ch) or (ch if ch.isascii() and ch.isalnum() else None)
+        if piece is None:
+            separate = True
+            continue
+        if separate and out:
+            out.append("-")
+        separate = False
+        out.append(piece)
+    return "".join(out) or "image"
+
+
 def safe_name(name: str) -> str:
-    """A file name that needs no escaping in a link: spaces and odd characters become hyphens."""
+    """A file name that needs no escaping in a link: slug() of the name, lowercase extension."""
+    stem, dot, ext = name.rpartition(".")
+    if not dot or not stem:
+        stem, ext = name, ""
+    ext = re.sub(r"[^a-z0-9]", "", ext.lower())
+    return f"{slug(stem)}.{ext}" if ext else slug(stem)
+
+
+def _legacy_safe_name(name: str) -> str:
+    """safe_name() before 2026-11-26, to find files an earlier run moved."""
     stem, dot, ext = name.rpartition(".")
     if not dot:
         stem, ext = name, ""
@@ -591,6 +629,8 @@ def adopt(
             elif link is None:
                 # Moved by an earlier run: the file kept its (safe) name in this folder
                 twin = folder / safe_name(source.name)
+                if not twin.is_file():
+                    twin = folder / _legacy_safe_name(source.name)
                 if not twin.is_file():
                     result.missing.append(source.name)
                     continue

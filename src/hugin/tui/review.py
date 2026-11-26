@@ -2300,6 +2300,9 @@ class HuginScreen(Screen):
                 names = ", ".join(new.rsplit("/", 1)[-1] for _, new in result.converted)
                 self.notify(f"Converted {len(result.converted)} image(s): {names}; originals in "
                             f"{trash_location()}")
+            if result.renamed:
+                names = ", ".join(new.rsplit("/", 1)[-1] for _, new in result.renamed)
+                self.notify(f"Renamed {len(result.renamed)} image(s) to link-safe names: {names}")
             if result.variants:
                 self.notify(f"Created {result.variants} smaller version(s) for srcset")
             for error in result.errors:

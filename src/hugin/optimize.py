@@ -10,6 +10,10 @@ image move to the new file, and the original goes to Hugin's trash.
 Images already in AVIF, WebP or GIF keep their format and only get the
 width variants they lack. No image is ever made wider than it is.
 
+Every file ends up with a name no link has to escape (images.slug():
+"Foto do Gato.png" -> foto-do-gato.avif); a light image with another
+name is renamed, its existing variants with it.
+
 plan() is quick (it only reads widths); apply() does the encoding.
 """
 
@@ -35,14 +39,22 @@ class Item:
     link: str  # its site path, "/images/cat.png"
     convert: bool  # to the lighter of AVIF/WebP; else only variants in its own format
     widths: list[int]  # variants to create, all narrower than the original
+    rename: bool = False  # a light image whose name is not link-safe
+    sizes: list[int] = field(default_factory=list)  # every configured width: variants that move with a rename
 
 
 @dataclass
 class Result:
     converted: list[tuple[str, str]] = field(default_factory=list)  # (old site path, new site path)
+    renamed: list[tuple[str, str]] = field(default_factory=list)  # light images given a link-safe name
     variants: int = 0
     relinked: list[Path] = field(default_factory=list)  # posts whose links changed
     errors: list[str] = field(default_factory=list)
+
+
+def _site_path(ref: str, base_url: str) -> str | None:
+    """images.site_path() that keeps a raw space ("/images/My Cat.png", as <img src> or <…> may hold)."""
+    return images.site_path(ref.strip().replace(" ", "%20"), base_url)
 
 
 def _static_file(link: str, static_root: Path) -> Path | None:
@@ -62,45 +74,71 @@ def plan(
             text = post.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        _, links, _ = images._parse(text, base_url)
-        for link in links:
+        refs, _, _ = images._parse(text, base_url)
+        for link in dict.fromkeys(p for p in (_site_path(r, base_url) for r in refs) if p):
             source = _static_file(link, static_root)
             if source is None or source in seen:
                 continue
             seen.add(source)
             ext = source.suffix.lower()
             if ext in CONVERT:
-                missing, convert = widths, True
+                missing, convert, rename = widths, True, False
             elif ext in KEEP and not resize.is_variant(source, widths):
                 missing = [w for w in widths if not resize.variant_path(source, w).exists()]
-                convert = False
-                if not missing:
-                    continue
+                convert, rename = False, images.safe_name(source.name) != source.name
             else:
                 continue
-            try:
-                original = resize.image_width(source)
-            except (subprocess.CalledProcessError, ValueError, IndexError):
-                errors.append(f"{link}: not a readable image")
-                continue
-            narrower = [w for w in missing if w < original]
-            if convert or narrower:
-                items.append(Item(source, link, convert, narrower))
+            narrower = []
+            if missing:
+                try:
+                    original = resize.image_width(source)
+                except (subprocess.CalledProcessError, ValueError, IndexError):
+                    errors.append(f"{link}: not a readable image")
+                    continue
+                narrower = [w for w in missing if w < original]
+            if convert or narrower or rename:
+                items.append(Item(source, link, convert, narrower, rename, widths))
     return items, errors
 
 
-def _free_stem(source: Path, widths: list[int]) -> str:
-    """The source's name without extension, or name-2, name-3… when a converted file would clash."""
-    base, n = source.stem, 1
+def _own_files(source: Path, widths: list[int]) -> list[Path]:
+    """The source and the width variants it already has."""
+    return [source, *(v for w in widths if (v := resize.variant_path(source, w)).exists())]
+
+
+def _free_stem(source: Path, widths: list[int], exts: tuple[str, ...]) -> str:
+    """slug() of the source's name, or slug-2, slug-3… when a file it would write is taken.
+
+    The source's own files do not count: on a case-insensitive disk Cat.avif
+    is the file cat.avif would name.
+    """
+    own = _own_files(source, widths)
+    base, n = images.slug(source.stem), 1
     stem = base
+
+    def taken(path: Path) -> bool:
+        return path.exists() and not any(path.samefile(o) for o in own)
+
     while any(
-        (source.parent / f"{name}{ext}").exists()
+        taken(source.parent / f"{name}{ext}")
         for name in [stem, *(f"{stem}-{w}w" for w in widths)]
-        for ext in resize.LIGHT_FORMATS
+        for ext in exts
     ):
         n += 1
         stem = f"{base}-{n}"
     return stem
+
+
+def _rename(source: Path, widths: list[int]) -> Path:
+    """Move a light image and its existing variants to a link-safe name; the new path."""
+    stem = _free_stem(source, widths, (source.suffix.lower(),))
+    target = source.with_name(f"{stem}{source.suffix.lower()}")
+    for width in widths:
+        old = resize.variant_path(source, width)
+        if old.exists():
+            old.rename(resize.variant_path(target, width))
+    source.rename(target)
+    return target
 
 
 def relink(content_dir: Path, old: str, new: str, base_url: str = "") -> list[Path]:
@@ -122,9 +160,9 @@ def relink(content_dir: Path, old: str, new: str, base_url: str = "") -> list[Pa
         refs, _, _ = images._parse(text, base_url)
         new_text = text
         for ref in refs:
-            if images.site_path(ref, base_url) != old:
+            if _site_path(ref, base_url) != old:
                 continue
-            target = ref.split(" ", 1)[0]
+            target = ref.strip()
             replacement = target.rsplit("/", 1)[0] + "/" + new_name
             new_text = re.sub(rf"(?<![\w/.%-]){re.escape(target)}(?![\w/.%-])",
                               lambda _m: replacement, new_text)
@@ -136,7 +174,7 @@ def relink(content_dir: Path, old: str, new: str, base_url: str = "") -> list[Pa
 
 def _convert(item: Item) -> list[Path]:
     """The light files for `item`, the full-size one first; none left behind on failure."""
-    stem = _free_stem(item.source, item.widths)
+    stem = _free_stem(item.source, item.widths, resize.LIGHT_FORMATS)
     folder = item.source.parent
     created: list[Path] = []
     try:
@@ -148,6 +186,12 @@ def _convert(item: Item) -> list[Path]:
             path.unlink(missing_ok=True)
         raise
     return created
+
+
+def _relink(result: Result, content_dir: Path, old: str, new: str, base_url: str) -> None:
+    for post in relink(content_dir, old, new, base_url):
+        if post not in result.relinked:
+            result.relinked.append(post)
 
 
 def apply(
@@ -162,16 +206,20 @@ def apply(
             if item.convert:
                 created = _convert(item)
                 new = item.link.rsplit("/", 1)[0] + "/" + created[0].name
-                for post in relink(content_dir, item.link, new, base_url):
-                    if post not in result.relinked:
-                        result.relinked.append(post)
+                _relink(result, content_dir, item.link, new, base_url)
                 move_to_trash(item.source)
                 result.converted.append((item.link, new))
                 result.variants += len(created) - 1
-            else:
-                for width in item.widths:
-                    resize.resize(item.source, width)
-                    result.variants += 1
+                continue
+            source = item.source
+            if item.rename:
+                source = _rename(source, item.sizes)
+                new = item.link.rsplit("/", 1)[0] + "/" + source.name
+                _relink(result, content_dir, item.link, new, base_url)
+                result.renamed.append((item.link, new))
+            for width in item.widths:
+                resize.resize(source, width)
+                result.variants += 1
         except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
             message = str(e).strip().splitlines()
             result.errors.append(f"{item.link}: {message[0] if message else repr(e)}")

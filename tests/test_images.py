@@ -111,10 +111,17 @@ def test_resolve_finds_inbox_images_in_every_shape_an_editor_writes(tmp_path):
 
 
 def test_safe_name():
-    assert images.safe_name("Screen Shot 2026-11-22 at 19.07.PNG") == "Screen-Shot-2026-11-22-at-19.07.png"
-    assert images.safe_name("Quiet Desk, Neon Media Storm.avif") == "Quiet-Desk-Neon-Media-Storm.avif"
-    assert images.safe_name("café.jpg") == "caf.jpg"
+    assert images.safe_name("Screen Shot 2026-11-22 at 19.07.PNG") == "screen-shot-2026-11-22-at-19-07.png"
+    assert images.safe_name("Quiet Desk, Neon Media Storm.avif") == "quiet-desk-neon-media-storm.avif"
+    assert images.safe_name("Café Naïve Résumé.jpg") == "cafe-naive-resume.jpg"
+    assert images.safe_name("Straße_Œuvre--Æon (2).webp") == "strasse-oeuvre-aeon-2.webp"
     assert images.safe_name("???.jpg") == "image.jpg"
+    assert images.safe_name("noext") == "noext"
+    assert images.safe_name(".hidden") == "hidden"
+
+
+def test_legacy_safe_name_keeps_the_old_rule():
+    assert images._legacy_safe_name("My Cat.png") == "My-Cat.png"
 
 
 # --- adopting ---------------------------------------------------------------------------
@@ -159,15 +166,15 @@ def test_adopt_moves_images_to_the_date_folder_and_rewrites_links(blog):
 
     assert result.moved == [
         ("cover.avif", "/images/2026/11/cover-2.avif"),  # name taken: not overwritten
-        ("Screen Shot 1.png", "/images/2026/11/Screen-Shot-1.png"),
-        ("Screen Shot 1.png", "/images/2026/11/Screen-Shot-1.png"),
+        ("Screen Shot 1.png", "/images/2026/11/screen-shot-1.png"),
+        ("Screen Shot 1.png", "/images/2026/11/screen-shot-1.png"),
     ]
     text = post.read_text()
     assert "thumbnail: /images/2026/11/cover-2.avif" in text
-    assert text.count("![shot](/images/2026/11/Screen-Shot-1.png)") == 1
-    assert "![shot again](/images/2026/11/Screen-Shot-1.png)" in text
+    assert text.count("![shot](/images/2026/11/screen-shot-1.png)") == 1
+    assert "![shot again](/images/2026/11/screen-shot-1.png)" in text
     assert str(blog.inbox) not in text
-    assert (blog.root / "static/images/2026/11/Screen-Shot-1.png").read_bytes() == b"one"
+    assert (blog.root / "static/images/2026/11/screen-shot-1.png").read_bytes() == b"one"
     assert (blog.root / "static/images/2026/11/cover.avif").read_bytes() == b"taken"
     assert list(blog.inbox.iterdir()) == []
 
@@ -278,8 +285,8 @@ def test_adopt_follows_typora_links_relative_to_the_static_folder(blog):
     rel = "/" + "/".join([".."] * 2) + f"/{blog.inbox.name}/Winged%20Bubble.png"  # static -> blog -> tmp
     post = _write_post(blog, "p.md", f"![Winged]({rel})")
     result = images.adopt(post, blog.root, CONVENTION, blog.root / "static", inbox=blog.inbox)
-    assert result.moved == [("Winged Bubble.png", "/images/2026/11/Winged-Bubble.png")]
-    assert "![Winged](/images/2026/11/Winged-Bubble.png)" in post.read_text()
+    assert result.moved == [("Winged Bubble.png", "/images/2026/11/winged-bubble.png")]
+    assert "![Winged](/images/2026/11/winged-bubble.png)" in post.read_text()
 
 
 def test_adopt_turns_file_paths_to_site_images_into_site_paths(blog):

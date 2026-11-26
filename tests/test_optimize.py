@@ -188,3 +188,67 @@ def test_no_widths_converts_full_size_only(site: Path) -> None:
     optimize.apply(items, site / "content")
 
     assert set(light_files(site / "static" / "images", "cat")) == {""}
+
+
+def test_converted_name_needs_no_url_encoding(site: Path) -> None:
+    make_image(site / "static" / "images" / "Café Naïve, Shot 2.png", 900)
+    path = post(site, "cat.md", "![](/images/Caf%C3%A9%20Na%C3%AFve,%20Shot%202.png)",
+                featured='"/images/Café Naïve, Shot 2.png"')
+
+    run(site, [path])
+
+    files = light_files(site / "static" / "images", "cafe-naive-shot-2")
+    assert set(files) == {"", "-480w", "-800w"}
+    text = path.read_text(encoding="utf-8")
+    new = f"/images/{files[''].name}"
+    assert f"![]({new})" in text
+    assert f'thumbnail: "{new}"' in text
+    assert "%" not in text and "Naïve" not in text
+
+
+def test_light_image_with_odd_name_is_renamed_with_its_variants(site: Path) -> None:
+    folder = site / "static" / "images"
+    make_image(folder / "Meu Gato.avif", 1440, kind="xc:orange")
+    make_image(folder / "Meu Gato-480w.avif", 480, kind="xc:orange")
+    path = post(site, "cat.md", "![](/images/Meu%20Gato.avif)")
+    other = post(site, "cat.en.md", '<img src="/images/Meu Gato.avif">')
+
+    result = run(site, [path])
+
+    assert sorted(p.name for p in folder.iterdir()) == ["meu-gato-480w.avif", "meu-gato-800w.avif", "meu-gato.avif"]
+    assert "![](/images/meu-gato.avif)" in path.read_text(encoding="utf-8")
+    assert '<img src="/images/meu-gato.avif">' in other.read_text(encoding="utf-8")
+    assert result.renamed == [("/images/Meu Gato.avif", "/images/meu-gato.avif")]
+    assert result.variants == 1
+
+
+def test_case_only_rename_is_not_a_clash(site: Path) -> None:
+    folder = site / "static" / "images"
+    make_image(folder / "Gato.webp", 300, kind="xc:orange")
+    path = post(site, "cat.md", "![](/images/Gato.webp)")
+
+    run(site, [path])
+
+    assert [p.name for p in folder.iterdir()] == ["gato.webp"]
+    assert "![](/images/gato.webp)" in path.read_text(encoding="utf-8")
+
+
+def test_rename_never_overwrites_another_image(site: Path) -> None:
+    folder = site / "static" / "images"
+    make_image(folder / "meu-gato.avif", 300, kind="xc:blue")
+    make_image(folder / "Meu Gato.avif", 400, kind="xc:orange")
+    path = post(site, "cat.md", "![](/images/Meu%20Gato.avif)")
+
+    run(site, [path])
+
+    assert resize.image_width(folder / "meu-gato.avif") == 300
+    assert resize.image_width(folder / "meu-gato-2.avif") == 400
+    assert "![](/images/meu-gato-2.avif)" in path.read_text(encoding="utf-8")
+
+
+def test_link_safe_light_image_with_all_variants_is_left_alone(site: Path) -> None:
+    folder = site / "static" / "images"
+    make_image(folder / "gato.avif", 300, kind="xc:orange")
+    path = post(site, "cat.md", "![](/images/gato.avif)")
+
+    assert optimize.plan([path], site / "static", WIDTHS) == ([], [])
