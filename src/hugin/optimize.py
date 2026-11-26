@@ -8,7 +8,9 @@ looks for each width as .avif, then .webp. Links in every post that uses the
 image move to the new file, and the original goes to Hugin's trash.
 
 Images already in AVIF, WebP or GIF keep their format and only get the
-width variants they lack. No image is ever made wider than it is.
+width variants they lack. No image is ever made wider than it is, and
+none stays wider than MAX_WIDTH: a wider one is reduced first, before
+anything else is done with it.
 
 Every file ends up with a name no link has to escape (images.slug():
 "Foto do Gato.png" -> foto-do-gato.avif); a light image with another
@@ -31,6 +33,7 @@ from hugin.trash import move_to_trash
 
 CONVERT = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".heic")
 KEEP = (".avif", ".webp", ".gif")
+MAX_WIDTH = 1200  # no image on the blog is wider (kpar's limit)
 
 
 @dataclass
@@ -41,6 +44,7 @@ class Item:
     widths: list[int]  # variants to create, all narrower than the original
     rename: bool = False  # a light image whose name is not link-safe
     sizes: list[int] = field(default_factory=list)  # every configured width: variants that move with a rename
+    shrink: bool = False  # wider than MAX_WIDTH: reduced to it first
 
 
 @dataclass
@@ -48,6 +52,7 @@ class Result:
     converted: list[tuple[str, str]] = field(default_factory=list)  # (old site path, new site path)
     renamed: list[tuple[str, str]] = field(default_factory=list)  # light images given a link-safe name
     variants: int = 0
+    shrunk: int = 0  # images reduced to MAX_WIDTH
     relinked: list[Path] = field(default_factory=list)  # posts whose links changed
     errors: list[str] = field(default_factory=list)
 
@@ -88,16 +93,15 @@ def plan(
                 convert, rename = False, images.safe_name(source.name) != source.name
             else:
                 continue
-            narrower = []
-            if missing:
-                try:
-                    original = resize.image_width(source)
-                except (subprocess.CalledProcessError, ValueError, IndexError):
-                    errors.append(f"{link}: not a readable image")
-                    continue
-                narrower = [w for w in missing if w < original]
-            if convert or narrower or rename:
-                items.append(Item(source, link, convert, narrower, rename, widths))
+            try:
+                original = resize.image_width(source)
+            except (subprocess.CalledProcessError, ValueError, IndexError):
+                errors.append(f"{link}: not a readable image")
+                continue
+            shrink = original > MAX_WIDTH
+            narrower = [w for w in missing if w < min(original, MAX_WIDTH)]
+            if convert or narrower or rename or shrink:
+                items.append(Item(source, link, convert, narrower, rename, widths, shrink))
     return items, errors
 
 
@@ -178,7 +182,8 @@ def _convert(item: Item) -> list[Path]:
     folder = item.source.parent
     created: list[Path] = []
     try:
-        created.append(resize.write_lightest(item.source, None, folder / stem))
+        full = MAX_WIDTH if item.shrink else None  # straight from the original: one encoding, not two
+        created.append(resize.write_lightest(item.source, full, folder / stem))
         for width in item.widths:
             created.append(resize.write_lightest(item.source, width, folder / f"{stem}-{width}w"))
     except BaseException:
@@ -210,8 +215,12 @@ def apply(
                 move_to_trash(item.source)
                 result.converted.append((item.link, new))
                 result.variants += len(created) - 1
+                result.shrunk += item.shrink
                 continue
             source = item.source
+            if item.shrink:
+                resize.shrink_in_place(source, MAX_WIDTH)
+                result.shrunk += 1
             if item.rename:
                 source = _rename(source, item.sizes)
                 new = item.link.rsplit("/", 1)[0] + "/" + source.name

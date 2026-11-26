@@ -148,6 +148,16 @@ def resize(source: Path, width: int) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def shrink_in_place(source: Path, width: int) -> None:
+    """Reduce `source` to `width` pixels wide, same file and format; atomic."""
+    tmp = _part(source)
+    try:
+        _magick(source, source.suffix.lower(), width, tmp)
+        tmp.replace(source)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def write_lightest(source: Path, width: int | None, stem: Path) -> Path:
     """Encode `source` in every LIGHT_FORMATS and keep only the smallest file.
 

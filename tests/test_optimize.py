@@ -57,7 +57,7 @@ def test_png_becomes_lightest_format_in_every_size(site: Path) -> None:
 
     files = light_files(site / "static" / "images", "cat")
     assert set(files) == {"", "-480w", "-800w"}
-    assert resize.image_width(files[""]) == 1440
+    assert resize.image_width(files[""]) == 1200  # MAX_WIDTH: the 1440px PNG was reduced first
     assert resize.image_width(files["-800w"]) == 800
     assert resize.image_width(files["-480w"]) == 480
     assert not (site / "static" / "images" / "cat.png").exists()
@@ -143,7 +143,7 @@ def test_light_images_only_get_missing_variants(site: Path) -> None:
 
 def test_nothing_to_do_plans_nothing(site: Path) -> None:
     make_image(site / "static" / "images" / "tiny.avif", 300)
-    make_image(site / "static" / "images" / "cat.avif", 1440)
+    make_image(site / "static" / "images" / "cat.avif", 1200)
     for w in WIDTHS:
         make_image(site / "static" / "images" / f"cat-{w}w.avif", w)
     path = post(site, "cat.md", "![](/images/tiny.avif) ![](/images/cat.avif) ![](https://other.org/a.png)")
@@ -252,3 +252,50 @@ def test_link_safe_light_image_with_all_variants_is_left_alone(site: Path) -> No
     path = post(site, "cat.md", "![](/images/gato.avif)")
 
     assert optimize.plan([path], site / "static", WIDTHS) == ([], [])
+
+
+def test_wide_light_image_is_reduced_in_place_before_variants(site: Path) -> None:
+    folder = site / "static" / "images"
+    make_image(folder / "cat.avif", 2400)
+    path = post(site, "cat.md", "![](/images/cat.avif)")
+    before = path.read_text(encoding="utf-8")
+
+    result = run(site, [path])
+
+    assert sorted(p.name for p in folder.iterdir()) == ["cat-480w.avif", "cat-800w.avif", "cat.avif"]
+    assert resize.image_width(folder / "cat.avif") == 1200
+    assert path.read_text(encoding="utf-8") == before
+    assert result.shrunk == 1 and result.variants == 2
+
+
+def test_image_at_the_limit_is_not_touched(site: Path) -> None:
+    folder = site / "static" / "images"
+    make_image(folder / "cat.webp", 1200)
+    for w in WIDTHS:
+        make_image(folder / f"cat-{w}w.webp", w)
+
+    assert optimize.plan([post(site, "cat.md", "![](/images/cat.webp)")], site / "static", WIDTHS) == ([], [])
+
+
+def test_wide_animated_gif_keeps_its_frames(site: Path) -> None:
+    folder = site / "static" / "images"
+    subprocess.run(["magick", "-size", "1600x200", "xc:red", "xc:blue", "-set", "delay", "20",
+                    str(folder / "anim.gif")], check=True)
+    path = post(site, "anim.md", "![](/images/anim.gif)")
+
+    run(site, [path])
+
+    frames = subprocess.run(["magick", "identify", "-format", "%w\n", str(folder / "anim.gif")],
+                            capture_output=True, text=True, check=True).stdout.split()
+    assert frames == ["1200", "1200"]
+    assert (folder / "anim-800w.gif").exists()
+
+
+def test_small_png_keeps_its_width(site: Path) -> None:
+    make_image(site / "static" / "images" / "cat.png", 1000)
+    path = post(site, "cat.md", "![](/images/cat.png)")
+
+    result = run(site, [path])
+
+    assert resize.image_width(light_files(site / "static" / "images", "cat")[""]) == 1000
+    assert result.shrunk == 0

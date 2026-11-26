@@ -2296,6 +2296,8 @@ class HuginScreen(Screen):
                 screen.dismiss()
             except (ScreenError, ScreenStackError):
                 pass
+            if result.shrunk:
+                self.notify(f"Reduced {result.shrunk} image(s) to {optimize.MAX_WIDTH}px wide")
             if result.converted:
                 names = ", ".join(new.rsplit("/", 1)[-1] for _, new in result.converted)
                 self.notify(f"Converted {len(result.converted)} image(s): {names}; originals in "
