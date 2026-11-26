@@ -122,6 +122,7 @@ O projeto deixou de usar o beads. Estes eram os itens abertos nele; o texto abai
 - **Estado:** comando separado (`hugin-resize [SITE] [--dry-run] [--jobs N]`), fora do fluxo da TUI. Lê as larguras de `config/_default/params.toml` (`[imageProcessing.content] widths`), cria `nome-<W>w.ext` ao lado de cada imagem de `static/`, no mesmo formato, com `magick`. Não amplia imagens e não toca variantes que já existem. O `g` já as inclui no commit (`git add -A`).
 - **Dry-run no Amo Meu Gato:** 2429 imagens, 4609 variantes a criar, 249 puladas por serem estreitas demais.
 - **Falta:** rodar de verdade e conferir o tamanho final do repositório. O tema supõe que o original tem 1440w no `srcset`; para imagens menores isso fica impreciso.
+- **Imagens novas (2026-11-26):** na volta do Typora (depois de `take()`) e no `g` (posts que vão no commit), o Hugin converte PNG/JPG/TIFF/HEIC dos posts para AVIF ou WebP, o que ficar menor, em cada tamanho: original, 800w e 480w. Troca os links em todos os posts que usam a imagem (traduções incluídas) e manda o original para `~/.hugin/trash`. AVIF/WebP/GIF ganham só as variantes que faltam. Código em `optimize.py`. Falta validar num post real.
 - **Ambiente:** `uv sync` falha porque `requires-python = ">=3.11"` e o `secrets-resolver` exige ≥3.12. Contorno: `uv pip install -e . --no-deps`. Correção provável: subir `requires-python` para `>=3.12`.
 
 ## Projeto separado (a tratar em outra sessão)

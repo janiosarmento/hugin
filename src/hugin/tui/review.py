@@ -48,7 +48,7 @@ from hugin.tui.news_ideas import NewsIdeasScreen
 from hugin.tui.project_settings import ProjectSettingsScreen, save_and_sync
 from hugin.tui.images_screen import ImageConventionScreen
 from hugin.tui.placeholders_screen import PlaceholdersScreen
-from hugin import drafts_only, featured, image_check, images, placeholders
+from hugin import drafts_only, featured, image_check, images, optimize, placeholders, resize
 from hugin.drafts_only import merged_names
 from hugin.hugo import find_site_root
 from hugin.project import ImagesSettings
@@ -105,7 +105,7 @@ from hugin.git import git_sync
 from hugin.hugo import slugify
 from hugin.writer import create_post
 import frontmatter as fm
-from hugin.trash import move_to_trash
+from hugin.trash import move_to_trash, trash_location
 from hugin.redirects import append_redirect
 from rich.markup import escape
 
@@ -489,7 +489,8 @@ class LoadingScreen(ModalScreen):
                 f"{SPINNER_FRAMES[0]}  {self._message}",
                 id="loading-label",
             )
-            yield Static("Esc to cancel", id="loading-hint")
+            if self._on_cancel is not None:
+                yield Static("Esc to cancel", id="loading-hint")
 
     def on_mount(self) -> None:
         self._timer = self.set_interval(0.08, self._tick)
@@ -2138,7 +2139,7 @@ class HuginScreen(Screen):
 
             def after_adopting() -> None:
                 self._take_featured([post.path])  # after adopt(): its link is then a site path
-                reload()
+                self._optimize_images([post.path], reload)
 
             self._adopt_inbox_images([post.path], after_adopting)
 
@@ -2261,6 +2262,59 @@ class HuginScreen(Screen):
                             severity="warning", timeout=10)
             elif taken.changed:
                 self.notify(f"Featured image ({taken.field}): {taken.new or 'none'}")
+
+    def _optimize_images(self, paths: list[Path], then) -> None:
+        """Convert the posts' PNG/JPG images to AVIF/WebP and add width variants, then call `then`.
+
+        The encoding runs in a thread behind a loading overlay; with nothing
+        to do, `then` runs at once.
+        """
+        site_root = find_site_root(self.directory)
+        content = site_root / "content"
+        content = content if content.is_dir() else self.directory
+        try:
+            items, unreadable = optimize.plan(
+                paths, self._static_root(), resize.read_widths(site_root), self._base_url())
+        except OSError as e:
+            log_exception("plan image optimization")
+            self.notify(f"Could not check the images: {e}", severity="error")
+            then()
+            return
+        for problem in unreadable:
+            self.notify(f"Image not optimized: {problem}", severity="warning", timeout=12)
+        if not items:
+            then()
+            return
+        screen = LoadingScreen(f"Optimizing {len(items)} image(s)...")
+        self.app.push_screen(screen)
+
+        def progress(done: int, total: int, name: str) -> None:
+            self.app.call_from_thread(screen.set_message, f"Optimizing image {done + 1}/{total}: {name}")
+
+        def finish(result: "optimize.Result") -> None:
+            try:
+                screen.dismiss()
+            except (ScreenError, ScreenStackError):
+                pass
+            if result.converted:
+                names = ", ".join(new.rsplit("/", 1)[-1] for _, new in result.converted)
+                self.notify(f"Converted {len(result.converted)} image(s): {names}; originals in "
+                            f"{trash_location()}")
+            if result.variants:
+                self.notify(f"Created {result.variants} smaller version(s) for srcset")
+            for error in result.errors:
+                self.notify(f"Image not optimized: {error}", severity="error", timeout=15)
+            then()
+
+        def work() -> None:
+            try:
+                result = optimize.apply(items, content, self._base_url(), progress)
+            except Exception as e:  # never strand the overlay
+                log_exception("optimize images")
+                result = optimize.Result(errors=[str(e)])
+            self.app.call_from_thread(finish, result)
+
+        self.run_worker(work, thread=True, exclusive=False, group="optimize-images")
 
     def _static_root(self) -> Path:
         static = self.site.config.get("staticDir")
@@ -2872,13 +2926,17 @@ class HuginScreen(Screen):
                 self._start_spinner(self.current_index, "Syncing with GitHub...")
                 self._do_git_sync()
 
-        def confirm() -> None:
-            # A featured line left atop a body (Hugin did not see Typora return)
-            self._take_featured(featured.posts_with_marker(content))
+        def ask() -> None:
             changes = pending_changes(self.directory)
             self._warn_image_problems(changes)
             # Moving images reloads nothing on screen: the next action picks up the files
             self.app.push_screen(ConfirmGitSyncScreen(changes), on_confirm)
+
+        def confirm() -> None:
+            # A featured line left atop a body (Hugin did not see Typora return)
+            self._take_featured(featured.posts_with_marker(content))
+            # PNGs edited outside Typora, or a return Hugin missed
+            self._optimize_images(self._changed_posts(), ask)
 
         # Never commit a path on this Mac: Typora's preview root, or links to inbox images
         for path in images.posts_with_typora_keys(content):

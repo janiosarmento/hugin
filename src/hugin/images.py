@@ -8,8 +8,8 @@ open in Typora, Typora's own front matter keys send pasted images straight
 to that folder (add_typora_keys()); adopt() then only tidies up.
 
 Where a blog keeps its images is learned from its own posts (detect()), then
-confirmed by the user and saved in hugin/config.toml (ImagesSettings). Images
-are never converted or resized: the author uploads them ready.
+confirmed by the user and saved in hugin/config.toml (ImagesSettings).
+Converting and resizing them is optimize.py's job.
 """
 
 from __future__ import annotations

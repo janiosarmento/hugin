@@ -10,9 +10,19 @@ from hugin.tui.review import STATE_BROWSING, STATE_LOADING, STATE_REVIEWING, Hug
 
 
 class FakeApp:
+    def __init__(self):
+        self.screens = []
+
     @contextmanager
     def suspend(self):
         yield
+
+    def push_screen(self, screen, callback=None):
+        self.screens.append(screen)
+        screen.dismiss = lambda *a: self.screens.remove(screen)  # no running app to pop it
+
+    def call_from_thread(self, fn, *args):
+        return fn(*args)
 
 
 class FakeScreen:
@@ -23,6 +33,10 @@ class FakeScreen:
     _base_url = HuginScreen._base_url
     _featured_field = HuginScreen._featured_field
     _take_featured = HuginScreen._take_featured
+    _optimize_images = HuginScreen._optimize_images
+
+    def run_worker(self, work, **_):
+        work()
 
     def __init__(self, post_path: Path):
         self._state = STATE_BROWSING
@@ -212,3 +226,49 @@ def test_typora_without_confirmed_image_folder_asks_first(monkeypatch, tmp_path)
 
     pushed[0](None)  # declined: Typora still opens, with the preview root only
     assert "typora-root-url" in ran[0] and "typora-copy-images-to" not in ran[0]
+
+
+def test_png_from_typora_becomes_a_light_image_with_variants(monkeypatch, tmp_path, images_configured):
+    import shutil
+    import subprocess
+
+    if shutil.which("magick") is None:
+        pytest.skip("magick not installed")
+    monkeypatch.setattr("hugin.trash.TRASH_DIR", tmp_path / "trash")
+    site = tmp_path / "site"
+    (site / "config" / "_default").mkdir(parents=True)
+    (site / "config" / "_default" / "hugo.toml").write_text('title = "Café"\n')
+    (site / "config" / "_default" / "params.toml").write_text(
+        "[imageProcessing.content]\n  widths = [480, 800]\n")
+    images_dir = site / "static" / "images" / "2026" / "11"
+    images_dir.mkdir(parents=True)
+    post_path = site / "content" / "posts" / "post.md"
+    post_path.parent.mkdir(parents=True)
+    post_path.write_text("---\ntitle: T\ndate: 2026-11-22\n---\nBody\n")
+    monkeypatch.setenv("HUGIN_EDITOR", "open -W -n -a Typora")
+    real_run = subprocess.run
+
+    def run(cmd, **k):
+        if cmd[0] == "magick":
+            return real_run(cmd, **k)
+        # The author drops a PNG on the featured line and another in the body
+        real_run(["magick", "-size", "1200x600", "plasma:", str(images_dir / "cat.png")], check=True)
+        text = post_path.read_text().replace(review.featured.PLACEHOLDER, "![](/images/2026/11/cat.png)")
+        post_path.write_text(text.replace("Body", "Body\n\n![A cat](/images/2026/11/cat.png)"))
+
+    monkeypatch.setattr(review.subprocess, "run", run)
+    screen = FakeScreen(post_path)
+    screen.all_posts = [type("Post", (), {"metadata": {"thumbnail": "/images/x.avif"}})()]
+
+    screen.action_external_editor()
+
+    text = post_path.read_text()
+    kept = sorted(p.name for p in images_dir.iterdir())
+    full = next(n for n in kept if n.startswith("cat.") and not n.endswith(".png"))
+    assert len(kept) == 3 and not any(n.endswith(".png") for n in kept)
+    assert {n.rsplit(".", 1)[0] for n in kept} == {"cat", "cat-480w", "cat-800w"}
+    assert f"thumbnail: /images/2026/11/{full}" in text
+    assert f"![A cat](/images/2026/11/{full})" in text
+    assert any(m.startswith("Converted 1 image(s)") for m, _ in screen.notices)
+    assert ("Created 2 smaller version(s) for srcset", "information") in screen.notices
+    assert screen.reloaded == [0]
