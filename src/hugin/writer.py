@@ -89,7 +89,7 @@ def content_changed(path: Path, post) -> bool:
     )
 
 
-def save_post(path: Path, post) -> None:
+def save_post(path: Path, post, keep_lastmod: bool = False) -> None:
     """Write a frontmatter Post to disk.
 
     This is the ONLY function that should write post files.
@@ -98,9 +98,10 @@ def save_post(path: Path, post) -> None:
 
     lastmod tells readers and search engines the content changed, so it moves
     only when the body or the title did (or the file is new); new tags, a new
-    description or a flag leave it as it was.
+    description or a flag leave it as it was. `keep_lastmod` leaves it alone
+    in any case: the user set it by hand.
     """
-    if content_changed(path, post):
+    if not keep_lastmod and content_changed(path, post):
         post.metadata["lastmod"] = datetime.now()
     _ensure_datetime_fields(post.metadata)
     post.metadata = _reorder_metadata(dict(post.metadata))

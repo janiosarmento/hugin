@@ -21,6 +21,7 @@ from hugin.tui.form import titled
 from hugin.tui.widgets import TextArea
 
 from hugin.scanner import Post
+from hugin import future_lastmod
 from hugin.tui.date_picker import DatePickerScreen, format_frontmatter_date, parse_frontmatter_date
 from hugin.linker import convert_html_links_to_markdown
 from hugin.writer import save_post
@@ -91,7 +92,7 @@ def _quote_frontmatter_fields(raw: str, fields: tuple[str, ...] = ("title", "des
 # Editable fields, one row per tuple (fields in a row share the line)
 FIELD_ROWS = (
     ("title",),
-    ("date",),
+    ("date", "lastmod"),
     ("draft", "toc", "factcheck"),
     ("slug",),
     ("url",),
@@ -101,8 +102,8 @@ EDITABLE_FIELDS = tuple(name for row in FIELD_ROWS for name in row)
 # Fields edited as a checkbox instead of text
 BOOLEAN_FIELDS = ("draft", "toc", "factcheck")
 # Dates get a picker next to the text field
-DATE_FIELDS = ("date",)
-# Fields managed by other tools: show but don't edit here (lastmod is set on every save, so not shown)
+DATE_FIELDS = ("date", "lastmod")
+# Fields managed by other tools: show but don't edit here
 READONLY_FIELDS = ("tags",)
 
 
@@ -439,6 +440,12 @@ class EditorScreen(Screen[bool]):
             if text and parse_frontmatter_date(text) is None:
                 self.notify(f"{field_name}: use YYYY-MM-DD HH:MM:SS", severity="error", timeout=8)
                 return
+        # Saving moves lastmod to now when the body or title changed, unless it was set here
+        lastmod_text = self._field_inputs["lastmod"].value.strip()
+        lastmod_edited = lastmod_text != _as_text(self._original_meta.get("lastmod")).strip()
+        if lastmod_edited and lastmod_text and future_lastmod.is_future(parse_frontmatter_date(lastmod_text)):
+            self.notify("lastmod: the date is in the future", severity="error", timeout=8)
+            return
 
         # Build new metadata starting from original (preserves order and extra fields)
         new_meta = dict(self._original_meta)
@@ -452,6 +459,8 @@ class EditorScreen(Screen[bool]):
                 continue
 
             value = widget.value.strip()
+            if field_name in DATE_FIELDS and value == _as_text(new_meta.get(field_name)).strip():
+                continue  # unchanged: keep the value as it was written (a bare day stays one)
             if not value:
                 if field_name != "title" and field_name in new_meta:
                     del new_meta[field_name]
@@ -465,7 +474,7 @@ class EditorScreen(Screen[bool]):
         # Build post object and save through centralised writer
 
         fm_post = frontmatter.Post(new_content, **new_meta)
-        save_post(post.path, fm_post)
+        save_post(post.path, fm_post, keep_lastmod=lastmod_edited)
 
         self.notify(f"{post.filename}: saved")
         self.dismiss(True)

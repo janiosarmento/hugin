@@ -63,7 +63,11 @@ def _draft(metadata: dict) -> bool:
     return bool(draft)
 
 
-def _is_future(when: datetime, now: datetime) -> bool:
+def is_future(when: datetime, now: datetime | None = None) -> bool:
+    """Whether `when` is after `now` (default: this instant); a naive `when` is local time."""
+    now = now or datetime.now().astimezone()
+    if now.tzinfo is None:
+        now = now.astimezone()
     if when.tzinfo is None:
         return when > now.replace(tzinfo=None)
     return when > now
@@ -86,7 +90,7 @@ def find(content_dir: Path, now: datetime | None = None) -> list[FuturePost]:
         fields = {str(k).lower(): v for k, v in metadata.items()}
         for key in LASTMOD_KEYS:
             when = _as_datetime(fields.get(key))
-            if when is not None and _is_future(when, now):
+            if when is not None and is_future(when, now):
                 found.append(FuturePost(path, str(metadata.get("title") or ""), when))
                 break
     return found

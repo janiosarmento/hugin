@@ -77,7 +77,7 @@ def test_saving_unchecked_does_not_add_draft_to_a_post_without_it(tmp_path):
     assert "draft" not in frontmatter.load(str(post.path)).metadata
 
 
-def test_toc_shares_the_draft_row_and_lastmod_is_not_shown(tmp_path):
+def test_toc_shares_the_draft_row(tmp_path):
     from textual.containers import Horizontal
 
     post = _post(tmp_path, "draft: true\ntoc: true\n")
@@ -102,7 +102,6 @@ def test_toc_shares_the_draft_row_and_lastmod_is_not_shown(tmp_path):
     assert isinstance(seen["row"], Horizontal) and seen["toc_row"] is seen["row"]
     assert seen["factcheck_row"] is seen["row"]
     assert seen["titles"] == ["draft", "toc", "factcheck"]
-    assert "lastmod" not in seen["fields"]
 
 
 def test_saving_toc_as_a_boolean(tmp_path):
@@ -230,3 +229,93 @@ def test_fields_past_the_panel_height_scroll_into_view(tmp_path):
     asyncio.run(go())
     panel, field = seen["panel"], seen["field"]
     assert field.y >= panel.y and field.bottom <= panel.bottom
+
+
+# --- lastmod ------------------------------------------------------------------------------
+
+
+def _dated_post(tmp_path, lastmod_line="lastmod: 2024-03-04T10:00:00\n"):
+    text = f'---\ntitle: "Cats"\ndate: 2024-01-02T09:00:00\n{lastmod_line}draft: false\n---\n\nBody.\n'
+    (tmp_path / "cats.md").write_text(text, encoding="utf-8")
+    return load_posts(tmp_path, [])[0]
+
+
+def test_lastmod_shares_the_date_row_with_a_picker(tmp_path):
+    from textual.widgets import Button
+
+    post = _dated_post(tmp_path)
+    seen = {}
+
+    def look(screen):
+        seen["date_row"] = screen._field_inputs["date"].parent.parent
+        seen["lastmod_row"] = screen._field_inputs["lastmod"].parent.parent
+        seen["value"] = screen._field_inputs["lastmod"].value
+        seen["picker"] = screen.query_one("#pick-lastmod", Button)
+
+    _run(post, look)
+    assert seen["date_row"] is seen["lastmod_row"]
+    assert seen["value"] == "2024-03-04 10:00:00"
+
+
+def test_a_lastmod_set_by_hand_survives_a_body_change(tmp_path):
+    from datetime import datetime
+
+    post = _dated_post(tmp_path)
+
+    def edit(screen):
+        screen._field_inputs["lastmod"].value = "2024-05-06T07:08:00"
+        screen.query_one("#body-editor").load_text("New body.\n")
+        screen.action_save()
+
+    _run(post, edit)
+    assert frontmatter.load(str(post.path)).metadata["lastmod"] == datetime(2024, 5, 6, 7, 8)
+
+
+def test_an_untouched_lastmod_still_moves_when_the_body_changes(tmp_path):
+    from datetime import datetime
+
+    post = _dated_post(tmp_path)
+
+    def edit(screen):
+        screen.query_one("#body-editor").load_text("New body.\n")
+        screen.action_save()
+
+    _run(post, edit)
+    assert frontmatter.load(str(post.path)).metadata["lastmod"].date() == datetime.now().date()
+
+
+def test_an_untouched_bare_day_stays_a_bare_day(tmp_path):
+    from datetime import date
+
+    post = _dated_post(tmp_path, "lastmod: 2024-03-04\n")
+
+    def flag(screen):
+        screen._field_inputs["toc"].value = True
+        screen.action_save()
+
+    _run(post, flag)
+    assert frontmatter.load(str(post.path)).metadata["lastmod"] == date(2024, 3, 4)
+
+
+def test_a_future_lastmod_blocks_the_save(tmp_path):
+    post = _dated_post(tmp_path)
+    original = post.path.read_text(encoding="utf-8")
+
+    def edit(screen):
+        screen._field_inputs["lastmod"].value = "2099-01-01T00:00:00"
+        screen.action_save()
+
+    _run(post, edit)
+    assert post.path.read_text(encoding="utf-8") == original
+
+
+def test_clearing_lastmod_removes_it_even_with_a_body_change(tmp_path):
+    post = _dated_post(tmp_path)
+
+    def edit(screen):
+        screen._field_inputs["lastmod"].value = ""
+        screen.query_one("#body-editor").load_text("New body.\n")
+        screen.action_save()
+
+    _run(post, edit)
+    assert "lastmod" not in frontmatter.load(str(post.path)).metadata
