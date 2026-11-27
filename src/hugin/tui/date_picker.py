@@ -43,6 +43,7 @@ class DatePickerScreen(ModalScreen[datetime | None]):
 
     The time of the value passed in is kept unless it is changed here, so
     picking a new day does not move a scheduled post's publication time.
+    "Now" dismisses at once with the current date and time.
     Dismisses with the chosen datetime, or None when cancelled.
     """
 
@@ -55,6 +56,7 @@ class DatePickerScreen(ModalScreen[datetime | None]):
         Binding("pageup", "month(-1)", "Month -"),
         Binding("pagedown", "month(1)", "Month +"),
         Binding("enter", "confirm", "Use"),
+        Binding("n", "now", "Now"),
     ]
 
     DEFAULT_CSS = """
@@ -109,9 +111,10 @@ class DatePickerScreen(ModalScreen[datetime | None]):
             yield Static("", id="picker-month")
             yield Static("", id="picker-grid")
             yield titled("Time", Input(self._time.strftime("%H:%M"), id="picker-time-input"))
-            yield Static("←→↑↓ day  PgUp/PgDn month", id="picker-hint")
+            yield Static("←→↑↓ day  PgUp/PgDn month  n now", id="picker-hint")
             with Horizontal(id="picker-buttons"):
                 yield Button("Use", id="btn-use", variant="primary")
+                yield Button("Now", id="btn-now")
                 yield Button("Cancel", id="btn-cancel-pick")
 
     def on_mount(self) -> None:
@@ -148,6 +151,8 @@ class DatePickerScreen(ModalScreen[datetime | None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-use":
             self.action_confirm()
+        elif event.button.id == "btn-now":
+            self.action_now()
         else:
             self.action_cancel()
 
@@ -161,6 +166,9 @@ class DatePickerScreen(ModalScreen[datetime | None]):
             self.notify("Time must be HH:MM, from 00:00 to 23:59.", severity="warning")
             return
         self.dismiss(datetime.combine(self._day, chosen_time))
+
+    def action_now(self) -> None:
+        self.dismiss(datetime.now().replace(microsecond=0))
 
     def action_cancel(self) -> None:
         self.dismiss(None)

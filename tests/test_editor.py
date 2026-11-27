@@ -178,6 +178,37 @@ def test_picker_cancel_returns_none(tmp_path):
     assert result["v"] is None
 
 
+def test_picker_now_returns_the_current_time(tmp_path):
+    from datetime import datetime
+
+    from textual.widgets import Button
+
+    from hugin.tui.date_picker import DatePickerScreen
+
+    results = []
+
+    async def go():
+        app = App()
+        async with app.run_test(size=(120, 50)) as pilot:
+            app.push_screen(DatePickerScreen(datetime(2024, 1, 2, 11, 30)), results.append)
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            picker = DatePickerScreen(datetime(2024, 1, 2, 11, 30))
+            app.push_screen(picker, results.append)
+            await pilot.pause()
+            picker.query_one("#btn-now", Button).press()
+            await pilot.pause()
+
+    before = datetime.now().replace(microsecond=0)
+    asyncio.run(go())
+    after = datetime.now()
+    assert len(results) == 2
+    for value in results:
+        assert before <= value <= after
+        assert value.microsecond == 0
+
+
 def test_picker_opened_from_the_editor_shows_the_current_time_and_fits(tmp_path):
     from textual.widgets import Button, Input
 
