@@ -48,7 +48,7 @@ from hugin.tui.news_ideas import NewsIdeasScreen
 from hugin.tui.project_settings import ProjectSettingsScreen, save_and_sync
 from hugin.tui.images_screen import ImageConventionScreen
 from hugin.tui.placeholders_screen import PlaceholdersScreen
-from hugin import drafts_only, featured, image_check, images, optimize, placeholders, resize
+from hugin import drafts_only, featured, future_lastmod, image_check, images, optimize, placeholders, resize
 from hugin.drafts_only import merged_names
 from hugin.hugo import find_site_root
 from hugin.project import ImagesSettings
@@ -2187,6 +2187,24 @@ class HuginScreen(Screen):
         )
         return True
 
+    def _future_lastmod_block(self, content: Path) -> bool:
+        """Whether a published post has a lastmod in the future; if so, tell the user which, and nothing is synced."""
+        found = future_lastmod.find(content)
+        if not found:
+            return False
+        lines = []
+        for post in found[: self.PLACEHOLDER_TITLES_SHOWN]:
+            name = post.title or post.path.relative_to(content).as_posix()
+            lines.append(f"  {escape(name)} ({post.lastmod:%Y-%m-%d %H:%M})")
+        rest = len(found) - len(lines)
+        closing = f"These and {rest} more block the push." if rest else "These block the push."
+        self.notify(
+            "Sync cancelled: published posts have a last-modified date in the future\n"
+            + "\n".join(lines) + "\n" + closing,
+            severity="error", timeout=30,
+        )
+        return True
+
     # === IMAGES PASTED IN AN EXTERNAL EDITOR ===
 
     def _image_settings(self, pending: int, then) -> None:
@@ -2924,6 +2942,8 @@ class HuginScreen(Screen):
         content = content if content.is_dir() else self.directory
         # Hugo would show a placeholder as text; checked first, so a blocked sync edits nothing
         if self._published_placeholders_block(content):
+            return
+        if self._future_lastmod_block(content):
             return
 
         def on_confirm(confirmed: bool) -> None:
