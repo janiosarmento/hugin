@@ -138,3 +138,24 @@ def test_the_sync_stops_before_any_file_is_edited(tmp_path, monkeypatch):
     review.HuginScreen.action_git_sync(screen)
     assert "in the future" in screen.notices[-1][0]
     assert touched == [] and screen.app.screens == []
+
+
+# --- stamping -----------------------------------------------------------------------------
+
+
+def test_stamp_replaces_only_the_lastmod_line():
+    from hugin.writer import stamp_lastmod
+
+    when = datetime(2026, 11, 27, 10, 0)
+    text = "---\ntitle: 'T'\nlastMod: 2099-01-01\ntags: [a]\n---\nlastmod: in the body\n"
+    assert stamp_lastmod(text, when) == (
+        "---\ntitle: 'T'\nlastMod: 2026-11-27T10:00:00\ntags: [a]\n---\nlastmod: in the body\n")
+
+
+def test_stamp_adds_a_missing_lastmod_and_skips_text_without_front_matter():
+    from hugin.writer import stamp_lastmod
+
+    when = datetime(2026, 11, 27, 10, 0)
+    assert stamp_lastmod("---\ntitle: T\n---\nBody\n", when) == "---\ntitle: T\nlastmod: 2026-11-27T10:00:00\n---\nBody\n"
+    assert stamp_lastmod("Just text\n", when) == "Just text\n"
+    assert stamp_lastmod("---\nunclosed\n", when) == "---\nunclosed\n"

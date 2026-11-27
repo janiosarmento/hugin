@@ -234,88 +234,91 @@ def test_fields_past_the_panel_height_scroll_into_view(tmp_path):
 # --- lastmod ------------------------------------------------------------------------------
 
 
-def _dated_post(tmp_path, lastmod_line="lastmod: 2024-03-04T10:00:00\n"):
-    text = f'---\ntitle: "Cats"\ndate: 2024-01-02T09:00:00\n{lastmod_line}draft: false\n---\n\nBody.\n'
+def _dated_post(tmp_path, lastmod_line="lastmod: 2099-03-04T10:00:00\n"):
+    text = f'---\ntitle: "Cats"\ndate: 2024-01-02\n{lastmod_line}draft: false\n---\n\nBody.\n'
     (tmp_path / "cats.md").write_text(text, encoding="utf-8")
     return load_posts(tmp_path, [])[0]
 
 
-def test_lastmod_shares_the_date_row_with_a_picker(tmp_path):
-    from textual.widgets import Button
+def _is_now(value) -> bool:
+    from datetime import datetime
+
+    return abs((datetime.now() - value).total_seconds()) < 60
+
+
+def test_lastmod_is_shown_read_only_beside_date(tmp_path):
+    from textual.widgets import Static
 
     post = _dated_post(tmp_path)
     seen = {}
 
     def look(screen):
-        seen["date_row"] = screen._field_inputs["date"].parent.parent
-        seen["lastmod_row"] = screen._field_inputs["lastmod"].parent.parent
-        seen["value"] = screen._field_inputs["lastmod"].value
-        seen["picker"] = screen.query_one("#pick-lastmod", Button)
+        shown = screen.query_one("#field-lastmod", Static)
+        seen["same_row"] = shown.parent.parent is screen._field_inputs["date"].parent.parent
+        seen["text"] = str(shown.render())
+        seen["editable"] = "lastmod" in screen._field_inputs
 
     _run(post, look)
-    assert seen["date_row"] is seen["lastmod_row"]
-    assert seen["value"] == "2024-03-04 10:00:00"
+    assert seen["same_row"] and not seen["editable"]
+    assert seen["text"] == "2099-03-04 10:00:00"
 
 
-def test_a_lastmod_set_by_hand_survives_a_body_change(tmp_path):
-    from datetime import datetime
-
+def test_any_edit_sets_lastmod_to_the_clock(tmp_path):
     post = _dated_post(tmp_path)
 
-    def edit(screen):
-        screen._field_inputs["lastmod"].value = "2024-05-06T07:08:00"
-        screen.query_one("#body-editor").load_text("New body.\n")
+    def flag(screen):
+        screen._field_inputs["toc"].value = True  # front matter only
         screen.action_save()
 
-    _run(post, edit)
-    assert frontmatter.load(str(post.path)).metadata["lastmod"] == datetime(2024, 5, 6, 7, 8)
+    _run(post, flag)
+    assert _is_now(frontmatter.load(str(post.path)).metadata["lastmod"])
 
 
-def test_an_untouched_lastmod_still_moves_when_the_body_changes(tmp_path):
+def test_saving_without_an_edit_leaves_lastmod_alone(tmp_path):
     from datetime import datetime
 
-    post = _dated_post(tmp_path)
-
-    def edit(screen):
-        screen.query_one("#body-editor").load_text("New body.\n")
-        screen.action_save()
-
-    _run(post, edit)
-    assert frontmatter.load(str(post.path)).metadata["lastmod"].date() == datetime.now().date()
+    post = _dated_post(tmp_path, "lastmod: 2024-03-04T10:00:00\n")
+    _run(post, lambda screen: screen.action_save())
+    assert frontmatter.load(str(post.path)).metadata["lastmod"] == datetime(2024, 3, 4, 10, 0)
 
 
-def test_an_untouched_bare_day_stays_a_bare_day(tmp_path):
+def test_an_untouched_bare_day_date_stays_a_bare_day(tmp_path):
     from datetime import date
 
-    post = _dated_post(tmp_path, "lastmod: 2024-03-04\n")
+    post = _dated_post(tmp_path)
 
     def flag(screen):
         screen._field_inputs["toc"].value = True
         screen.action_save()
 
     _run(post, flag)
-    assert frontmatter.load(str(post.path)).metadata["lastmod"] == date(2024, 3, 4)
+    assert frontmatter.load(str(post.path)).metadata["date"] == date(2024, 1, 2)
 
 
-def test_a_future_lastmod_blocks_the_save(tmp_path):
+def test_a_raw_edit_sets_lastmod_and_keeps_the_rest_as_typed(tmp_path):
+    post = _dated_post(tmp_path)
+
+    def edit(screen):
+        screen.action_toggle_raw()
+        raw = screen.query_one("#raw-editor")
+        raw.load_text(raw.text.replace("Body.", "New body."))
+        screen.action_save()
+        screen._raw_mode = False  # dismissed: _run's last dirty check must not query the raw editor
+
+    _run(post, edit)
+    text = post.path.read_text(encoding="utf-8")
+    assert 'title: "Cats"\ndate: 2024-01-02\n' in text and "New body." in text
+    assert _is_now(frontmatter.load(str(post.path)).metadata["lastmod"])
+
+
+def test_a_raw_save_without_an_edit_leaves_lastmod_alone(tmp_path):
     post = _dated_post(tmp_path)
     original = post.path.read_text(encoding="utf-8")
 
-    def edit(screen):
-        screen._field_inputs["lastmod"].value = "2099-01-01T00:00:00"
+    def save(screen):
+        screen.action_toggle_raw()
         screen.action_save()
+        screen._raw_mode = False  # dismissed: _run's last dirty check must not query the raw editor
 
-    _run(post, edit)
+    _run(post, save)
     assert post.path.read_text(encoding="utf-8") == original
-
-
-def test_clearing_lastmod_removes_it_even_with_a_body_change(tmp_path):
-    post = _dated_post(tmp_path)
-
-    def edit(screen):
-        screen._field_inputs["lastmod"].value = ""
-        screen.query_one("#body-editor").load_text("New body.\n")
-        screen.action_save()
-
-    _run(post, edit)
-    assert "lastmod" not in frontmatter.load(str(post.path)).metadata

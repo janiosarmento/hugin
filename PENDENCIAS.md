@@ -129,8 +129,8 @@ O projeto deixou de usar o beads. Estes eram os itens abertos nele; o texto abai
 - **Estado:** logo depois da checagem de `[img]`, e antes de editar qualquer arquivo, o `g` procura posts publicados com `lastmod` (ou `modified`, sem diferenciar maiúsculas) posterior ao momento atual. Front matter YAML e TOML. Se achar, cancela a sincronização e mostra até 5 posts, com a data de cada um. Código em `src/hugin/future_lastmod.py`.
 - **Regras de comparação:** data com fuso é comparada como instante; data sem fuso é tratada como hora local; um dia sem hora (`2026-11-27`) vale meia-noite, então hoje nunca conta como futuro. Rascunhos podem ter qualquer data.
 - **Fora do escopo:** `date`/`publishDate` no futuro não bloqueiam, porque é assim que o Hugo agenda posts.
-- **Editor (`e`):** `lastmod` aparece na linha do `date`, com seletor. Um valor mudado à mão é mantido no save, e um valor no futuro é recusado.
-- **Em aberto:** a origem do `lastmod` no futuro encontrado em 2026-11-27. O Hugin só grava `datetime.now()`, então a data veio do modo Raw, do editor externo, do PagesCMS ou de uma edição direta. Falta procurar o commit no histórico do blog.
+- **Edição pelo Hugin grava o relógio:** qualquer edição salva no editor interno (`e`, estruturado ou Raw) ou no externo (`E`) põe `lastmod` na hora do computador, mesmo que só o front matter tenha mudado. Salvar ou fechar sem mudar nada não mexe no campo. No Raw e no externo, só a linha do `lastmod` muda (`writer.stamp_lastmod`), e o resto fica como foi escrito.
+- **Editor (`e`):** `lastmod` aparece só para leitura, na linha do `date`.
 
 ## Projeto separado (a tratar em outra sessão)
 

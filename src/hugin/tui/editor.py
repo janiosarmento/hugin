@@ -21,10 +21,9 @@ from hugin.tui.form import titled
 from hugin.tui.widgets import TextArea
 
 from hugin.scanner import Post
-from hugin import future_lastmod
 from hugin.tui.date_picker import DatePickerScreen, format_frontmatter_date, parse_frontmatter_date
 from hugin.linker import convert_html_links_to_markdown
-from hugin.writer import save_post
+from hugin.writer import save_post, stamp_lastmod
 from hugin.writer import save_raw
 
 
@@ -102,7 +101,9 @@ EDITABLE_FIELDS = tuple(name for row in FIELD_ROWS for name in row)
 # Fields edited as a checkbox instead of text
 BOOLEAN_FIELDS = ("draft", "toc", "factcheck")
 # Dates get a picker next to the text field
-DATE_FIELDS = ("date", "lastmod")
+DATE_FIELDS = ("date",)
+# Shown in their row but not editable: saving an edit sets lastmod to the clock
+INLINE_READONLY_FIELDS = ("lastmod",)
 # Fields managed by other tools: show but don't edit here
 READONLY_FIELDS = ("tags",)
 
@@ -275,6 +276,12 @@ class EditorScreen(Screen[bool]):
                 for row in FIELD_ROWS:
                     with Horizontal(classes="field-row"):
                         for field_name in row:
+                            if field_name in INLINE_READONLY_FIELDS:
+                                yield titled(field_name, Static(
+                                    _as_text(meta.get(field_name)), id=f"field-{field_name}",
+                                    classes="field-readonly", markup=False,
+                                ))
+                                continue
                             if field_name in BOOLEAN_FIELDS:
                                 widget = Checkbox(
                                     field_name, value=_as_bool(meta.get(field_name)),
@@ -430,6 +437,8 @@ class EditorScreen(Screen[bool]):
             except (yaml.YAMLError, ValueError) as exc:
                 self.notify(f"Can't save — invalid YAML: {exc}", severity="error", timeout=8)
                 return
+            if raw_text != self._original_raw:  # an edit, not just the quoting fix
+                fixed = stamp_lastmod(fixed)
             save_raw(post.path, fixed)
             self.notify(f"{post.filename}: saved (raw)")
             self.dismiss(True)
@@ -440,12 +449,6 @@ class EditorScreen(Screen[bool]):
             if text and parse_frontmatter_date(text) is None:
                 self.notify(f"{field_name}: use YYYY-MM-DD HH:MM:SS", severity="error", timeout=8)
                 return
-        # Saving moves lastmod to now when the body or title changed, unless it was set here
-        lastmod_text = self._field_inputs["lastmod"].value.strip()
-        lastmod_edited = lastmod_text != _as_text(self._original_meta.get("lastmod")).strip()
-        if lastmod_edited and lastmod_text and future_lastmod.is_future(parse_frontmatter_date(lastmod_text)):
-            self.notify("lastmod: the date is in the future", severity="error", timeout=8)
-            return
 
         # Build new metadata starting from original (preserves order and extra fields)
         new_meta = dict(self._original_meta)
@@ -474,7 +477,7 @@ class EditorScreen(Screen[bool]):
         # Build post object and save through centralised writer
 
         fm_post = frontmatter.Post(new_content, **new_meta)
-        save_post(post.path, fm_post, keep_lastmod=lastmod_edited)
+        save_post(post.path, fm_post, edited=self._is_dirty())
 
         self.notify(f"{post.filename}: saved")
         self.dismiss(True)

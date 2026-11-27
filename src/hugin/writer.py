@@ -89,7 +89,7 @@ def content_changed(path: Path, post) -> bool:
     )
 
 
-def save_post(path: Path, post, keep_lastmod: bool = False) -> None:
+def save_post(path: Path, post, edited: bool = False) -> None:
     """Write a frontmatter Post to disk.
 
     This is the ONLY function that should write post files.
@@ -98,15 +98,50 @@ def save_post(path: Path, post, keep_lastmod: bool = False) -> None:
 
     lastmod tells readers and search engines the content changed, so it moves
     only when the body or the title did (or the file is new); new tags, a new
-    description or a flag leave it as it was. `keep_lastmod` leaves it alone
-    in any case: the user set it by hand.
+    description or a flag leave it as it was. `edited` (the user changed the
+    post in an editor) moves it in any case.
     """
-    if not keep_lastmod and content_changed(path, post):
+    if edited or content_changed(path, post):
         post.metadata["lastmod"] = datetime.now()
     _ensure_datetime_fields(post.metadata)
     post.metadata = _reorder_metadata(dict(post.metadata))
 
     atomic_write_text(path, frontmatter.dumps(post, sort_keys=False) + "\n")
+
+
+_LASTMOD_LINE = re.compile(r"^lastmod[ \t]*:.*$", re.I | re.M)
+
+
+def stamp_lastmod(text: str, when: datetime | None = None) -> str:
+    """`text` with its YAML front matter's lastmod set to `when` (default: now).
+
+    Only that line changes (or one is added before the closing `---`), so
+    the rest of what the user wrote keeps its formatting. Text without YAML
+    front matter is returned unchanged.
+    """
+    lines = text.split("\n")
+    if not lines or lines[0].rstrip() != "---":
+        return text
+    end = next((i for i in range(1, len(lines)) if lines[i].rstrip() == "---"), None)
+    if end is None:
+        return text
+    value = (when or datetime.now()).isoformat(timespec="seconds")
+    for i in range(1, end):
+        match = _LASTMOD_LINE.match(lines[i])
+        if match:
+            key = lines[i].split(":", 1)[0].rstrip()
+            lines[i] = f"{key}: {value}"
+            return "\n".join(lines)
+    lines.insert(end, f"lastmod: {value}")
+    return "\n".join(lines)
+
+
+def stamp_lastmod_file(path: Path, when: datetime | None = None) -> None:
+    """Set the lastmod of the post at `path` to `when` (default: now), in place."""
+    text = path.read_text(encoding="utf-8")
+    stamped = stamp_lastmod(text, when)
+    if stamped != text:
+        atomic_write_text(path, stamped)
 
 
 def save_raw(path: Path, text: str) -> None:

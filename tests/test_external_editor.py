@@ -1,5 +1,6 @@
 """Shift+E opens the current post in $EDITOR and reloads it afterwards."""
 
+import re
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -177,7 +178,8 @@ def test_typora_shows_the_featured_image_atop_the_body(monkeypatch, tmp_path, im
 
     screen.action_external_editor()
 
-    assert post_path.read_text() == original.replace("/images/old.avif", "/images/new.avif")
+    text = re.sub(r"lastmod: \S+\n", "", post_path.read_text())  # the edit stamps it
+    assert text == original.replace("/images/old.avif", "/images/new.avif")
     assert ("Featured image (thumbnail): /images/new.avif", "information") in screen.notices
     assert screen.reloaded == [0]
 
@@ -272,3 +274,37 @@ def test_png_from_typora_becomes_a_light_image_with_variants(monkeypatch, tmp_pa
     assert any(m.startswith("Converted 1 image(s)") for m, _ in screen.notices)
     assert ("Created 2 smaller version(s) for srcset", "information") in screen.notices
     assert screen.reloaded == [0]
+
+
+# --- lastmod ------------------------------------------------------------------------------
+
+
+def test_an_edit_sets_lastmod_to_the_clock(monkeypatch, tmp_path):
+    from datetime import datetime
+
+    import frontmatter
+
+    post_path = tmp_path / "post.md"
+    post_path.write_text("---\ntitle: T\nlastmod: 2099-01-01T00:00:00 # typo\ndate: 2026-11-22\n---\nBody\n")
+    monkeypatch.setenv("EDITOR", "hx")
+    monkeypatch.setattr(review.subprocess, "run",
+                        lambda cmd, **k: post_path.write_text(post_path.read_text().replace("Body", "New body")))
+
+    FakeScreen(post_path).action_external_editor()
+
+    lines = post_path.read_text().splitlines()
+    assert lines[1] == "title: T" and lines[3] == "date: 2026-11-22"  # the rest is left as written
+    stamped = frontmatter.load(str(post_path)).metadata["lastmod"]
+    assert abs((datetime.now() - stamped).total_seconds()) < 60
+
+
+def test_closing_without_an_edit_leaves_lastmod_alone(monkeypatch, tmp_path):
+    post_path = tmp_path / "post.md"
+    original = "---\ntitle: T\nlastmod: 2024-01-01T00:00:00\n---\nBody\n"
+    post_path.write_text(original)
+    monkeypatch.setenv("EDITOR", "hx")
+    monkeypatch.setattr(review.subprocess, "run", lambda cmd, **k: None)
+
+    FakeScreen(post_path).action_external_editor()
+
+    assert post_path.read_text() == original

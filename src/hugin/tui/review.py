@@ -88,7 +88,7 @@ from hugin import prompts
 from hugin.project import load_project
 from hugin.log import log_exception, log_info
 from hugin.state import mark_processed, save_state, get_last_post, set_last_post
-from hugin.writer import write_keywords_block, write_summary, write_tags
+from hugin.writer import stamp_lastmod_file, write_keywords_block, write_summary, write_tags
 from hugin.migrations import parse_profile
 from rich.text import Text
 from rich.table import Table
@@ -125,6 +125,13 @@ SORT_MODES = {
 
 def _same_url(a: str, b: str) -> bool:
     return a.strip().rstrip("/") == b.strip().rstrip("/")
+
+
+def _read_or_none(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
 
 
 def _day(value) -> str:
@@ -2129,12 +2136,19 @@ class HuginScreen(Screen):
                 field = self._featured_field(settings) if added else None
                 if field:
                     featured.show(post.path, field)
+            before = _read_or_none(post.path)
             try:
                 with self.app.suspend():
                     subprocess.run([*shlex.split(editor), str(post.path)])
+                edited = _read_or_none(post.path) != before
             finally:
                 if added:
                     images.strip_typora_keys(post.path)
+            if edited:
+                try:
+                    stamp_lastmod_file(post.path)  # an edit made through Hugin dates from now
+                except OSError:
+                    log_exception("stamp lastmod")
             images.tidy_post(post.path)  # Typora indents the images it inserts
 
             def after_adopting() -> None:
