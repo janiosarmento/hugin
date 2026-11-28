@@ -226,3 +226,91 @@ def test_take_featured_reports(tmp_path, edit, notices, monkeypatch):
     screen._take_featured([post, plain])
     assert screen.notices == notices
     assert plain.read_text() == POST
+
+
+# --- an image dropped in a paragraph of its own beside the request ---------------------
+
+_BARE = "---\ntitle: Cats\n---\nIntro paragraph.\n\nMore.\n"
+
+
+def _returned(tmp_path, featured_lines: str) -> Path:
+    post = _post(tmp_path, _BARE)
+    featured.show(post, "image")
+    post.write_text(post.read_text().replace(featured.PLACEHOLDER, featured_lines))
+    return post
+
+
+@pytest.mark.parametrize("lines", [
+    f"![](/images/cat.png)\n\n{featured.PLACEHOLDER}",
+    f"{featured.PLACEHOLDER}\n\n![](/images/cat.png)",
+    f'{featured.PLACEHOLDER}\n\n<img src="/images/cat.png" style="zoom:50%;" />',
+])
+def test_an_image_in_its_own_paragraph_beside_the_request_is_the_featured_one(tmp_path, lines):
+    post = _returned(tmp_path, lines)
+    taken = featured.take(post)
+    assert taken.found and taken.new == "/images/cat.png"
+    assert post.read_text() == "---\ntitle: Cats\nimage: /images/cat.png\n---\nIntro paragraph.\n\nMore.\n"
+
+
+def test_an_image_paragraph_after_a_kept_featured_image_stays_in_the_body(tmp_path):
+    post = _post(tmp_path)
+    featured.show(post, "thumbnail")
+    post.write_text(post.read_text().replace("Intro paragraph.", "![](/images/body.png)"))
+    taken = featured.take(post)
+    assert taken.new == "/images/old.avif"
+    assert "![](/images/body.png)\n\nMore." in post.read_text()
+
+
+def test_recover_clears_a_request_left_below_an_image_already_read(tmp_path):
+    text = f"---\ntitle: Cats\nimage: /images/cat.png\n---\n{featured.PLACEHOLDER}\n\n![](/images/body.png)\n\nIntro.\n"
+    post = _post(tmp_path, text)
+    assert featured.posts_with_placeholder(tmp_path) == [post]
+    taken = featured.recover(post, "image")
+    assert not taken.changed
+    assert post.read_text() == "---\ntitle: Cats\nimage: /images/cat.png\n---\n![](/images/body.png)\n\nIntro.\n"
+    assert featured.posts_with_placeholder(tmp_path) == []
+
+
+def test_recover_drops_a_lone_request_and_keeps_the_field(tmp_path):
+    post = _post(tmp_path, f"---\ntitle: Cats\nimage: /images/a.png\n---\n{featured.PLACEHOLDER}\n\nIntro.\n")
+    taken = featured.recover(post, "image")
+    assert not taken.changed
+    assert post.read_text() == "---\ntitle: Cats\nimage: /images/a.png\n---\nIntro.\n"
+
+
+def test_recover_removes_a_request_further_down_and_leaves_a_leading_image(tmp_path):
+    text = f"---\ntitle: Cats\n---\n![](/images/a.png)\n\nIntro.\n\n{featured.PLACEHOLDER}\n\nMore.\n"
+    post = _post(tmp_path, text)
+    taken = featured.recover(post, "image")
+    assert not taken.found and taken.new == ""
+    assert post.read_text() == "---\ntitle: Cats\n---\n![](/images/a.png)\n\nIntro.\n\nMore.\n"
+
+
+def test_recover_leaves_a_post_still_open_in_typora_alone(tmp_path):
+    post = _post(tmp_path, _BARE)
+    featured.show(post, "image")
+    before = post.read_text()
+    assert featured.recover(post, "image") is None
+    assert post.read_text() == before
+
+
+def test_recovering_leftovers_is_silent(tmp_path):
+    atop = tmp_path / "atop.md"
+    atop.write_text(f"---\ntitle: A\nimage: /images/cat.png\n---\n{featured.PLACEHOLDER}\n\nIntro.\n")
+    below = tmp_path / "below.md"
+    below.write_text(f"---\ntitle: B\n---\nIntro.\n\nMore.\n\n{featured.PLACEHOLDER}\n")
+    screen = FakeScreen()
+    screen._take_featured(featured.posts_with_placeholder(tmp_path), lambda p: featured.recover(p, "image"))
+    assert screen.notices == []
+    assert featured.posts_with_placeholder(tmp_path) == []
+    assert atop.read_text() == "---\ntitle: A\nimage: /images/cat.png\n---\nIntro.\n"
+    assert below.read_text() == "---\ntitle: B\n---\nIntro.\n\nMore.\n"
+
+
+def test_an_image_the_body_started_with_stays_below_an_untouched_request(tmp_path):
+    text = "---\ntitle: Cats\n---\n![a](/images/a.png)\n\nIntro.\n"
+    post = _post(tmp_path, text)
+    featured.show(post, "image")
+    taken = featured.take(post)
+    assert taken.new == ""
+    assert post.read_text() == text

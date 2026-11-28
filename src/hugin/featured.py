@@ -16,6 +16,7 @@ blog's posts use (detect_field()), else the one the theme's templates read
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections import Counter
@@ -28,11 +29,11 @@ from hugin.images import IMAGE_EXTENSIONS, _yaml_front_matter
 # Front matter fields themes commonly read the featured image from
 COVER_FIELDS = ("thumbnail", "image", "cover", "featured_image", "featureImage")
 
-MARKER_KEY = "hugin-featured-image"  # value: the front matter field
+MARKER_KEY = "hugin-featured-image"  # value: the front matter field, then the body's own image
 ALT = "Featured image"
 PLACEHOLDER = "Featured image: drop one on this line"
 
-_MARKER_LINE = re.compile(rf"^{MARKER_KEY}\s*:\s*(\S+)[ \t]*\n?", re.MULTILINE)
+_MARKER_LINE = re.compile(rf"^{MARKER_KEY}\s*:\s*(\S+)(?:[ \t]+(\w+))?[ \t]*\n?", re.MULTILINE)
 # A whole image, Markdown or HTML (Typora writes <img> for a resized one)
 _IMAGE = re.compile(
     r"!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^)\s]+))[^)]*\)"
@@ -56,6 +57,47 @@ def _split_featured_line(paragraph: str) -> tuple[str, str]:
     if m and paragraph[m.end():].strip() and (_OWN_IMAGE.search(m.group()) or PLACEHOLDER in m.group()):
         return paragraph[:m.end()], paragraph[m.end():].lstrip()
     return paragraph, ""
+
+
+def _paragraph(text: str) -> str:
+    end = text.find("\n\n")
+    return text if end == -1 else text[:end]
+
+
+def _only_images(line: str) -> bool:
+    return not _IMAGE.sub("", line).replace(PLACEHOLDER, "").strip()
+
+
+def _fingerprint(paragraph: str) -> str:
+    return hashlib.sha1(paragraph.strip().encode()).hexdigest()[:12]
+
+
+def _featured_block(rest: str, own: str = "") -> tuple[str, str, str]:
+    """(span of `rest` the featured line takes, the line, text joined to it).
+
+    Typora puts an image dropped just above or below the request for one in a
+    paragraph of its own; that paragraph and the request's are then one line.
+    Below it, an image paragraph whose _fingerprint() is `own` was the body's
+    first one already, so it stays.
+    """
+    first = _paragraph(rest)
+    line, joined = _split_featured_line(first)
+    if joined or not _only_images(line):
+        return first, line, joined
+    gap = rest[len(first):]
+    after = gap.lstrip("\n")
+    if not after or len(gap) - len(after) < 2:
+        return first, line, joined
+    second = _paragraph(after)
+    line2, joined2 = _split_featured_line(second)
+    has_image, has_image2 = bool(_IMAGE.search(line)), bool(_IMAGE.search(line2))
+    dropped_below = (line.strip() == PLACEHOLDER and has_image2 and PLACEHOLDER not in line2
+                     and _fingerprint(second) != own)
+    dropped_above = has_image and PLACEHOLDER not in line and PLACEHOLDER in line2
+    if not _only_images(line2) or not (dropped_below or dropped_above):
+        return first, line, joined
+    span = rest[: len(rest) - len(after) + len(second)]
+    return span, line + "\n" + line2, joined2
 
 
 def detect_field(posts) -> str | None:
@@ -144,7 +186,11 @@ def show(post_path: Path, key: str) -> bool:
     value = _field_value(text[block[0]:block[1]], key)
     line = f"![{ALT}]({value})" if value else PLACEHOLDER
     start = _body_start(text, block)
-    new = (text[:block[0]] + f"{MARKER_KEY}: {key}\n" + text[block[0]:start]
+    marker = f"{MARKER_KEY}: {key}"
+    first = _paragraph(text[start:].lstrip("\n"))
+    if not value and _IMAGE.search(first) and _only_images(first):  # take() must tell it from a dropped one
+        marker += f" {_fingerprint(first)}"
+    new = (text[:block[0]] + f"{marker}\n" + text[block[0]:start]
            + f"{line}\n\n" + text[start:])
     atomic_write_text(post_path, new)
     return True
@@ -195,7 +241,7 @@ def take(post_path: Path) -> Taken | None:
     marker = _MARKER_LINE.search(text, *block) if block else None
     if marker is None:
         return None
-    key = marker.group(1)
+    key, own = marker.group(1), marker.group(2) or ""
     text = text[:marker.start()] + text[marker.end():]
     block = _yaml_front_matter(text)
     front = text[block[0]:block[1]]
@@ -205,9 +251,7 @@ def take(post_path: Path) -> Taken | None:
 
     lead = len(body) - len(body.lstrip("\n"))
     rest = body[lead:]
-    end = rest.find("\n\n")
-    paragraph = rest if end == -1 else rest[:end]
-    line, joined = _split_featured_line(paragraph)
+    paragraph, line, joined = _featured_block(rest, own)
     links = [next(g for g in m.groups() if g).strip() for m in _IMAGE.finditer(line)]
     leftover = _IMAGE.sub("", line).replace(PLACEHOLDER, "").replace(f"![{ALT}]()", "")
     result = Taken(key, old, old, found=not leftover.strip())
@@ -241,3 +285,40 @@ def posts_with_marker(content_dir: Path) -> list[Path]:
         if MARKER_KEY in text and block and _MARKER_LINE.search(text, *block):
             found.append(path)
     return found
+
+
+def posts_with_placeholder(content_dir: Path) -> list[Path]:
+    """Markdown files under `content_dir` whose body still holds the request for an image."""
+    found = []
+    for path in sorted(content_dir.rglob("*.md")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if PLACEHOLDER in text:
+            found.append(path)
+    return found
+
+
+_PLACEHOLDER_LINE = re.compile(rf"^[ \t]*{re.escape(PLACEHOLDER)}[ \t]*\n(?:[ \t]*\n)?", re.MULTILINE)
+
+
+def recover(post_path: Path, key: str) -> Taken | None:
+    """Remove a request for an image left in a body whose marker is gone; None when there is none.
+
+    Older versions of take() read an image dropped in its own paragraph above
+    the request and left the request behind: it is all that is left to clear.
+    """
+    try:
+        text = post_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    block = _yaml_front_matter(text)
+    if block is None or PLACEHOLDER not in text[block[1]:] or _MARKER_LINE.search(text, *block):
+        return None
+    start = _body_start(text, block)
+    body = _PLACEHOLDER_LINE.sub("", text[start:]).replace(PLACEHOLDER, "")
+    body = body.rstrip("\n") + "\n" if body.strip() else ""
+    atomic_write_text(post_path, text[:start] + body)
+    old = _field_value(text[block[0]:block[1]], key)
+    return Taken(key, old, old, found=False)

@@ -2282,11 +2282,11 @@ class HuginScreen(Screen):
         configured = settings.featured if settings is not None else ""
         return featured.resolve(configured, self.all_posts, find_site_root(self.directory))
 
-    def _take_featured(self, paths: list[Path]) -> None:
+    def _take_featured(self, paths: list[Path], read=featured.take) -> None:
         """Set the featured image of each post from the line show() put atop its body."""
         for path in paths:
             try:
-                taken = featured.take(path)
+                taken = read(path)
             except OSError as e:
                 log_exception("featured image")
                 self.notify(f"Could not read the featured image of {path.name}: {e}", severity="error")
@@ -2297,8 +2297,9 @@ class HuginScreen(Screen):
                 self.notify(f"Featured image not set: {taken.unsafe} is not in the blog, "
                             "so it stays in the body", severity="warning", timeout=12)
             elif not taken.found:
-                self.notify("Featured image unchanged: the post no longer starts with it",
-                            severity="warning", timeout=10)
+                if read is featured.take:
+                    self.notify("Featured image unchanged: the post no longer starts with it",
+                                severity="warning", timeout=10)
             elif taken.changed:
                 self.notify(f"Featured image ({taken.field}): {taken.new or 'none'}")
 
@@ -2981,6 +2982,11 @@ class HuginScreen(Screen):
         def confirm() -> None:
             # A featured line left atop a body (Hugin did not see Typora return)
             self._take_featured(featured.posts_with_marker(content))
+            # A request for an image Typora brought back after the marker was gone
+            leftovers = featured.posts_with_placeholder(content)
+            if leftovers:
+                field = featured.field_for(self.directory, self.all_posts)
+                self._take_featured(leftovers, lambda path: featured.recover(path, field))
             # PNGs edited outside Typora, or a return Hugin missed
             self._optimize_images(self._changed_posts(), ask)
 
