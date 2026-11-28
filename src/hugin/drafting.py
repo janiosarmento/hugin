@@ -13,6 +13,7 @@ import httpx
 
 from hugin import placeholders, prompts
 from hugin.authors import post_authors
+from hugin.featured import COVER_FIELDS
 from hugin.log import log_exception
 from hugin.scanner import Post
 from dataclasses import replace
@@ -89,7 +90,6 @@ def original_query(original: Post) -> str:
 
 
 # Frontmatter fields Hugo themes use for a post's cover image
-COVER_FIELDS = ("thumbnail", "image", "cover", "featured_image", "featureImage")
 
 
 def inherited_fields(original: Post) -> dict:

@@ -9,8 +9,9 @@ key makes this work even when the return was missed (git sync runs take()
 on any post that still has it).
 
 Which front matter field holds the featured image (`thumbnail`, `image`…)
-is learned from the blog's posts (detect_field()), unless hugin/config.toml
-names it in [images] featured.
+is resolve()d: hugin/config.toml [images] featured, else the field the
+blog's posts use (detect_field()), else the one the theme's templates read
+(theme_field(), for a blog whose posts have none yet), else `thumbnail`.
 """
 
 from __future__ import annotations
@@ -23,6 +24,9 @@ from pathlib import Path
 
 from hugin.fsutil import atomic_write_text
 from hugin.images import IMAGE_EXTENSIONS, _yaml_front_matter
+
+# Front matter fields themes commonly read the featured image from
+COVER_FIELDS = ("thumbnail", "image", "cover", "featured_image", "featureImage")
 
 MARKER_KEY = "hugin-featured-image"  # value: the front matter field
 ALT = "Featured image"
@@ -63,11 +67,42 @@ def detect_field(posts) -> str | None:
     return counts.most_common(1)[0][0] if counts else None
 
 
+_THEME_PARAM = re.compile(r"\.Params\.(\w+)")
+
+
+def theme_field(site_root: Path) -> str | None:
+    """The cover field the site's templates read most (`.Params.image`…), or None.
+
+    Looks in the site's own layouts/ and in each themes/*/layouts/.
+    """
+    names = {name.lower(): name for name in COVER_FIELDS}  # Hugo params ignore case
+    counts: Counter[str] = Counter()
+    folders = [site_root / "layouts", *sorted(site_root.glob("themes/*/layouts"))]
+    for folder in folders:
+        if not folder.is_dir():
+            continue
+        for path in folder.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            counts.update(names[m.lower()] for m in _THEME_PARAM.findall(text) if m.lower() in names)
+    return counts.most_common(1)[0][0] if counts else None
+
+
+def resolve(configured: str, posts, site_root: Path) -> str:
+    """The featured image field: the configured one, the posts' own, the theme's, else thumbnail."""
+    return configured or detect_field(posts) or theme_field(site_root) or "thumbnail"
+
+
 def field_for(directory: Path, posts) -> str:
-    """The blog's featured image field: [images] featured, else the posts' own, else thumbnail."""
+    """The blog's featured image field, with the settings in hugin/config.toml (see resolve())."""
+    from hugin.hugo import find_site_root
     from hugin.project import load_project
 
-    return load_project(directory).images.featured or detect_field(posts) or "thumbnail"
+    return resolve(load_project(directory).images.featured, posts, find_site_root(directory))
 
 
 def _body_start(text: str, block: tuple[int, int]) -> int:

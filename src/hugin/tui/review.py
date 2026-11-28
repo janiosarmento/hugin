@@ -2137,13 +2137,17 @@ class HuginScreen(Screen):
                 if field:
                     featured.show(post.path, field)
             before = _read_or_none(post.path)
+            ran = False
             try:
                 with self.app.suspend():
                     subprocess.run([*shlex.split(editor), str(post.path)])
+                ran = True
                 edited = _read_or_none(post.path) != before
             finally:
                 if added:
                     images.strip_typora_keys(post.path)
+                if not ran:
+                    featured.take(post.path)  # the editor never opened: undo show()
             if edited:
                 try:
                     stamp_lastmod_file(post.path)  # an edit made through Hugin dates from now
@@ -2269,11 +2273,10 @@ class HuginScreen(Screen):
 
         self._image_settings(len(pending), move)
 
-    def _featured_field(self, settings: "ImagesSettings | None") -> str | None:
-        """The front matter field of the featured image: the configured one, else the posts' own."""
-        if settings is not None and settings.featured:
-            return settings.featured
-        return featured.detect_field(self.all_posts)
+    def _featured_field(self, settings: "ImagesSettings | None") -> str:
+        """The front matter field of the featured image (see featured.resolve())."""
+        configured = settings.featured if settings is not None else ""
+        return featured.resolve(configured, self.all_posts, find_site_root(self.directory))
 
     def _take_featured(self, paths: list[Path]) -> None:
         """Set the featured image of each post from the line show() put atop its body."""

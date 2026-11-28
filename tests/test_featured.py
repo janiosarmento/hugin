@@ -152,8 +152,9 @@ class FakeScreen:
     _featured_field = HuginScreen._featured_field
     _take_featured = HuginScreen._take_featured
 
-    def __init__(self, posts=()):
+    def __init__(self, posts=(), directory=Path(".")):
         self.all_posts = list(posts)
+        self.directory = directory
         self.notices = []
 
     def notify(self, message, **kw):
@@ -164,6 +165,44 @@ def test_field_comes_from_the_settings_else_the_posts():
     screen = FakeScreen([SimpleNamespace(metadata={"image": "/a.png"})])
     assert screen._featured_field(None) == "image"
     assert screen._featured_field(ImagesSettings(featured="cover")) == "cover"
+
+
+def _site_with_layout(root: Path, template: str, where: str = "layouts/_partials/card.html") -> Path:
+    (root / "hugo.toml").write_text('title = "T"\n', encoding="utf-8")
+    (root / "content" / "posts").mkdir(parents=True)
+    path = root / where
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(template, encoding="utf-8")
+    return root / "content" / "posts"
+
+
+def test_theme_field_reads_the_templates(tmp_path):
+    _site_with_layout(tmp_path, "{{ with .Params.image }}{{ . }}{{ end }} {{ .Params.title }}")
+    assert featured.theme_field(tmp_path) == "image"
+
+
+def test_theme_field_looks_in_themes_and_ignores_case(tmp_path):
+    _site_with_layout(tmp_path, "{{ .Params.Cover }}", "themes/paper/layouts/single.html")
+    assert featured.theme_field(tmp_path) == "cover"
+
+
+def test_theme_field_none_without_a_cover_param(tmp_path):
+    _site_with_layout(tmp_path, "{{ .Params.subtitle }}")
+    assert featured.theme_field(tmp_path) is None
+    assert featured.theme_field(tmp_path / "nowhere") is None
+
+
+def test_field_falls_back_to_the_theme_when_posts_have_none(tmp_path):
+    posts_dir = _site_with_layout(tmp_path, "{{ with $page.Params.image }}{{ end }}")
+    plain = [SimpleNamespace(metadata={"title": "T"})]
+    assert FakeScreen(plain, posts_dir)._featured_field(None) == "image"
+    assert featured.field_for(posts_dir, plain) == "image"
+    # The posts' own field still wins over the theme's
+    assert featured.field_for(posts_dir, [SimpleNamespace(metadata={"cover": "/a.png"})]) == "cover"
+
+
+def test_field_is_thumbnail_without_settings_posts_or_theme(tmp_path):
+    assert FakeScreen([], tmp_path)._featured_field(None) == "thumbnail"
 
 
 @pytest.mark.parametrize("edit, notices", [
