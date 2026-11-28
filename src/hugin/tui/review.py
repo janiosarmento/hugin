@@ -140,6 +140,12 @@ def _day(value) -> str:
     return dt.strftime("%Y-%m-%d") if dt else ""
 
 
+
+def _context_markup(before: str, anchor: str, after: str) -> str:
+    """A link's surrounding text with the anchor highlighted; the post's text is
+    data, not markup (a draft's [img]…[/img] prompt would break the parser)."""
+    return f"[dim]{escape(before)}[/dim][bold reverse]{escape(anchor)}[/bold reverse][dim]{escape(after)}[/dim]"
+
 class PostTable(DataTable):
     """Post list that treats a click during search as one gesture.
 
@@ -1207,7 +1213,7 @@ class HuginScreen(Screen):
         if post.tags:
             container.mount(Label("Existing:", classes="section-label"))
             for tag in post.tags:
-                cb = Checkbox(tag, value=True)
+                cb = Checkbox(escape(tag), value=True)
                 self._existing_checkboxes.append(cb)
                 container.mount(cb)
 
@@ -1217,7 +1223,7 @@ class HuginScreen(Screen):
             for tag in tags:
                 is_new = tag.lower() not in existing_lower
                 label = f"✨ {tag}" if is_new else tag
-                cb = Checkbox(label, value=True)
+                cb = Checkbox(escape(label), value=True)
                 self._suggested_checkboxes.append(cb)
                 container.mount(cb)
 
@@ -1348,7 +1354,7 @@ class HuginScreen(Screen):
         if current_desc:
             container.mount(Label("[dim]Current:[/dim]", classes="section-label"))
             container.mount(Static(""))
-            container.mount(Static(f"[dim]{current_desc} ({len(str(current_desc))} chars)[/dim]"))
+            container.mount(Static(f"[dim]{escape(str(current_desc))} ({len(str(current_desc))} chars)[/dim]"))
 
         ta = TextArea(summary, id="summary-editor")
         ta.styles.height = "auto"
@@ -1843,15 +1849,14 @@ class HuginScreen(Screen):
             anchor = item["anchor_text"]
             url = item["target_url"]
             before, after = self._extract_context(post.content, anchor)
-            cb = Checkbox(anchor, value=False)
+            cb = Checkbox(escape(anchor), value=False)
             self._outgoing_checkboxes.append(cb)
             container.mount(cb)
-            context_text = f"[dim]{before}[/dim][bold reverse]{anchor}[/bold reverse][dim]{after}[/dim]"
-            container.mount(Static(context_text, classes="outgoing-context"))
+            container.mount(Static(_context_markup(before, anchor, after), classes="outgoing-context"))
             title = url_to_title.get(url, "") or url_to_title.get(url.rstrip("/") + "/", "")
-            dest = f"→ {url}"
+            dest = f"→ {escape(url)}"
             if title:
-                dest += f"\n  [dim]{title}[/dim]"
+                dest += f"\n  [dim]{escape(title)}[/dim]"
             container.mount(Static(dest, classes="outgoing-url"))
 
         self.query_one("#btn-apply", Button).label = "Insert links"
@@ -1932,12 +1937,11 @@ class HuginScreen(Screen):
             anchor = link["anchor_text"]
             url = link["url"]
             before, after = self._extract_context(post.content, f"[{anchor}]({url})")
-            cb = Checkbox(anchor, value=False)
+            cb = Checkbox(escape(anchor), value=False)
             self._outgoing_checkboxes.append(cb)
             container.mount(cb)
-            context_text = f"[dim]{before}[/dim][bold reverse]{anchor}[/bold reverse][dim]{after}[/dim]"
-            container.mount(Static(context_text, classes="outgoing-context"))
-            container.mount(Static(f"→ {url}", classes="outgoing-url"))
+            container.mount(Static(_context_markup(before, anchor, after), classes="outgoing-context"))
+            container.mount(Static(f"→ {escape(url)}", classes="outgoing-url"))
 
         btn = self.query_one("#btn-apply", Button)
         btn.label = "Remove links"
@@ -2080,7 +2084,7 @@ class HuginScreen(Screen):
 
         self._suggested_topics = novel
         for title in novel:
-            container.mount(Static(f"  • {title}"))
+            container.mount(Static(f"  • {escape(title)}"))
 
         container.mount(Button("Copy to clipboard", id="btn-copy-suggestions"))
         self.notify(f"{len(novel)} new topic ideas")
